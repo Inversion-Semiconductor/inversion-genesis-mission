@@ -1,0 +1,39 @@
+repos:
+  # plasma_simulations/Simulation_FBPIC/inversion_fbpic/lib stub generation for inheriting docstrings (Cursor pyright << pylance :/ )
+  - repo: local
+    hooks:
+      - id: sync-config-docstrings
+        name: sync config docstring stubs
+        entry: python plasma_simulations/Simulation_FBPIC/scripts/sync_config_docstrings.py
+        language: system
+        files: ^plasma_simulations/Simulation_FBPIC/(inversion_fbpic/lib/(_doc_management/.*|_density_implementations/.*\.py|(serializable_config|density_core|density_profiles|density_modifiers|laser|simulation)\.py)|scripts/sync_config_docstrings\.py)$
+        pass_filenames: false
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.11
+    hooks:
+      - id: ruff
+        exclude: '\.pyi$'
+        additional_dependencies: []
+  - repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+      - id: black
+        exclude: '\.pyi$'
+  # - repo: https://github.com/mwouts/jupytext
+  #   rev: v1.18.1
+  #   hooks:
+  #     - id: jupytext
+  #       args: [--sync, --pre-commit]
+  #       files: '(^|/)notebooks/.*\.(ipynb|py)$'
+  #       pass_filenames: false
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v20.1.5
+    hooks:
+      - id: clang-format
+        files: '\.(c|cc|cpp|cxx|h|hpp)$'
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
+        # Only archived notebooks are tracked; strip outputs on those only.
+        files: '(^|.*/)archived_notebooks/.*\.ipynb$'
