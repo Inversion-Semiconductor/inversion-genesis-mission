@@ -1,0 +1,152 @@
+from inversion_fbpic.lib import density_profiles as dn, laser as ls, simulation as sm
+from mpi4py import MPI
+import numpy as np
+from scipy.constants import c
+import matplotlib.pyplot as plt
+import os
+from pathlib import Path
+from inversion_fbpic.utils.simulation_setup_tools import (
+    calculate_acceleration_gradient,
+    calculate_plasma_wavelength,
+)
+from inversion_fbpic.utils.plotting import plot_from_hdf5_series
+from inversion_fbpic.utils.make_movie import make_movie
+from inversion_fbpic.utils import analysis
+
+
+MPI_SIZE = MPI.COMM_WORLD.Get_size()
+MPI_RANK = MPI.COMM_WORLD.Get_rank()
+
+if MPI_SIZE <= 1:
+    USE_MPI = False
+else:
+    USE_MPI = True
+
+if __name__ == "__main__":
+    DIAGS_DIR = "diags"
+    PLOTS_DIR = Path("plots")
+    # define parameters
+    TARGET_ENERGY = 430e6  # eV
+    LASER_ENERGY = 4.5  # J
+    WAVELENGTH = 800e-9  # m
+    LASER_WAIST = 30e-6  # m
+    TAU_FWHM = 40e-15  # s
+    FLATTOP_PLASMA_DENSITY = 1.0e18 * 1e6  # m^-3
+    DOWNRAMP_LENGTH = 50e-6  # m
+
+    WINDOW_SIZE = max(
+        3.0 * calculate_plasma_wavelength(FLATTOP_PLASMA_DENSITY), 6 * TAU_FWHM * c
+    )  # m
+    LASER_CENTROID = -2 * TAU_FWHM * c  # m
+
+    laser = ls.GaussianLaserPulse(
+        energy=LASER_ENERGY,
+        wavelength=WAVELENGTH,
+        waist=LASER_WAIST,
+        tau_fwhm=TAU_FWHM,
+        z0=LASER_CENTROID,
+        cep=0.0,
+        focal_position=3.0e-3,
+        polarization=0.0,
+    )
+
+    if laser.a0 is not None:
+        accel_gradient = calculate_acceleration_gradient(
+            laser.a0, FLATTOP_PLASMA_DENSITY
+        )
+    else:
+        raise ValueError(
+            "Laser a0 was not evaluated. Please check the laser parameters."
+        )
+
+    flattop_length = TARGET_ENERGY / accel_gradient
+    print(f"Flattop length: {flattop_length * 1e6} um")
+
+    flattop_profile = dn.SmoothSineFlattop(
+        nominal_density=FLATTOP_PLASMA_DENSITY,
+        p_nz=2,
+        p_nr=2,
+        p_nt=4,
+        elec_name="electrons_flattop",
+        elec_select={"uz": [10.0, None]},
+        flattop_width=flattop_length,
+        upramp_length=100e-6,
+        downramp_length=100e-6,
+    )
+
+    downramp_profile = dn.SmoothSineFlattop(
+        nominal_density=FLATTOP_PLASMA_DENSITY * 0.3,
+        p_nz=2,
+        p_nr=2,
+        p_nt=4,
+        elec_name="electrons_downramp",
+        elec_select={"uz": [10.0, None]},
+        upramp_length=100e-6,
+        flattop_width=1000e-6,
+        downramp_length=DOWNRAMP_LENGTH,
+        offset_length=0.2e-3,
+    )
+
+    hyparams = sm.SimulationHyperparameters(
+        zmin=-WINDOW_SIZE,
+        zmax=0.0,
+        rmax=120e-6,
+        nz=1024,
+        nr=300,
+        nm=3,
+        use_mpi=USE_MPI,
+        number_dumps=100,
+        gamma_boost=2,
+        field_diagnostics=["E", "B", "rho"],
+    )
+
+    # save yamls
+    if not USE_MPI or MPI_RANK == 0:
+        os.makedirs("cfgs", exist_ok=True)
+        hyparams.to_yaml_file("cfgs/hyparams.yaml")
+        hyparams.grid_parameters_yaml("cfgs/grid_parameters.yaml")
+        laser.to_yaml_file("cfgs/laser.yaml")
+        flattop_profile.to_yaml_file("cfgs/flattop_profile.yaml")
+        downramp_profile.to_yaml_file("cfgs/downramp_profile.yaml")
+
+    # plot density profiles
+    if not USE_MPI or MPI_RANK == 0:
+        os.makedirs(PLOTS_DIR, exist_ok=True)
+        fig, ax = plt.subplots()
+        flattop_profile.plot_z_profile(ax=ax, label="Flattop", num=600)
+        downramp_profile.plot_z_profile(ax=ax, label="Downramp", num=600)
+        ax.legend()
+        ax.grid()
+        ax.set_xlabel("z (m)")
+        ax.set_ylabel("Density (m^-3)")
+        ax.set_title("Density Profiles")
+        plt.savefig("plots/density_profiles.png")
+
+    sim = sm.Simulation(elements=[hyparams, laser, flattop_profile, downramp_profile])
+
+    sim.setup_simulation(working_directory=Path(__file__).parent)
+    sim.run_simulation()
+
+    # analysis
+    if not USE_MPI or MPI_RANK == 0:
+        # plot some movies
+        for field in ["rho", "eme"]:
+            stills_dir, prefix = plot_from_hdf5_series(
+                Path(DIAGS_DIR) / "hdf5",
+                PLOTS_DIR / "stills",
+                field_name=field if field == "rho" else None,
+                component=field if field == "eme" else None,
+                vminmax=(0, 1e18) if field == "rho" else None,
+                cmap="magma",
+            )
+            movie = make_movie(stills_dir, prefix, filename=field, movie_dir=PLOTS_DIR)
+
+        # do a beam analysis
+        bd1 = analysis.load_beam_data(Path(DIAGS_DIR) / "hdf5", "electrons_flattop")
+        bd2 = analysis.load_beam_data(Path(DIAGS_DIR) / "hdf5", "electrons_downramp")
+        bds = list(bd1[:7])
+        for i, (e1, e2) in enumerate(zip(bd1[:7], bd2[:7])):
+            bds[i] = np.concatenate((e1, e2), axis=0)
+        ba = analysis.analyze_beam(*bds, bd1[7])
+        analysis.print_beam_summary(ba, PLOTS_DIR / "beam_summary.txt")
+        analysis.plot_beam_analysis(*bds, ba, save_path=PLOTS_DIR / "beam_analysis.png")
