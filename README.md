@@ -26,8 +26,6 @@ pre-commit install
 
 Python baseline: 3.12.x (min 3.11, tests also run on 3.13)
 
-**For a more comprehensive setup guide, see `SETUP.md`**
-
 ## Development workflow
 
 | Step                        | Command / action                                            |
