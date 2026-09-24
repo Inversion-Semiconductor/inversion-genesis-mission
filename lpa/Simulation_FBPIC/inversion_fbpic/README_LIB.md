@@ -138,7 +138,7 @@ The type tags and serialized parameter names are part of the persisted run inter
 
 `_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets (WIP) and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.
 
-`_doc_management/` parses the `attrs` configuration hierarchy without importing it, merges inherited docstrings and `Args:` entries, and generates `.pyi` stubs with explicit keyword-only constructors. Pylance can therefore display inherited required parameters and documentation alongside subclass fields. Run `scripts/sync_config_docstrings.py --check` to detect stub/documentation drift.
+`_doc_management/` parses the `attrs` configuration hierarchy without importing it, merges inherited docstrings and `Args:` entries, and generates `.pyi` stubs with explicit keyword-only constructors. Pylance can therefore display inherited required parameters and documentation alongside subclass fields. Run `tools/sync_config_docstrings.py --check` to detect stub/documentation drift.
 
 ## Testing
 
