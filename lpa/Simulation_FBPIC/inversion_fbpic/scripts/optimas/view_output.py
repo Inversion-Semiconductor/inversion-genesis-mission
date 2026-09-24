@@ -42,6 +42,9 @@ Usage:
         --parameter-1 INT
             Parameter index used with --plot-parameter.
 
+        --scatter
+            Plot objective function against analyzed charge, labeling every trial.
+
     Examples:
         # Use all defaults (auto-detects exploration folder or log file)
         python view_output.py
@@ -60,6 +63,9 @@ Usage:
 
         # Enable parameter correlation plot
         python view_output.py --plot-parameter --parameter-1 3
+
+        # Plot objective function against charge
+        python view_output.py --scatter
 
     For Gaussian process model analysis (contours, slices, model evaluation), use
     ``gaussian-process-evaluation`` instead.
@@ -81,15 +87,18 @@ import numpy as np
 
 def parse_log_file(
     log_path: Path,
-) -> Tuple[List[int], List[float], Dict[int, Dict[str, float]]]:
-    """Parse an optimization.log file to extract trial indices, objective values, and parameters.
+) -> Tuple[
+    List[int], List[float], Dict[int, Dict[str, float]], Dict[int, Dict[str, float]]
+]:
+    """Parse an optimization.log file to extract trial indices and results.
 
     Args:
         log_path: Path to the optimization.log file
 
     Returns:
-        Tuple of (trial_indices, objective_values, parameters_dict)
-        where parameters_dict maps trial_idx to a {param_name: value} dict.
+        Tuple of (trial_indices, objective_values, varying_param_data,
+        analyzed_param_data), where each parameter mapping associates a trial
+        index with a {param_name: value} dict.
 
     Notes:
         This regular expression is valid for Optimas version 0.8.1.  Future versions may not
@@ -102,9 +111,18 @@ def parse_log_file(
         r"\(np\.float64\(([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\)"
     )
     param_pattern = r"Generated trial (\d+) with parameters \{(.+?)\}(?:\s|$)"
+    analyzed_param_pattern = (
+        r"Completed trial (\d+) with objective\(s\).*?"
+        r"analyzed parameter\(s\) \{(.+?)\}(?:\s|$)"
+    )
+    value_pattern = (
+        r"'([^']+)':\s*(?:\()?np\.float64\("
+        r"([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\)"
+    )
 
     trial_data: Dict[int, float] = {}
     param_data: Dict[int, Dict[str, float]] = {}
+    analyzed_param_data: Dict[int, Dict[str, float]] = {}
 
     with open(log_path, "r") as f:
         for line in f:
@@ -119,14 +137,19 @@ def parse_log_file(
                 trial_idx = int(match.group(1))
                 params_str = match.group(2)
                 params: Dict[str, float] = {}
-                param_entries = re.findall(
-                    r"'([^']+)':\s*np\.float64\("
-                    r"([-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\)",
-                    params_str,
-                )
+                param_entries = re.findall(value_pattern, params_str)
                 for param_name, param_value in param_entries:
                     params[param_name] = float(param_value)
                 param_data[trial_idx] = params
+
+            match = re.search(analyzed_param_pattern, line)
+            if match:
+                trial_idx = int(match.group(1))
+                analyzed_params = {
+                    name: float(value)
+                    for name, value in re.findall(value_pattern, match.group(2))
+                }
+                analyzed_param_data[trial_idx] = analyzed_params
 
     if not trial_data:
         raise ValueError("No completed trials found in log file")
@@ -138,14 +161,18 @@ def parse_log_file(
     print(f"Found {len(trial_indices)} completed trials")
     if param_data:
         print(f"Found parameters for {len(param_data)} trials")
+    if analyzed_param_data:
+        print(f"Found analyzed parameters for {len(analyzed_param_data)} trials")
 
-    return trial_indices, objective_values, param_data
+    return trial_indices, objective_values, param_data, analyzed_param_data
 
 
 def load_trial_data(
     args: argparse.Namespace,
-) -> Tuple[List[int], List[float], Dict[int, Dict[str, float]]]:
-    """Resolve the --source flag and return (trial_indices, objective_values, param_data).
+) -> Tuple[
+    List[int], List[float], Dict[int, Dict[str, float]], Dict[int, Dict[str, float]]
+]:
+    """Resolve the --source flag and return trial indices, objectives, and parameters.
 
     Raises FileNotFoundError / ValueError on problems.
     """
@@ -181,7 +208,9 @@ def load_trial_data(
 
 def _load_from_exploration(
     opt_dir: Path,
-) -> Tuple[List[int], List[float], Dict[int, Dict[str, float]]]:
+) -> Tuple[
+    List[int], List[float], Dict[int, Dict[str, float]], Dict[int, Dict[str, float]]
+]:
     """Load trial data via ExplorationDiagnostics and convert to the common format."""
     from optimas.diagnostics import ExplorationDiagnostics
 
@@ -194,13 +223,18 @@ def _load_from_exploration(
     objective_values = objective_values_arr.tolist()
 
     param_data: Dict[int, Dict[str, float]] = {}
+    analyzed_param_data: Dict[int, Dict[str, float]] = {}
     for idx in trial_indices:
         params = {}
         for p in diags.varying_parameters:
             params[p.name] = float(history[p.name].values[idx])
         param_data[idx] = params
+        analyzed_param_data[idx] = {
+            p.name: float(history[p.name].values[idx])
+            for p in diags.analyzed_parameters
+        }
 
-    return trial_indices, objective_values, param_data
+    return trial_indices, objective_values, param_data, analyzed_param_data
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +310,12 @@ def parse_args() -> argparse.Namespace:
         help="Parameter index used with --plot-parameter",
     )
 
+    parser.add_argument(
+        "--scatter",
+        action="store_true",
+        help="Plot objective function against analyzed charge",
+    )
+
     return parser.parse_args()
 
 
@@ -300,7 +340,9 @@ def process(args: argparse.Namespace) -> None:
     Args:
         args: Parsed command-line arguments. See module docstring for argument details.
     """
-    trial_indices, objective_values, param_data = load_trial_data(args)
+    trial_indices, objective_values, param_data, analyzed_param_data = load_trial_data(
+        args
+    )
 
     if args.list_parameters:
         names = _get_sorted_param_names(param_data)
@@ -331,7 +373,8 @@ def process(args: argparse.Namespace) -> None:
             trial_indices,
             objective_values,
             param_data,
-            diags=diags,
+            analyzed_param_data,
+            diags,
         )
 
     if args.plot_parameter:
@@ -342,16 +385,68 @@ def process(args: argparse.Namespace) -> None:
             trial_indices, objective_values, param_data, args.parameter_1
         )
 
+    if args.scatter:
+        _plot_charge_scatter(trial_indices, objective_values, analyzed_param_data)
+
 
 # ---------------------------------------------------------------------------
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
 
+def _plot_charge_scatter(
+    trial_indices: List[int],
+    objective_values: List[float],
+    analyzed_param_data: Dict[int, Dict[str, float]],
+) -> None:
+    """Plot the objective function against analyzed charge for each trial."""
+    charges: List[float] = []
+    objectives: List[float] = []
+    valid_trials: List[int] = []
+
+    for trial_idx, objective_value in zip(trial_indices, objective_values):
+        charge = analyzed_param_data.get(trial_idx, {}).get("charge")
+        if (
+            charge is None
+            or not np.isfinite(charge)
+            or not np.isfinite(objective_value)
+        ):
+            continue
+        charges.append(charge)
+        objectives.append(objective_value)
+        valid_trials.append(trial_idx)
+
+    if not charges:
+        print(
+            "Error: no finite charge and objective values available for scatter plot."
+        )
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(charges, objectives, alpha=0.7, s=45, edgecolors="k", linewidth=0.4)
+
+    for trial_idx, charge, objective_value in zip(valid_trials, charges, objectives):
+        ax.annotate(
+            str(trial_idx),
+            xy=(charge, objective_value),
+            xytext=(4, 4),
+            textcoords="offset points",
+            fontsize=7,
+        )
+
+    ax.set_xlabel("Charge (pC)", fontsize=12)
+    ax.set_ylabel("Objective Function (f)", fontsize=12)
+    ax.set_title("Objective Function vs Charge", fontsize=14, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
 def _plot_objective_evolution(
     trial_indices: List[int],
     objective_values: List[float],
     param_data: Dict[int, Dict[str, float]],
+    analyzed_param_data: Dict[int, Dict[str, float]],
     diags: Optional[Any] = None,
 ) -> None:
     """Plot the evolution of the objective function over time.
@@ -479,6 +574,10 @@ def _plot_objective_evolution(
     if best_trial in param_data:
         print(f"\nParameters for best trial {best_trial}:")
         for pname, pval in sorted(param_data[best_trial].items()):
+            print(f"  {pname}: {pval:.6e}")
+    if best_trial in analyzed_param_data:
+        print(f"\nAnalyzed parameters for best trial {best_trial}:")
+        for pname, pval in sorted(analyzed_param_data[best_trial].items()):
             print(f"  {pname}: {pval:.6e}")
     print(f"{'=' * 60}\n")
 
