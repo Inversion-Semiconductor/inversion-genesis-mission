@@ -1,5 +1,5 @@
 repos:
-  # plasma_simulations/Simulation_FBPIC/inversion_fbpic/lib stub generation for inheriting docstrings (Cursor pyright << pylance :/ )
+  # lpa/Simulation_FBPIC/inversion_fbpic/lib stub generation for inheriting docstrings (Cursor pyright << pylance :/ )
   - repo: local
     hooks:
       - id: sync-config-docstrings
