@@ -19,7 +19,7 @@ Activate an environment containing `inversion_fbpic`, FBPIC, Optimas, MPI,
 and the analysis dependencies. Run from this directory:
 
 ```bash
-cd plasma_simulations/Simulation_FBPIC/demos/demo_optimas
+cd lpa/Simulation_FBPIC/demos/demo_optimas
 python run_optimas.py
 ```
 
