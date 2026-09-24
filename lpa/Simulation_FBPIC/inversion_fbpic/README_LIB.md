@@ -106,7 +106,6 @@ The [demos](../demos) directory contains runnable examples. Start with the core 
 - [Laser pulses](../demos/demo_lasers): generates and plots Gaussian-laser YAML configurations for supported polarization variants.
 - [Downramp simulation](../demos/demo_downramp_simulation/README.md): script-assembled hydrogen flattop/downramp LPA simulation, with recorded configuration, diagnostics, and density movie output.
 - [Ionization simulation](../demos/demo_ionization_simulation/README.md): helium plasma with nitrogen doping, showing species-specific macroparticle settings and ionization injection.
-- [Optimas exploration](../demos/demo_optimas/README.md): Bayesian optimization of the downramp LPA, using a parameterized simulation template and per-trial diagnostics analysis.
 
 ## Skipping Runs if Complete
 
