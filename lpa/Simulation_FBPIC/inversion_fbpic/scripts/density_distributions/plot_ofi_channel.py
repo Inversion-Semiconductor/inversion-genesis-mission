@@ -335,25 +335,28 @@ def main(case: Optional[str] = None):
 
     elif resolved == "optimasdr":
         # Varying Parameters
-        laser_focal_position: float = 2.580651474114706 * 1e-3  # Nominal 3.5 mm
+        laser_focal_position: float = -2.9891409128570254 * 1e-3  # Nominal 3.5 mm
         relative_injection_height: float = (
-            34.70012576891764 / 100
+            34.91403834163108 / 100
         )  # Max 10.5% jet envelope
         total_dope_fraction: float = (
-            7.054943649709093 / 100
+            7.5 / 100
         )  # 0.3-7.5% of bulk scale (doped_fraction cap)
-        base_injection_hwhm: float = 4.0 * 1e-3  # Nominal 1.9 mm
-        jet_offset: float = 8.0 * 1e-3  # Nominal 3 mm
-        bulk_flattop_end_extend: float = 22.0 * 1e-3  # Nominal about 20 mm
+        base_injection_hwhm: float = 2.4548718197864434 * 1e-3  # Nominal 1.9 mm
+        jet_offset: float = 5.267394540361514 * 1e-3  # Nominal 3 mm
+        bulk_flattop_end_extend: float = 9.743464055014385 * 1e-3  # Nominal about 20 mm
 
         # Non-varying input parameters
+        flattop_correction: float = (
+            0  # Removing to speedup optimas and we want downramp assistance
+        )
         nominal_plasma_density: float = 0.3 * 1e18  # Maximum: 3e17 cm^-3
-        bulk_flattop_start_position: float = 4.125e-3
         downramp_hwhm: float = 3e-3
         base_jet_position: float = 11.0e-3
         jet_position: float = base_jet_position + jet_offset
 
         # Plasma Density Parameters
+        bulk_flattop_start_position = 4.125e-3
         plateau_height: float = 0.7
         # N2 fraction within the jet envelope, derived from total N2 budget and jet strength
         dope_percentage: float = min(

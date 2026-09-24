@@ -48,6 +48,7 @@ setup(
             "fbpic-calc-nr=inversion_fbpic.scripts.calculations.fbpic_calc_nr:main",
             # Laser analysis scripts
             "analyze-laser-evolution=inversion_fbpic.scripts.laser.analyze_laser_evolution:main",
+            "lasy-propagation=inversion_fbpic.scripts.laser.lasy_propagation:main",
         ],
     },
 )
