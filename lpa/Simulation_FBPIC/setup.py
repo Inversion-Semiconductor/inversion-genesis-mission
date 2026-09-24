@@ -14,7 +14,6 @@ setup(
         "h5py",
         "opencv-python",
         "lasy",
-        "optimas[all]",
         "periodictable",
     ],
     extras_require={
