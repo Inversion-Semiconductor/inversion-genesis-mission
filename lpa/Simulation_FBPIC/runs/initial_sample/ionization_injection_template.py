@@ -264,7 +264,8 @@ class IonizationInjectionSimulation:
         )
         if hyperparameters["save_checkpoints"]:
             set_periodic_checkpoint(sim, hyperparameters["checkpoint_period"])
-        self._save_input_parameters(dt)
+        if sim.comm.rank == 0:
+            self._save_input_parameters(dt)
         return sim, interaction_time
 
     def _configure_diagnostics(

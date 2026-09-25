@@ -149,7 +149,8 @@ After installing the package with `pip install -e .`, the commands below can be 
       The output records each run's physical input parameters and a weighted
       six-dimensional electron-beam descriptor derived from the final diagnostic.
       The `runs/initial_sample/` directory contains an example run configuration
-      and sample dataset layout.
+      and a seven-run sample dataset: one nominal case plus six single-parameter
+      variations.
 
       `plot-phase-space-moments` creates a phase-space figure from a single
       openPMD particle diagnostic. It compares weighted particle projections with

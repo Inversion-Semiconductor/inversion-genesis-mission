@@ -115,8 +115,6 @@ def build_output(
     """Calculate the shared 33-scalar descriptor from an openPMD diagnostic."""
     particles, weights = load_openpmd_particles(diagnostic_file, species)
     particles, weights = select_by_uz(particles, weights, uz_min=uz_min)
-    if weights is None:
-        raise ValueError(f"{diagnostic_file}: {species} has no weights")
     particles, weights = crop_central_particles(
         particles, weights, central_fraction=central_fraction
     )

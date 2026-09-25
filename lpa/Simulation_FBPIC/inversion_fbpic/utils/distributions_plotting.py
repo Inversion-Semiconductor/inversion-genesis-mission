@@ -207,7 +207,7 @@ def plot_phase_space_moments(
     figure, axes = plt.subplots(2, 2, figsize=(11, 9), constrained_layout=True)
     for axis, (x_name, y_name) in zip(axes.flat, PLOTS):
         x_index, y_index = indices[x_name], indices[y_name]
-        scale = np.array([1e6 if x_name in {"x", "y", "z"} else 1, 1e6 if y_name in {"x", "y", "z"} else 1])
+        scale = np.array([_coordinate_scale(x_name), _coordinate_scale(y_name)])
         x, y = particles[:, x_index] * scale[0], particles[:, y_index] * scale[1]
         x_limits, y_limits = _weighted_limits(x, weights, central_fraction), _weighted_limits(y, weights, central_fraction)
         axis.hist2d(x, y, bins=bins, range=(x_limits, y_limits), weights=weights, cmap="viridis")
@@ -217,7 +217,12 @@ def plot_phase_space_moments(
             longitudinal_mode,
             longitudinal_bins,
         )
-        axis.set(xlim=x_limits, ylim=y_limits, xlabel=f"{x_name} (um)" if x_name in {"x", "y", "z"} else x_name, ylabel=f"{y_name} (um)" if y_name in {"x", "y", "z"} else y_name)
+        axis.set(
+            xlim=x_limits,
+            ylim=y_limits,
+            xlabel=_coordinate_label(x_index),
+            ylabel=_coordinate_label(y_index),
+        )
     figure.suptitle(title or "Raw particle phase space and moment models")
     return figure
 
@@ -279,8 +284,6 @@ def plot_all_phase_space_moments(
                     x_scale,
                     bins,
                     gram_charlier_order,
-                    longitudinal_mode,
-                    longitudinal_bins,
                 )
                 axis.set_xlim(x_limits)
                 axis.set_xlabel(_coordinate_label(column), fontsize=8)
@@ -300,6 +303,8 @@ def plot_all_phase_space_moments(
                     x_limits,
                     y_limits,
                     gram_charlier_order,
+                    longitudinal_mode,
+                    longitudinal_bins,
                 )
                 axis.set(xlim=x_limits, ylim=y_limits, xlabel=_coordinate_label(column), ylabel=_coordinate_label(row))
             axis.tick_params(labelsize=7)

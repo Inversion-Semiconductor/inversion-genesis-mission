@@ -1,11 +1,9 @@
 """
 This script is a simple launch script for the template in the same directory.
 
-Demonstrates the work flow of interacting with the template.  The idea is to
-pass in a set of scalars, have the simulation run, and then call the analysis
-to calculate and save the resulting output scalars.  A figure is then generated
-showing the difference in phase space between the actual output simulation and
-the calculated moments representation.
+Demonstrates configuring and launching one ionization-injection simulation.
+Use ``build-dataset`` and ``plot-phase-space-moments`` after the run completes
+to calculate dataset descriptors and inspect the resulting phase space.
 """
 
 from pathlib import Path
@@ -87,8 +85,6 @@ def main() -> None:
         HYPERPARAMETERS,
     )
     simulation.run()
-
-    # TODO analyze and plot resulting phase space and calculated moments
 
 
 if __name__ == "__main__":

@@ -338,9 +338,10 @@ def compute_moment_descriptor(
 ) -> dict[str, float]:
     """Create a moment descriptor for one selected electron bunch.
 
-    The default has 25 features: three momentum centroids, 21 unique 6D
-    covariance entries, and selected beam charge. ``longitudinal_mode`` may be
-    ``OFF``, ``MOMENTS``, or ``SPLINE``. The spline mode emits exactly
+    The default spline schema has 33 features: three momentum centroids, 21
+    unique 6D covariance entries, eight longitudinal ``uz`` profile features,
+    and selected beam charge. ``longitudinal_mode`` may be ``OFF``,
+    ``MOMENTS``, or ``SPLINE``. The spline mode emits exactly
     ``longitudinal_bins`` mean and RMS ``uz`` features, or raises when that
     fixed schema cannot be produced.
     """
