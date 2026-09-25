@@ -13,10 +13,15 @@ import argparse
 from pathlib import Path
 
 from inversion_fbpic.utils.distributions import (
+    MOMENTS,
+    OFF,
+    SPLINE,
     crop_central_particles,
     load_openpmd_particles,
     select_by_uz,
 )
+
+LONGITUDINAL_MODES = {"off": OFF, "moments": MOMENTS, "spline": SPLINE}
 from inversion_fbpic.utils.distributions_plotting import (
     plot_all_phase_space_moments,
     plot_phase_space_moments,
@@ -54,6 +59,18 @@ def main() -> None:
     parser.add_argument(
         "--gram-charlier", type=int, choices=(2, 3, 4, 5), default=None
     )
+    parser.add_argument(
+        "--longitudinal-mode",
+        choices=LONGITUDINAL_MODES,
+        default="spline",
+        help="Longitudinal representation used by the moment model (default: spline)",
+    )
+    parser.add_argument(
+        "--longitudinal-bins",
+        type=int,
+        default=4,
+        help="Fixed number of spline longitudinal bins (default: 4)",
+    )
     args = parser.parse_args()
     particles, weights = load_openpmd_particles(
         args.h5_file, args.species, args.iteration
@@ -71,6 +88,8 @@ def main() -> None:
         bins=args.bins,
         title=f"Cropped particle phase space: {args.h5_file}",
         gram_charlier_order=args.gram_charlier,
+        longitudinal_mode=LONGITUDINAL_MODES[args.longitudinal_mode],
+        longitudinal_bins=args.longitudinal_bins,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(args.output, dpi=180)

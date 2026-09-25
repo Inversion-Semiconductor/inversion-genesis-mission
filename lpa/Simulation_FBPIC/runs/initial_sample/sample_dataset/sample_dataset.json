@@ -1,5 +1,13 @@
 {
-  "sim_0000": {
+  "metadata": {
+    "species": "nitrogen_electrons",
+    "uz_min": 30.0,
+    "central_fraction": 0.95,
+    "longitudinal_mode": "spline",
+    "longitudinal_bins": 4
+  },
+  "runs": {
+    "sim_0000": {
     "input": {
       "peak_plasma_density_cm3": 4000000000000000000,
       "nitrogen_dopant_fraction": 0.03,
@@ -438,6 +446,7 @@
       "longitudinal_mean_uz_03": 337.0178779540663,
       "longitudinal_rms_uz_03": 31.10544156938401,
       "total_beam_charge_c": 3.358103384027779e-10
+    }
     }
   }
 }

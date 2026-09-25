@@ -18,11 +18,16 @@ import json
 from pathlib import Path
 
 from inversion_fbpic.utils.distributions import (
+    MOMENTS,
+    OFF,
+    SPLINE,
     compute_moment_descriptor,
     crop_central_particles,
     load_openpmd_particles,
     select_by_uz,
 )
+
+LONGITUDINAL_MODES = {"off": OFF, "moments": MOMENTS, "spline": SPLINE}
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,6 +65,18 @@ def parse_args() -> argparse.Namespace:
             "(default: 0.95)"
         ),
     )
+    parser.add_argument(
+        "--longitudinal-mode",
+        choices=LONGITUDINAL_MODES,
+        default="spline",
+        help="Longitudinal descriptor representation (default: spline)",
+    )
+    parser.add_argument(
+        "--longitudinal-bins",
+        type=int,
+        default=4,
+        help="Fixed number of spline longitudinal bins (default: 4)",
+    )
     return parser.parse_args()
 
 
@@ -88,7 +105,12 @@ def read_input(path: Path) -> dict[str, dict[str, bool | int | float | str]]:
 
 
 def build_output(
-    diagnostic_file: Path, species: str, uz_min: float, central_fraction: float
+    diagnostic_file: Path,
+    species: str,
+    uz_min: float,
+    central_fraction: float,
+    longitudinal_mode: int,
+    longitudinal_bins: int,
 ) -> dict[str, float]:
     """Calculate the shared 33-scalar descriptor from an openPMD diagnostic."""
     particles, weights = load_openpmd_particles(diagnostic_file, species)
@@ -98,12 +120,29 @@ def build_output(
     particles, weights = crop_central_particles(
         particles, weights, central_fraction=central_fraction
     )
-    return compute_moment_descriptor(particles, weights)
+    return compute_moment_descriptor(
+        particles,
+        weights,
+        longitudinal_mode=longitudinal_mode,
+        longitudinal_bins=longitudinal_bins,
+    )
 
 
 def main() -> None:
     args = parse_args()
-    records: dict[str, dict[str, object]] = {}
+    longitudinal_mode = LONGITUDINAL_MODES[args.longitudinal_mode]
+    records: dict[str, object] = {
+        "metadata": {
+            "species": args.species,
+            "uz_min": args.uz_min,
+            "central_fraction": args.central_fraction,
+            "longitudinal_mode": args.longitudinal_mode,
+            "longitudinal_bins": args.longitudinal_bins,
+        },
+        "runs": {},
+    }
+    runs = records["runs"]
+    assert isinstance(runs, dict)
     for run_dir in sorted(path for path in args.root.glob("sim_*") if path.is_dir()):
         diagnostic_files = sorted((run_dir / "lab_diags" / "hdf5").glob("data*.h5"))
         if not diagnostic_files:
@@ -112,14 +151,19 @@ def main() -> None:
         input_sections = read_input(run_dir / "input.ini")
         if "PhysicalParameters" not in input_sections:
             raise ValueError(f"{run_dir}: missing [PhysicalParameters] in input.ini")
-        records[run_dir.name] = {
+        runs[run_dir.name] = {
             "input": input_sections["PhysicalParameters"],
             "output": build_output(
-                diagnostic_files[-1], args.species, args.uz_min, args.central_fraction
+                diagnostic_files[-1],
+                args.species,
+                args.uz_min,
+                args.central_fraction,
+                longitudinal_mode,
+                args.longitudinal_bins,
             ),
         }
 
-    if not records:
+    if not runs:
         raise SystemExit(f"No sim_* folders found below {args.root}")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8") as output_file:

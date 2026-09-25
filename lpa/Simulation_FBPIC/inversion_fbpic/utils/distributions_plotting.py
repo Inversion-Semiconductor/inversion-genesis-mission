@@ -9,8 +9,9 @@ from matplotlib.figure import Figure
 
 from inversion_fbpic.utils.distributions import (
     COORD_NAMES,
-    HIGHER_ORDER_LONGITUDINAL,
+    LONGITUDINAL_PROFILE_BINS,
     MOMENTS,
+    OFF,
     SPLINE,
     compute_moment_descriptor,
     gram_charlier_marginal_density,
@@ -46,6 +47,8 @@ def _analytic_contours(
     x_limits: np.ndarray,
     y_limits: np.ndarray,
     gram_charlier_order: int | None = None,
+    longitudinal_mode: int = SPLINE,
+    longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
 ) -> None:
     """Overlay analytic Gaussian or Gram-Charlier 68% and 95% contours."""
     centers_x = np.linspace(float(x_limits[0]), float(x_limits[1]), 250)
@@ -61,7 +64,7 @@ def _analytic_contours(
             grid_y / scale[1],
             order=gram_charlier_order,
         )
-    elif HIGHER_ORDER_LONGITUDINAL == MOMENTS and (x_index, y_index) == (4, 5):
+    elif longitudinal_mode == MOMENTS and (x_index, y_index) == (4, 5):
         mean, covariance = weighted_mean_cov(particles, weights)
         _, coefficients, _, residual_rms = longitudinal_shape_features(
             particles, weights
@@ -75,9 +78,13 @@ def _analytic_contours(
                 + ((grid_y / scale[1] - fitted_uz) / residual_rms) ** 2
             )
         )
-    elif HIGHER_ORDER_LONGITUDINAL == SPLINE and (x_index, y_index) == (4, 5):
+    elif longitudinal_mode == SPLINE and (x_index, y_index) == (4, 5):
         density = longitudinal_profile_density(
-            particles, weights, grid_x / scale[0], grid_y / scale[1]
+            particles,
+            weights,
+            grid_x / scale[0],
+            grid_y / scale[1],
+            bins=longitudinal_bins,
         )
     else:
         mean, covariance = weighted_mean_cov(particles, weights)
@@ -170,6 +177,8 @@ def plot_phase_space_moments(
     bins: int = 150,
     title: str | None = None,
     gram_charlier_order: int | None = None,
+    longitudinal_mode: int = SPLINE,
+    longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
 ) -> Figure:
     """Plot raw weighted density against the shared moment-model projections.
 
@@ -180,10 +189,20 @@ def plot_phase_space_moments(
         raise ValueError("central_fraction must be strictly between 0 and 1")
     if gram_charlier_order is not None and gram_charlier_order not in {2, 3, 4, 5}:
         raise ValueError("gram_charlier_order must be 2, 3, 4, or 5")
+    if longitudinal_mode not in {OFF, MOMENTS, SPLINE}:
+        raise ValueError("longitudinal_mode must be OFF, MOMENTS, or SPLINE")
     particles, weights = select_by_uz(particles, weights, uz_min=uz_min)
     weights = np.ones(len(particles)) if weights is None else np.abs(weights)
-    descriptor = compute_moment_descriptor(particles, weights)
-    print(f"Beam descriptor: {len(descriptor)} parameters (longitudinal mode={HIGHER_ORDER_LONGITUDINAL})")
+    descriptor = compute_moment_descriptor(
+        particles,
+        weights,
+        longitudinal_mode=longitudinal_mode,
+        longitudinal_bins=longitudinal_bins,
+    )
+    print(
+        f"Beam descriptor: {len(descriptor)} parameters "
+        f"(longitudinal mode={longitudinal_mode})"
+    )
     indices = {name: index for index, name in enumerate(COORD_NAMES)}
     figure, axes = plt.subplots(2, 2, figsize=(11, 9), constrained_layout=True)
     for axis, (x_name, y_name) in zip(axes.flat, PLOTS):
@@ -195,6 +214,8 @@ def plot_phase_space_moments(
         _analytic_contours(
             axis, particles, weights, x_index, y_index, scale, x_limits, y_limits,
             gram_charlier_order,
+            longitudinal_mode,
+            longitudinal_bins,
         )
         axis.set(xlim=x_limits, ylim=y_limits, xlabel=f"{x_name} (um)" if x_name in {"x", "y", "z"} else x_name, ylabel=f"{y_name} (um)" if y_name in {"x", "y", "z"} else y_name)
     figure.suptitle(title or "Raw particle phase space and moment models")
@@ -210,6 +231,8 @@ def plot_all_phase_space_moments(
     bins: int = 100,
     title: str | None = None,
     gram_charlier_order: int | None = None,
+    longitudinal_mode: int = SPLINE,
+    longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
 ) -> Figure:
     """Plot every unique 1D and 2D phase-space projection in a triangular grid.
 
@@ -221,10 +244,20 @@ def plot_all_phase_space_moments(
         raise ValueError("central_fraction must be strictly between 0 and 1")
     if gram_charlier_order is not None and gram_charlier_order not in {2, 3, 4, 5}:
         raise ValueError("gram_charlier_order must be 2, 3, 4, or 5")
+    if longitudinal_mode not in {OFF, MOMENTS, SPLINE}:
+        raise ValueError("longitudinal_mode must be OFF, MOMENTS, or SPLINE")
     particles, weights = select_by_uz(particles, weights, uz_min=uz_min)
     weights = np.ones(len(particles)) if weights is None else np.abs(weights)
-    descriptor = compute_moment_descriptor(particles, weights)
-    print(f"Beam descriptor: {len(descriptor)} parameters (longitudinal mode={HIGHER_ORDER_LONGITUDINAL})")
+    descriptor = compute_moment_descriptor(
+        particles,
+        weights,
+        longitudinal_mode=longitudinal_mode,
+        longitudinal_bins=longitudinal_bins,
+    )
+    print(
+        f"Beam descriptor: {len(descriptor)} parameters "
+        f"(longitudinal mode={longitudinal_mode})"
+    )
 
     figure, axes = plt.subplots(6, 6, figsize=(16, 16), constrained_layout=True)
     for row, y_name in enumerate(COORD_NAMES):
@@ -246,6 +279,8 @@ def plot_all_phase_space_moments(
                     x_scale,
                     bins,
                     gram_charlier_order,
+                    longitudinal_mode,
+                    longitudinal_bins,
                 )
                 axis.set_xlim(x_limits)
                 axis.set_xlabel(_coordinate_label(column), fontsize=8)

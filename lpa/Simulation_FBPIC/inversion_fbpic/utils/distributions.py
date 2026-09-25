@@ -14,11 +14,9 @@ WeightArray: TypeAlias = npt.NDArray[np.float64]
 
 COORD_NAMES = ("x", "ux", "y", "uy", "z", "uz")
 ELEMENTARY_CHARGE_C = 1.602176634e-19
-# Global longitudinal descriptor and plotting modes.
 OFF = 0
 MOMENTS = 1
 SPLINE = 2
-HIGHER_ORDER_LONGITUDINAL = SPLINE
 LONGITUDINAL_PROFILE_BINS = 4
 
 
@@ -197,7 +195,9 @@ def longitudinal_slice_profile(
     for index in range(bins):
         selected = bin_index == index
         if not np.any(selected):
-            continue
+            raise ValueError(
+                f"longitudinal profile bin {index} is empty; cannot create a fixed schema"
+            )
         bin_weights = w[selected]
         bin_uz = x[selected, 5]
         bin_center = np.average(z_centered[selected], weights=bin_weights)
@@ -217,10 +217,12 @@ def longitudinal_profile_density(
     weights: npt.ArrayLike | None,
     z_grid: ParticleArray,
     uz_grid: ParticleArray,
+    *,
+    bins: int = LONGITUDINAL_PROFILE_BINS,
 ) -> ParticleArray:
     """Evaluate a spline-interpolated conditional ``uz`` density from slices."""
     x, w = _validate_particles(particles, weights)
-    profile = longitudinal_slice_profile(x, w)
+    profile = longitudinal_slice_profile(x, w, bins=bins)
     z_mean = np.average(x[:, 4], weights=w)
     z_values = z_grid - z_mean
     knots = profile["z_centered"]
@@ -329,17 +331,21 @@ def compute_moment_descriptor(
     particles: npt.ArrayLike,
     weights: npt.ArrayLike | None = None,
     *,
+    longitudinal_mode: int = SPLINE,
+    longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
     include_total_weight: bool = False,
     include_higher_moments: bool = False,
 ) -> dict[str, float]:
     """Create a moment descriptor for one selected electron bunch.
 
     The default has 25 features: three momentum centroids, 21 unique 6D
-    covariance entries, and selected beam charge. Set
-    ``HIGHER_ORDER_LONGITUDINAL`` to ``MOMENTS`` to append compact quadratic
-    longitudinal terms, or ``SPLINE`` to append slice mean and RMS ``uz``
-    profiles in centered longitudinal coordinates.
+    covariance entries, and selected beam charge. ``longitudinal_mode`` may be
+    ``OFF``, ``MOMENTS``, or ``SPLINE``. The spline mode emits exactly
+    ``longitudinal_bins`` mean and RMS ``uz`` features, or raises when that
+    fixed schema cannot be produced.
     """
+    if longitudinal_mode not in {OFF, MOMENTS, SPLINE}:
+        raise ValueError("longitudinal_mode must be OFF, MOMENTS, or SPLINE")
     x, w = _validate_particles(particles, weights)
     mean, covariance = weighted_mean_cov(x, w)
     features = {
@@ -352,7 +358,7 @@ def compute_moment_descriptor(
             features[f"cov_{COORD_NAMES[row]}_{COORD_NAMES[column]}"] = float(
                 covariance[row, column]
             )
-    if HIGHER_ORDER_LONGITUDINAL == MOMENTS:
+    if longitudinal_mode == MOMENTS:
         longitudinal, _, _, residual_rms = longitudinal_shape_features(x, w)
         features.update(
             {
@@ -362,8 +368,8 @@ def compute_moment_descriptor(
                 "quadratic_fit_uz_residual_rms": float(residual_rms),
             }
         )
-    elif HIGHER_ORDER_LONGITUDINAL == SPLINE:
-        profile = longitudinal_slice_profile(x, w)
+    elif longitudinal_mode == SPLINE:
+        profile = longitudinal_slice_profile(x, w, bins=longitudinal_bins)
         for index, (mean_uz, rms_uz) in enumerate(
             zip(profile["mean_uz"], profile["rms_uz"])
         ):
