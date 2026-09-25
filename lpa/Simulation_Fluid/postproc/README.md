@@ -9,7 +9,7 @@ FBPIC reads, plus convergence and shock diagnostics for the simulations themselv
 ANSYS lineout exports            CGNS field exports
 data/density_lineouts_raw/       data/density_field_raw/
         │                                │
-        ▼ process_symmetric              ▼ cgns_to_density_hdf5
+        ▼ lineouts_to_density_hdf5              ▼ cgns_to_density_hdf5
         └──────────► HDF5 density cube ◄─┘
                      density[z_m, x_mm, pressure_bar]
                                 │
@@ -38,7 +38,7 @@ conda run -n inv-fbpic python -m fludat_proc.plot_density data/density_lineouts/
 
 | Module | Console script | Purpose |
 |---|---|---|
-| `fludat_proc.process_symmetric` | `process-symmetric` | ANSYS lineouts → density cube |
+| `fludat_proc.lineouts_to_density_hdf5` | `lineouts-to-density-hdf5` | ANSYS lineouts → density cube |
 | `fludat_proc.cgns_to_density_hdf5` | `cgns-to-density-hdf5` | CGNS fields → density cube |
 | `fludat_proc.plot_density` | `plot-density` | Plot a density cube |
 | `fludat_proc.convergence` | `density-convergence` | Grid-convergence study |
@@ -111,7 +111,7 @@ python -m fludat_proc.cgns_to_density_hdf5 data/density_field_raw/htu_fields_7_0
 
 ---
 
-## `process_symmetric`
+## `lineouts_to_density_hdf5`
 
 Build a density cube from ANSYS lineout exports: one text file per backing pressure,
 each holding one `(z, density)` section per transverse position:
@@ -129,7 +129,7 @@ Each lineout is mirrored across `z = 0`, multiplied by `density_scale`, and resa
 onto the z grid of the first lineout.
 
 ```bash
-python -m fludat_proc.process_symmetric 1.0e20 data/density_lineouts_raw/400_um \
+python -m fludat_proc.lineouts_to_density_hdf5 1.0e20 data/density_lineouts_raw/400_um \
     --output data/density_lineouts/400_um.h5 --density-units cm^-3
 ```
 
@@ -293,7 +293,7 @@ repository-wide). The expected layout:
 ```
 data/
 ├── density_lineouts_raw/<nozzle>/<pressure>_bar.txt     ANSYS lineout exports
-├── density_lineouts/<nozzle>.h5                         cubes from process_symmetric
+├── density_lineouts/<nozzle>.h5                         cubes from lineouts_to_density_hdf5
 ├── density_field_raw/<suite>/<pressure>_bar.cgns        CGNS pressure scans
 ├── density_field_raw/<suite>/<grid>.cgns                CGNS resolution scans
 ├── density_field/<suite>.h5                             cubes from cgns_to_density_hdf5

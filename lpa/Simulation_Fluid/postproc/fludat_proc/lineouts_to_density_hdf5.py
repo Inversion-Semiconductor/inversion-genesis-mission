@@ -7,7 +7,7 @@ first lineout, and stacked into ``density[z, x, pressure]``.
 
 Example (conda env inv-fbpic):
 
-    python -m fludat_proc.process_symmetric 1.0e20 data/density_lineouts_raw/400_um \\
+    python -m fludat_proc.lineouts_to_density_hdf5 1.0e20 data/density_lineouts_raw/400_um \\
         --output data/density_lineouts/400_um.h5 --density-units cm^-3
 """
 
