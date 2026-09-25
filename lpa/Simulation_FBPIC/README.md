@@ -133,6 +133,35 @@ After installing the package with `pip install -e .`, the commands below can be 
    plot-ebeam-analysis --help
    ```
 
+      #### Beam Dataset and Phase-Space Analysis
+
+      `build-dataset` converts a collection of FBPIC runs into a JSON dataset for
+      downstream analysis. Its required positional argument is a directory that
+      contains `sim_*` subdirectories. Each run must contain `input.ini` with a
+      `[VaryingParameters]` section and particle diagnostics in
+      `lab_diags/hdf5/`.
+
+      ```bash
+      build-dataset /path/to/raw_runs --output /path/to/dataset.json \
+         --species nitrogen_electrons --uz-min 30 --central-fraction 0.95
+      ```
+
+      The output records each run's varying input parameters and a weighted
+      six-dimensional electron-beam descriptor derived from the final diagnostic.
+      The `runs/initial_sample/` directory contains an example run configuration
+      and sample dataset layout.
+
+      `plot-phase-space-moments` creates a phase-space figure from a single
+      openPMD particle diagnostic. It compares weighted particle projections with
+      moment-based density models; `--all` renders the full triangular set of 1D
+      and 2D projections.
+
+      ```bash
+      plot-phase-space-moments /path/to/lab_diags/hdf5/data00000049.h5 \
+         --species nitrogen_electrons --uz-min 30 --all \
+         --output phase_space_moments.png
+      ```
+
    #### Laser evolution analysis (`analyze-laser-evolution`)
 
    Tracks laser energy and engineering ``a0`` along the propagation axis by reading
