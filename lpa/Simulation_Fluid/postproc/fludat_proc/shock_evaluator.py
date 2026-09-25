@@ -2,8 +2,9 @@
 """Interactively inspect density-gradient shocks in an unstructured CGNS field.
 
 The heatmap shows |grad rho| on a log scale. Dragging a segment across it samples
-the checked scalar fields along that segment and compares the end/start ratios of
-pressure, density, and temperature with oblique-shock predictions.
+the checked scalar fields along that segment and compares the downstream/upstream
+ratios of pressure, density, and temperature with oblique-shock predictions. The
+endpoint with the larger Mach number is treated as upstream.
 
 Example (conda env inv-fbpic):
 
@@ -119,7 +120,11 @@ class ShockState:
 
 @dataclass(frozen=True)
 class ShockEvaluation:
-    """Observed (drag end / drag start) and oblique-shock-predicted state ratios."""
+    """Observed and oblique-shock-predicted downstream/upstream state ratios.
+
+    The upstream endpoint (state 1) is the one with the larger Mach number; every
+    ratio is state 2 (downstream) over state 1 (upstream).
+    """
 
     gamma: float
     mach_upstream: float
@@ -223,13 +228,13 @@ def evaluate_oblique_shock(
     mach_upstream: float,
     upstream_velocity: np.ndarray,
     downstream_velocity: np.ndarray,
-    start_state: ShockState,
-    end_state: ShockState,
+    upstream_state: ShockState,
+    downstream_state: ShockState,
     beta_rad: float | None = None,
     angle_source: str = "velocity change",
     upstream_endpoint: str = "drag start",
 ) -> ShockEvaluation:
-    """Compare observed drag-end / drag-start ratios with oblique-shock predictions.
+    """Compare observed downstream/upstream ratios with oblique-shock predictions.
 
     Velocity components are ordered ``(axial, radial)``, matching the CGNS fields.
     When ``beta_rad`` is omitted the shock angle is taken from the velocity change.
@@ -249,13 +254,13 @@ def evaluate_oblique_shock(
     elif not np.isfinite(beta_rad) or not 0.0 <= beta_rad <= np.pi:
         raise ValueError("Shock angle beta must be finite and between 0 and pi radians")
 
-    start_values = start_state.as_array()
-    end_values = end_state.as_array()
-    if not np.all(np.isfinite(np.concatenate((start_values, end_values)))):
+    upstream_values = upstream_state.as_array()
+    downstream_values = downstream_state.as_array()
+    if not np.all(np.isfinite(np.concatenate((upstream_values, downstream_values)))):
         raise ValueError("Shock-state values must be finite")
-    if np.any(start_values == 0.0):
-        raise ValueError("Drag-start pressure, density, and temperature must be nonzero")
-    observed = end_values / start_values
+    if np.any(upstream_values == 0.0):
+        raise ValueError("Upstream pressure, density, and temperature must be nonzero")
+    observed = downstream_values / upstream_values
 
     return ShockEvaluation(
         gamma=gamma,
@@ -275,7 +280,7 @@ def evaluate_oblique_shock(
 
 def format_shock_report(evaluation: ShockEvaluation) -> str:
     """Format observed and predicted shock ratios as aligned monospace columns."""
-    label_width = 19
+    label_width = 23
     value_width = 18
 
     def row(label: str, observed: float, predicted: float) -> str:
@@ -292,21 +297,14 @@ def format_shock_report(evaluation: ShockEvaluation) -> str:
         (
             f"gamma = {evaluation.gamma:.3f}  M1 = {evaluation.mach_upstream:.2f}  "
             f"beta = {np.rad2deg(evaluation.beta_rad):.1f} deg",
-            f"upstream = {evaluation.upstream_endpoint}  angle = {evaluation.angle_source}",
-            f"{'ratio':<{label_width}}{'drag-end/start':>{value_width}}"
+            f"upstream (1) = {evaluation.upstream_endpoint}  "
+            f"angle = {evaluation.angle_source}",
+            f"{'ratio (2 = downstream)':<{label_width}}{'simulated':>{value_width}}"
             f"{'predicted':>{value_width}}{'percent error [%]':>{value_width}}",
+            row("P2/P1", evaluation.pressure_ratio_simulated, evaluation.pressure_ratio_predicted),
+            row("rho2/rho1", evaluation.density_ratio_simulated, evaluation.density_ratio_predicted),
             row(
-                "P(end)/P(start)",
-                evaluation.pressure_ratio_simulated,
-                evaluation.pressure_ratio_predicted,
-            ),
-            row(
-                "rho(end)/rho(start)",
-                evaluation.density_ratio_simulated,
-                evaluation.density_ratio_predicted,
-            ),
-            row(
-                "T(end)/T(start)",
+                "T2/T1",
                 evaluation.temperature_ratio_simulated,
                 evaluation.temperature_ratio_predicted,
             ),
@@ -642,16 +640,17 @@ class InteractiveShockEvaluator:
         try:
             start_values = self._sample_state(start)
             end_values = self._sample_state(end)
-            upstream_values, downstream_values = start_values, end_values
-            upstream_endpoint = "drag start"
+            # In every mode the endpoint with the larger Mach number is upstream, so the
+            # reported ratios are downstream/upstream regardless of drag direction.
+            start_is_upstream, upstream_endpoint = select_upstream_endpoint(
+                start_values["Mach"], end_values["Mach"]
+            )
+            upstream_values, downstream_values = (
+                (start_values, end_values) if start_is_upstream else (end_values, start_values)
+            )
             beta_rad: float | None = None
 
             if self.shock_angle == "perp":
-                start_is_upstream, upstream_endpoint = select_upstream_endpoint(
-                    start_values["Mach"], end_values["Mach"]
-                )
-                if not start_is_upstream:
-                    upstream_values, downstream_values = end_values, start_values
                 beta_rad, shock_direction = perpendicular_segment_shock_direction(
                     start, end, self._velocity(upstream_values)
                 )
@@ -672,8 +671,8 @@ class InteractiveShockEvaluator:
                 mach_upstream=upstream_values["Mach"],
                 upstream_velocity=self._velocity(upstream_values),
                 downstream_velocity=self._velocity(downstream_values),
-                start_state=ShockState.from_fields(start_values),
-                end_state=ShockState.from_fields(end_values),
+                upstream_state=ShockState.from_fields(upstream_values),
+                downstream_state=ShockState.from_fields(downstream_values),
                 beta_rad=beta_rad,
                 angle_source=angle_source,
                 upstream_endpoint=upstream_endpoint,

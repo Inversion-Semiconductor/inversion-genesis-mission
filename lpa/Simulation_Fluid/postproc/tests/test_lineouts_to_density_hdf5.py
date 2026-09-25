@@ -50,6 +50,22 @@ def test_build_density_cube_mirrors_scales_and_stacks(tmp_path):
     np.testing.assert_allclose(cube.density[:, 1, 1], [0.0, 10.0, 20.0, 10.0, 0.0])
 
 
+def test_build_density_cube_restricts_z_to_the_shared_range(tmp_path):
+    nozzle = _write_nozzle(tmp_path / "400_um")
+    # 10 bar only extends to z = 0.001, so the cube must not extrapolate beyond it.
+    write_lineout_file(
+        nozzle / "10_bar.txt",
+        {"x-0-0": [(0.0, 4.0), (0.001, 2.0)], "x-1-0": [(0.0, 2.0), (0.001, 1.0)]},
+    )
+
+    cube = build_density_cube(nozzle, density_scale=1.0, density_units="cm^-3")
+
+    np.testing.assert_array_equal(cube.z, [-0.001, 0.0, 0.001])
+    np.testing.assert_array_equal(cube.pressure, [5.0, 10.0, 20.0])
+    np.testing.assert_allclose(cube.density[:, 0, 1], [2.0, 4.0, 2.0])
+    np.testing.assert_allclose(cube.density[:, 0, 0], [2.5, 5.0, 2.5])
+
+
 def test_build_density_cube_rejects_mismatched_x_positions(tmp_path):
     nozzle = _write_nozzle(tmp_path / "400_um")
     write_lineout_file(nozzle / "10_bar.txt", {"x-0-5": [(0.0, 1.0), (0.001, 0.0)]})

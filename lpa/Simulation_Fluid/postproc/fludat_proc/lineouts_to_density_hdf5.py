@@ -62,7 +62,9 @@ def build_density_cube(
 ) -> DensityCube:
     """Parse, mirror, and stack one nozzle's lineouts into a density cube.
 
-    All pressure files must provide the same set of x positions.
+    All pressure files must provide the same set of x positions. The cube's z grid is
+    the first lineout's grid restricted to the z range every lineout covers, so no
+    lineout is extrapolated.
     """
     pressure_files = collect_pressure_files(input_path)
 
@@ -87,9 +89,15 @@ def build_density_cube(
             profile[:, 1] *= density_scale
             profiles[pressure, x_position] = profile
 
-    assert x_positions is not None
+    if x_positions is None:
+        raise ValueError(f"No lineout files found in {input_path}")
     pressures = np.array([pressure for pressure, _ in pressure_files], dtype=np.float64)
-    z = profiles[pressures[0], x_positions[0]][:, 0].copy()
+    z_min = max(float(profile[0, 0]) for profile in profiles.values())
+    z_max = min(float(profile[-1, 0]) for profile in profiles.values())
+    reference_z = profiles[pressures[0], x_positions[0]][:, 0]
+    z = reference_z[(reference_z >= z_min) & (reference_z <= z_max)].copy()
+    if z.size < 2:
+        raise ValueError("Lineouts do not share a z range with at least two samples")
 
     density = np.empty((z.size, len(x_positions), pressures.size), dtype=np.float64)
     for ip, pressure in enumerate(pressures):

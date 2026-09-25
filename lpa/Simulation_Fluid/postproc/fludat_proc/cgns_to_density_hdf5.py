@@ -92,11 +92,14 @@ def select_positive_quadrant(x: np.ndarray, z: np.ndarray, density: np.ndarray) 
 
 
 def symmetric_z_grid(z_max: float, count: int) -> np.ndarray:
-    """Return ``count`` points on ``[-z_max, z_max]`` that are exactly mirrored."""
+    """Return ``count`` evenly spaced points on ``[-z_max, z_max]`` that are exactly mirrored.
+
+    Odd counts include ``z = 0``; even counts straddle it.
+    """
     if count % 2:
         positive = np.linspace(0.0, z_max, count // 2 + 1, dtype=np.float64)
         return np.concatenate((-positive[:0:-1], positive))
-    positive = np.linspace(z_max / count, z_max, count // 2, dtype=np.float64)
+    positive = np.linspace(z_max / (count - 1), z_max, count // 2, dtype=np.float64)
     return np.concatenate((-positive[::-1], positive))
 
 

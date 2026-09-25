@@ -39,7 +39,7 @@ def write_shock_field(path, *, include_gradients=True):
     fields = {
         "Density": x + 2.0 * z + 1.0,
         "Temperature": 300.0 + x - z,
-        "Mach": np.full_like(x, 2.0),
+        "Mach": 3.0 - z,  # decreases from the drag start (z = 0) to the drag end
         "Axial_Velocity": 100.0 - 50.0 * z,
         "Radial_Velocity": 50.0 * z,
         "Pressure": 1.0 + z,
@@ -146,14 +146,14 @@ def test_oblique_relations_validate_gamma():
         validate_shock_angle_mode("invalid")
 
 
-def test_oblique_shock_evaluation_calculates_angle_and_end_over_start_ratios():
+def test_oblique_shock_evaluation_calculates_angle_and_downstream_over_upstream_ratios():
     result = evaluate_oblique_shock(
         gamma=1.4,
         mach_upstream=2.0,
         upstream_velocity=np.array([100.0, 0.0]),
         downstream_velocity=np.array([50.0, 50.0]),
-        start_state=ShockState(pressure=1.0, density=1.0, temperature=1.0),
-        end_state=ShockState(pressure=2.0, density=1.5, temperature=1.25),
+        upstream_state=ShockState(pressure=1.0, density=1.0, temperature=1.0),
+        downstream_state=ShockState(pressure=2.0, density=1.5, temperature=1.25),
     )
 
     assert np.rad2deg(result.beta_rad) == pytest.approx(45.0)
@@ -165,15 +165,15 @@ def test_oblique_shock_evaluation_calculates_angle_and_end_over_start_ratios():
     assert result.temperature_ratio_predicted == pytest.approx(1.2638888888888888)
 
 
-def test_oblique_shock_evaluation_rejects_zero_start_state():
-    with pytest.raises(ValueError, match="Drag-start"):
+def test_oblique_shock_evaluation_rejects_zero_upstream_state():
+    with pytest.raises(ValueError, match="Upstream pressure"):
         evaluate_oblique_shock(
             gamma=1.4,
             mach_upstream=2.0,
             upstream_velocity=np.array([100.0, 0.0]),
             downstream_velocity=np.array([50.0, 50.0]),
-            start_state=ShockState(0.0, 1.0, 1.0),
-            end_state=ShockState(2.0, 1.5, 1.25),
+            upstream_state=ShockState(0.0, 1.0, 1.0),
+            downstream_state=ShockState(2.0, 1.5, 1.25),
         )
 
 
@@ -193,15 +193,16 @@ def test_shock_report_uses_aligned_fixed_point_columns():
 
     header, *data_rows = format_shock_report(evaluation).splitlines()[2:]
 
-    assert header[19:37].strip() == "drag-end/start"
-    assert len(data_rows) == 3
+    assert header[:23].strip() == "ratio (2 = downstream)"
+    assert header[23:41].strip() == "simulated"
+    assert [row[:23].strip() for row in data_rows] == ["P2/P1", "rho2/rho1", "T2/T1"]
     for row in data_rows:
-        for column in (row[19:37], row[37:55], row[55:73]):
+        for column in (row[23:41], row[41:59], row[59:77]):
             assert len(column) == 18
             assert column.strip() == f"{float(column):.2f}"
-    assert data_rows[0][19:37].strip() == "0.02"
-    assert data_rows[0][37:55].strip() == "0.36"
-    assert float(data_rows[0][55:73]) == pytest.approx(
+    assert data_rows[0][23:41].strip() == "0.02"
+    assert data_rows[0][41:59].strip() == "0.36"
+    assert float(data_rows[0][59:77]) == pytest.approx(
         abs(0.022930661 - 0.36077325) / 0.36077325 * 100.0, abs=0.005
     )
 
@@ -275,7 +276,9 @@ def test_controller_reports_shock_state_after_segment_selection(tmp_path):
     assert viewer.shock_evaluation.gamma == 1.67
     assert np.rad2deg(viewer.shock_evaluation.beta_rad) == pytest.approx(45.0)
     assert len(viewer.shock_direction_artist.get_xdata()) == 2
-    assert "drag-end/start" in viewer.shock_report_text.get_text()
+    assert viewer.shock_evaluation.upstream_endpoint == "drag start"
+    assert viewer.shock_evaluation.pressure_ratio_simulated == pytest.approx(2.0)
+    assert "upstream (1) = drag start" in viewer.shock_report_text.get_text()
 
 
 def test_controller_reports_missing_state_fields(tmp_path):
@@ -294,24 +297,39 @@ def test_controller_reports_missing_state_fields(tmp_path):
     assert "missing Mach" in viewer.shock_report_text.get_text()
 
 
-def test_controller_perpendicular_mode_keeps_drag_endpoint_ratios():
+@pytest.mark.parametrize("shock_angle", ["auto", "perp"])
+def test_controller_reports_downstream_over_upstream_regardless_of_drag_direction(shock_angle):
     x = np.array([0.0, 1.0, 0.0, 1.0])
-    viewer = InteractiveShockEvaluator(square_field_data(mach=1.0 + 2.0 * x), shock_angle="perp")
-    viewer.segment = ((0.0, 0.0), (0.0, 1.0))
+    data = square_field_data(mach=1.0 + 2.0 * x)
+    # Mach and pressure both grow with x, so x = 1 is upstream whichever way we drag.
+    data.fields["Axial_Velocity"] = 100.0 + 100.0 * x
+    data.fields["Radial_Velocity"] = 20.0 * (1.0 - x)
+    results = {}
+    for direction, segment in (("forward", ((0.0, 0.0), (0.0, 1.0))), ("reverse", ((0.0, 1.0), (0.0, 0.0)))):
+        viewer = InteractiveShockEvaluator(data, shock_angle=shock_angle)
+        viewer.segment = segment
+        viewer._update_shock_evaluation()
+        assert viewer.shock_evaluation is not None, viewer.shock_report_text.get_text()
+        results[direction] = viewer.shock_evaluation
 
-    viewer._update_shock_evaluation()
-
-    evaluation = viewer.shock_evaluation
-    assert evaluation is not None
-    assert evaluation.upstream_endpoint == "drag end"
-    assert evaluation.mach_upstream == 3.0
-    assert np.rad2deg(evaluation.beta_rad) == pytest.approx(90.0)
-    assert evaluation.pressure_ratio_simulated == 2.0
-    assert evaluation.angle_source == "segment normal"
+    assert results["forward"].upstream_endpoint == "drag end"
+    assert results["reverse"].upstream_endpoint == "drag start"
+    for evaluation in results.values():
+        assert evaluation.mach_upstream == 3.0
+        assert evaluation.pressure_ratio_simulated == pytest.approx(0.5)
+        assert evaluation.density_ratio_simulated == pytest.approx(0.5)
+    assert results["forward"].beta_rad == pytest.approx(results["reverse"].beta_rad)
+    assert results["forward"].pressure_ratio_predicted == pytest.approx(
+        results["reverse"].pressure_ratio_predicted
+    )
+    if shock_angle == "perp":
+        assert np.rad2deg(results["forward"].beta_rad) == pytest.approx(90.0, abs=15.0)
+        assert results["forward"].angle_source == "segment normal"
 
 
 def test_controller_third_point_mode_waits_then_evaluates_direction():
-    viewer = InteractiveShockEvaluator(square_field_data(mach=np.full(4, 2.0)), shock_angle="manual")
+    x = np.array([0.0, 1.0, 0.0, 1.0])
+    viewer = InteractiveShockEvaluator(square_field_data(mach=3.0 - x), shock_angle="manual")
     viewer.segment = ((0.0, 0.0), (0.0, 1.0))
     viewer._third_point = None
 
@@ -329,7 +347,8 @@ def test_controller_third_point_mode_waits_then_evaluates_direction():
 
 
 def test_manual_third_point_click_refreshes_lineout_window():
-    viewer = InteractiveShockEvaluator(square_field_data(mach=np.full(4, 2.0)), shock_angle="manual")
+    x = np.array([0.0, 1.0, 0.0, 1.0])
+    viewer = InteractiveShockEvaluator(square_field_data(mach=3.0 - x), shock_angle="manual")
     viewer.segment = ((0.0, 0.0), (0.0, 1.0))
     viewer.figure.canvas.draw()
     pixel = viewer.heatmap_axes.transData.transform((1.0, 0.5))

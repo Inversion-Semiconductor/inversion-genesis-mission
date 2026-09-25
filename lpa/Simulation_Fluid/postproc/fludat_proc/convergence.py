@@ -30,7 +30,7 @@ from scipy.spatial import Delaunay
 
 from .ansys_lineouts import deduplicate_and_sort_profile, parse_lineout_file
 from .cgns_io import load_cgns_density_points
-from .common import mm_bounds_to_m
+from .common import mm_bounds_to_m, validate_bounds
 from .filenames import is_grid_size_filename, parse_grid_size_filename
 
 REFERENCE_MODES = ("finest", "adjacent")
@@ -126,13 +126,14 @@ class ConvergenceMetric:
 class ConvergenceSummary:
     """Aggregate errors for one (coarse, reference) grid pair.
 
-    For lineout input ``local_relative`` summarises the per-lineout integrated
-    errors; for CGNS input it pools the pointwise cell errors of the field.
+    ``relative_error`` is the distribution behind the CSV ``*_relative_error`` columns:
+    for lineout input the per-lineout integrated errors, for CGNS input the pooled
+    pointwise local relative cell errors.
     """
 
     coarse_grid_size_mm: float
     finer_grid_size_mm: float
-    local_relative: ErrorDistribution
+    relative_error: ErrorDistribution
     peak_normalized: ErrorDistribution | None = None
 
 
@@ -338,6 +339,9 @@ def regrid_cgns_fields(
     """
     if x_points < 2 or z_points < 2:
         raise ValueError("x_points and z_points must both be at least 2")
+    for axis_name, lower, upper in (("x", x_min, x_max), ("z", z_min, z_max)):
+        if lower is not None and upper is not None:
+            validate_bounds((lower, upper), axis_name=axis_name)
     if interpolation not in FIELD_INTERPOLATIONS:
         raise ValueError(f"Unknown CGNS interpolation method {interpolation!r}")
     clipped = [
@@ -459,7 +463,7 @@ def summarize_convergence(metrics: list[ConvergenceMetric]) -> list[ConvergenceS
             ConvergenceSummary(
                 coarse_grid_size_mm=coarse_size,
                 finer_grid_size_mm=finer_size,
-                local_relative=(
+                relative_error=(
                     pool_distributions(local)
                     if all(d is not None for d in local)
                     else ErrorDistribution.from_samples([m.relative_error for m in group])
@@ -511,7 +515,7 @@ def write_convergence_csv(
         writer.writeheader()
         for metric in metrics:
             summary = summary_by_pair[(metric.coarse_grid_size_mm, metric.finer_grid_size_mm)]
-            local = summary.local_relative
+            local = summary.relative_error
             peak = summary.peak_normalized
             writer.writerow(
                 {
@@ -623,7 +627,7 @@ def plot_convergence(
                 _plot_mean_band(
                     summary_axis,
                     grid_sizes,
-                    [s.local_relative for s in ordered],
+                    [s.relative_error for s in ordered],
                     marker="o",
                     label="mean local relative error" if is_field_summary else "mean",
                 )
@@ -746,8 +750,11 @@ def main() -> None:
         input_format = "cgns" if any(args.input_dir.glob("*.cgns")) else "lineout"
 
     if input_format == "cgns":
-        x_bounds = mm_bounds_to_m(args.x_bounds) or (None, None)
-        z_bounds = mm_bounds_to_m(args.z_bounds) or (None, None)
+        try:
+            x_bounds = validate_bounds(mm_bounds_to_m(args.x_bounds), axis_name="x") or (None, None)
+            z_bounds = validate_bounds(mm_bounds_to_m(args.z_bounds), axis_name="z") or (None, None)
+        except ValueError as exc:
+            parser.error(str(exc))
         metrics = calculate_field_convergence(
             load_resolution_cgns_fields(args.input_dir),
             reference_mode=args.reference,

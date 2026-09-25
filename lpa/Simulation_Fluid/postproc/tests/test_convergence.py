@@ -151,8 +151,8 @@ def test_cgns_summary_pools_pointwise_errors_and_selects_plot_curves(tmp_path):
     summaries = summarize_convergence(metrics)
 
     assert len(summaries) == 1
-    assert summaries[0].local_relative.standard_deviation > 0.0
-    assert summaries[0].local_relative.mean != pytest.approx(metrics[0].relative_error)
+    assert summaries[0].relative_error.standard_deviation > 0.0
+    assert summaries[0].relative_error.mean != pytest.approx(metrics[0].relative_error)
 
     figures = {
         mode: plot_convergence(metrics, summaries, view="summary", field_error=mode)
@@ -188,6 +188,18 @@ def test_csv_contains_per_lineout_and_aggregate_columns(tmp_path):
     assert float(rows[0]["relative_integrated_absolute_difference"]) == 2.0
     assert float(rows[0]["mean_relative_error"]) == 2.0
     assert rows[0]["mean_peak_normalized_absolute_error"] == ""
+
+
+def test_reversed_cgns_bounds_are_rejected_clearly(tmp_path):
+    write_density_cgns(tmp_path / "0_2.cgns")
+    write_density_cgns(tmp_path / "0_1.cgns")
+    fields = load_resolution_cgns_fields(tmp_path)
+
+    with pytest.raises(ValueError, match="x bounds must be finite and increasing"):
+        calculate_field_convergence(fields, x_min=1.0, x_max=0.0)
+    argv = ["convergence", str(tmp_path), "--z-bounds", "1000", "0"]
+    with patch.object(sys, "argv", argv), pytest.raises(SystemExit):
+        main()
 
 
 def test_cli_writes_csv_next_to_output_but_not_into_input_dir(tmp_path):

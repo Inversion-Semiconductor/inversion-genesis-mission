@@ -59,11 +59,13 @@ def test_select_positive_quadrant_requires_three_points():
         select_positive_quadrant(x[:4], z[:4], np.arange(4.0))
 
 
-def test_symmetric_z_grid_is_exactly_mirrored():
-    for count in (4, 5):
+def test_symmetric_z_grid_is_exactly_mirrored_and_evenly_spaced():
+    for count in (4, 5, 1000):
         grid = symmetric_z_grid(1.0, count)
         assert grid.size == count
         np.testing.assert_array_equal(grid, -grid[::-1])
+        np.testing.assert_allclose(np.diff(grid), 2.0 / (count - 1))
+    np.testing.assert_allclose(symmetric_z_grid(1.0, 4), [-1.0, -1 / 3, 1 / 3, 1.0])
     assert 0.0 in symmetric_z_grid(1.0, 5)
     assert 0.0 not in symmetric_z_grid(1.0, 4)
 

@@ -260,16 +260,16 @@ gaps where the segment leaves the mesh). One field is shown in source units; sev
 are each scaled to unit magnitude for shape comparison.
 
 When `Mach`, `Axial_Velocity`, `Radial_Velocity`, `Pressure`, `Density`, and
-`Temperature` are available, the report panel compares the observed drag-end / drag-start
-ratios with oblique-shock predictions for the upstream Mach number `M₁` and shock angle
-`β`, where the angle comes from:
+`Temperature` are available, the report panel compares the observed downstream/upstream
+ratios `P₂/P₁`, `ρ₂/ρ₁`, `T₂/T₁` with oblique-shock predictions for the upstream Mach
+number `M₁` and shock angle `β`. In every mode the endpoint with the larger Mach number
+is upstream (state 1), so the drag direction does not matter; equal endpoint Mach
+numbers are rejected as ambiguous. The angle comes from:
 
-- `--shock-angle auto` (default): the velocity change `v₁ − v₂` between the endpoints;
-  the drag start is upstream.
-- `--shock-angle perp`: the normal to the dragged segment; the endpoint with the larger
-  Mach number is upstream (equal values are rejected).
+- `--shock-angle auto` (default): the velocity change `v₁ − v₂` between the endpoints.
+- `--shock-angle perp`: the normal to the dragged segment.
 - `--shock-angle manual`: after dragging, click a third point; the ray from the segment
-  midpoint to it is the shock direction. The drag start is upstream.
+  midpoint to it is the shock direction.
 
 The shock direction is drawn as a dashed lime line from the segment midpoint.
 
