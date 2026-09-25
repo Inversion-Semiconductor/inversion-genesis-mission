@@ -14,7 +14,6 @@ setup(
         "h5py",
         "opencv-python",
         "lasy",
-        "optimas[all]",
         "periodictable",
     ],
     extras_require={
@@ -34,13 +33,6 @@ setup(
             "energy-at-peak-current-multibunch=inversion_fbpic.scripts.ebeam.energy_at_peak_current_multibunch:main",
             # Charge density scripts
             "slideshow-from-npy=inversion_fbpic.scripts.charge_density.slideshow_from_npy:main",
-            # Optimas scripts
-            "view-output=inversion_fbpic.scripts.optimas.view_output:main",
-            "gaussian-process-evaluation=inversion_fbpic.scripts.optimas.gaussian_process_evaluation:main",
-            # PWFA scripts
-            "modulated-ebeam-frequency=inversion_fbpic.scripts.pwfa.modulated_ebeam_frequency:main",
-            # Transport scripts
-            "simple-r56=inversion_fbpic.scripts.transport.simple_r56:main",
             # Data extraction scripts
             "extract-hdf5-field=inversion_fbpic.scripts.data_parsing.extract_hdf5_field:main",
             "extract-hdf5-particles=inversion_fbpic.scripts.data_parsing.extract_hdf5_particles:main",
