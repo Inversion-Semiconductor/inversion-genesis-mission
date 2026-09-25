@@ -10,7 +10,7 @@ the calculated moments representation.
 
 from pathlib import Path
 
-from lpa.Simulation_FBPIC.runs.initial_sample.ionization_injection_template import IonizationInjectionSimulation
+from ionization_injection_template import IonizationInjectionSimulation
 
 
 RUN_DIRECTORY = Path(__file__).parent
