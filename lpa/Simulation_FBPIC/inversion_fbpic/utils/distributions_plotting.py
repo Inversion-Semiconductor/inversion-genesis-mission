@@ -11,7 +11,6 @@ from inversion_fbpic.utils.distributions import (
     COORD_NAMES,
     HIGHER_ORDER_LONGITUDINAL,
     MOMENTS,
-    OFF,
     SPLINE,
     compute_moment_descriptor,
     edgeworth_marginal_density,
