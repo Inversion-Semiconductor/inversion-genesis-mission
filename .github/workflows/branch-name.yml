@@ -38,7 +38,7 @@ jobs:
                         | awk '{print $2}' \
                         | cut -d/ -f3- \
                         | grep "^${id}-" \
-                        | grep -v "^$BRANCH$" || true)
+                        | grep -vFx -- "$BRANCH" || true)
 
           # Fail if any duplicate exists
           if [ -n "$duplicates" ]; then
