@@ -6,13 +6,13 @@ setup(
     packages=find_packages(exclude=["tests", "tests.*"]),
     install_requires=[
         "attrs>=23.2",
-        "numpy",
-        "scipy",
+        "numpy>=1.24",
+        "scipy>=1.10",
         "fbpic",
-        "matplotlib",
+        "matplotlib>=3.7",
         "mpi4py",
         "h5py",
-        "openpmd-viewer",
+        "openpmd-viewer>=1.10",
         "opencv-python",
         "lasy",
         "periodictable",
@@ -30,6 +30,7 @@ setup(
             "plot-slice-emittance=inversion_fbpic.scripts.ebeam.plot_slice_emittance:main",
             "plot-slice-energy-spread=inversion_fbpic.scripts.ebeam.plot_slice_energy_spread:main",
             "plot-dispersion=inversion_fbpic.scripts.ebeam.plot_dispersion:main",
+            "plot-phase-space-moments=inversion_fbpic.scripts.ebeam.plot_phase_space_moments:main",
             "energy-at-peak-current=inversion_fbpic.scripts.ebeam.energy_at_peak_current:main",
             "energy-at-peak-current-multibunch=inversion_fbpic.scripts.ebeam.energy_at_peak_current_multibunch:main",
             # Charge density scripts
@@ -37,6 +38,7 @@ setup(
             # Data extraction scripts
             "extract-hdf5-field=inversion_fbpic.scripts.data_parsing.extract_hdf5_field:main",
             "extract-hdf5-particles=inversion_fbpic.scripts.data_parsing.extract_hdf5_particles:main",
+            "build-dataset=inversion_fbpic.scripts.data_parsing.build_dataset:main",
             # Calculation scripts
             "fbpic-calc-nr=inversion_fbpic.scripts.calculations.fbpic_calc_nr:main",
             # Laser analysis scripts
