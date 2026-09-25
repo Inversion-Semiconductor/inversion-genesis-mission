@@ -13,8 +13,8 @@ from inversion_fbpic.utils.distributions import (
     MOMENTS,
     SPLINE,
     compute_moment_descriptor,
-    edgeworth_marginal_density,
-    edgeworth_projection_density,
+    gram_charlier_marginal_density,
+    gram_charlier_projection_density,
     longitudinal_shape_features,
     longitudinal_profile_density,
     select_by_uz,
@@ -45,21 +45,21 @@ def _analytic_contours(
     scale: np.ndarray,
     x_limits: np.ndarray,
     y_limits: np.ndarray,
-    edgeworth_order: int | None = None,
+    gram_charlier_order: int | None = None,
 ) -> None:
-    """Overlay analytic Gaussian or Edgeworth 68% and 95% density contours."""
+    """Overlay analytic Gaussian or Gram-Charlier 68% and 95% contours."""
     centers_x = np.linspace(float(x_limits[0]), float(x_limits[1]), 250)
     centers_y = np.linspace(float(y_limits[0]), float(y_limits[1]), 250)
     grid_x, grid_y = np.meshgrid(centers_x, centers_y)
-    if edgeworth_order is not None:
-        density = edgeworth_projection_density(
+    if gram_charlier_order is not None:
+        density = gram_charlier_projection_density(
             particles,
             weights,
             x_index,
             y_index,
             grid_x / scale[0],
             grid_y / scale[1],
-            order=edgeworth_order,
+            order=gram_charlier_order,
         )
     elif HIGHER_ORDER_LONGITUDINAL == MOMENTS and (x_index, y_index) == (4, 5):
         mean, covariance = weighted_mean_cov(particles, weights)
@@ -135,7 +135,7 @@ def _projection(
     coordinate_index: int,
     coordinate_scale: float,
     bins: int,
-    edgeworth_order: int | None = None,
+    gram_charlier_order: int | None = None,
 ) -> None:
     """Plot a weighted 1D projection and its analytic moment-model density."""
     density, edges, _ = axis.hist(values, bins=bins, weights=weights, density=True, color="#365f8b", alpha=0.7)
@@ -145,13 +145,13 @@ def _projection(
     sigma = np.sqrt(np.average((values - mean) ** 2, weights=weights))
     if sigma > 0:
         grid = np.linspace(edges[0], edges[-1], 300)
-        if edgeworth_order is not None:
-            density_model = edgeworth_marginal_density(
+        if gram_charlier_order is not None:
+            density_model = gram_charlier_marginal_density(
                 particles,
                 weights,
                 coordinate_index,
                 grid / coordinate_scale,
-                order=edgeworth_order,
+                order=gram_charlier_order,
             ) / coordinate_scale
         else:
             density_model = np.exp(-0.5 * ((grid - mean) / sigma) ** 2) / (
@@ -169,17 +169,17 @@ def plot_phase_space_moments(
     central_fraction: float = 0.99,
     bins: int = 150,
     title: str | None = None,
-    edgeworth_order: int | None = None,
+    gram_charlier_order: int | None = None,
 ) -> Figure:
     """Plot raw weighted density against the shared moment-model projections.
 
-    Set ``edgeworth_order`` to 2, 3, 4, or 5 to override the default plotting path
-    with an Edgeworth approximation of that order for every displayed panel.
+    Set ``gram_charlier_order`` to 2, 3, 4, or 5 to override the default plotting
+    path with a Gram-Charlier A approximation for every displayed panel.
     """
     if not 0 < central_fraction < 1:
         raise ValueError("central_fraction must be strictly between 0 and 1")
-    if edgeworth_order is not None and edgeworth_order not in {2, 3, 4, 5}:
-        raise ValueError("edgeworth_order must be 2, 3, 4, or 5")
+    if gram_charlier_order is not None and gram_charlier_order not in {2, 3, 4, 5}:
+        raise ValueError("gram_charlier_order must be 2, 3, 4, or 5")
     particles, weights = select_by_uz(particles, weights, uz_min=uz_min)
     weights = np.ones(len(particles)) if weights is None else np.abs(weights)
     descriptor = compute_moment_descriptor(particles, weights)
@@ -194,7 +194,7 @@ def plot_phase_space_moments(
         axis.hist2d(x, y, bins=bins, range=(x_limits, y_limits), weights=weights, cmap="viridis")
         _analytic_contours(
             axis, particles, weights, x_index, y_index, scale, x_limits, y_limits,
-            edgeworth_order,
+            gram_charlier_order,
         )
         axis.set(xlim=x_limits, ylim=y_limits, xlabel=f"{x_name} (um)" if x_name in {"x", "y", "z"} else x_name, ylabel=f"{y_name} (um)" if y_name in {"x", "y", "z"} else y_name)
     figure.suptitle(title or "Raw particle phase space and moment models")
@@ -209,18 +209,18 @@ def plot_all_phase_space_moments(
     central_fraction: float = 0.99,
     bins: int = 100,
     title: str | None = None,
-    edgeworth_order: int | None = None,
+    gram_charlier_order: int | None = None,
 ) -> Figure:
     """Plot every unique 1D and 2D phase-space projection in a triangular grid.
 
-    Set ``edgeworth_order`` to 2, 3, 4, or 5 to use that analytic approximation
-    for every diagonal and lower-triangle panel. Upper-triangle cells are hidden
-    because they mirror the corresponding lower-triangle views.
+    Set ``gram_charlier_order`` to 2, 3, 4, or 5 to use a Gram-Charlier A
+    approximation for every diagonal and lower-triangle panel. Upper-triangle
+    cells are hidden because they mirror the corresponding lower-triangle views.
     """
     if not 0 < central_fraction < 1:
         raise ValueError("central_fraction must be strictly between 0 and 1")
-    if edgeworth_order is not None and edgeworth_order not in {2, 3, 4, 5}:
-        raise ValueError("edgeworth_order must be 2, 3, 4, or 5")
+    if gram_charlier_order is not None and gram_charlier_order not in {2, 3, 4, 5}:
+        raise ValueError("gram_charlier_order must be 2, 3, 4, or 5")
     particles, weights = select_by_uz(particles, weights, uz_min=uz_min)
     weights = np.ones(len(particles)) if weights is None else np.abs(weights)
     descriptor = compute_moment_descriptor(particles, weights)
@@ -245,7 +245,7 @@ def plot_all_phase_space_moments(
                     column,
                     x_scale,
                     bins,
-                    edgeworth_order,
+                    gram_charlier_order,
                 )
                 axis.set_xlim(x_limits)
                 axis.set_xlabel(_coordinate_label(column), fontsize=8)
@@ -264,7 +264,7 @@ def plot_all_phase_space_moments(
                     np.array([x_scale, y_scale]),
                     x_limits,
                     y_limits,
-                    edgeworth_order,
+                    gram_charlier_order,
                 )
                 axis.set(xlim=x_limits, ylim=y_limits, xlabel=_coordinate_label(column), ylabel=_coordinate_label(row))
             axis.tick_params(labelsize=7)

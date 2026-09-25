@@ -51,7 +51,9 @@ def main() -> None:
     parser.add_argument(
         "--all", action="store_true", help="Plot all unique phase-space projections"
     )
-    parser.add_argument("--edgeworth", type=int, choices=(2, 3, 4, 5), default=None)
+    parser.add_argument(
+        "--gram-charlier", type=int, choices=(2, 3, 4, 5), default=None
+    )
     args = parser.parse_args()
     particles, weights = load_openpmd_particles(
         args.h5_file, args.species, args.iteration
@@ -68,7 +70,7 @@ def main() -> None:
         central_fraction=args.central_fraction,
         bins=args.bins,
         title=f"Cropped particle phase space: {args.h5_file}",
-        edgeworth_order=args.edgeworth,
+        gram_charlier_order=args.gram_charlier,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(args.output, dpi=180)

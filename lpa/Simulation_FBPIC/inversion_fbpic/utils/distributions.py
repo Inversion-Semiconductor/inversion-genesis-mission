@@ -234,7 +234,7 @@ def longitudinal_profile_density(
     return np.nan_to_num(conditional_density)
 
 
-def edgeworth_projection_density(
+def gram_charlier_projection_density(
     particles: npt.ArrayLike,
     weights: npt.ArrayLike | None,
     first_index: int,
@@ -243,7 +243,7 @@ def edgeworth_projection_density(
     second_grid: ParticleArray,
     order: int = 4,
 ) -> ParticleArray:
-    """Evaluate a bivariate Gram-Charlier/Edgeworth density through an order.
+    """Evaluate a bivariate Gram-Charlier A density through an order.
 
     The projection is whitened before evaluating the expansion. Its correction
     ``order=2`` gives the Gaussian baseline. Higher values add every mixed
@@ -252,7 +252,7 @@ def edgeworth_projection_density(
     a truncated expansion is not guaranteed positive.
     """
     if order not in {2, 3, 4, 5}:
-        raise ValueError("Edgeworth order must be 2, 3, 4, or 5")
+        raise ValueError("Gram-Charlier order must be 2, 3, 4, or 5")
     x, w = _validate_particles(particles, weights)
     projection = x[:, [first_index, second_index]]
     mean = np.average(projection, axis=0, weights=w)
@@ -284,22 +284,22 @@ def edgeworth_projection_density(
     return np.maximum(gaussian * correction, 0.0)
 
 
-def edgeworth_marginal_density(
+def gram_charlier_marginal_density(
     particles: npt.ArrayLike,
     weights: npt.ArrayLike | None,
     coordinate_index: int,
     grid: ParticleArray,
     order: int = 4,
 ) -> ParticleArray:
-    """Evaluate a univariate Edgeworth density through the requested order.
+    """Evaluate a univariate Gram-Charlier A density through the requested order.
 
     The correction uses the standardized third central moment and excess
     kurtosis. ``order=2`` is Gaussian, ``order=3`` adds skewness, and orders
     4 and 5 add excess kurtosis and the fifth cumulant. Negative values are
-    clipped because a truncated Edgeworth series is not guaranteed nonnegative.
+    clipped because a truncated Gram-Charlier series is not guaranteed nonnegative.
     """
     if order not in {2, 3, 4, 5}:
-        raise ValueError("Edgeworth order must be 2, 3, 4, or 5")
+        raise ValueError("Gram-Charlier order must be 2, 3, 4, or 5")
     x, w = _validate_particles(particles, weights)
     values = x[:, coordinate_index]
     mean = np.average(values, weights=w)
