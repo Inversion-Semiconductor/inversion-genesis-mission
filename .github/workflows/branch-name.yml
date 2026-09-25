@@ -1,7 +1,7 @@
 name: Validate branch name
 on:
   create:
-    branches: ["**"]
+    if: github.event_name != 'create' || github.ref_type == 'branch'
   pull_request:
     branches: [main]
 
