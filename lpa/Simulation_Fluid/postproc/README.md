@@ -163,8 +163,9 @@ density = build_density_callable(
 
 `method` selects the `(x, pressure)` interpolation: `linear` (default), `cubic`,
 `quintic`, or `pchip` (the spline methods need ≥ 4 or ≥ 6 samples per axis). Along
-`z` interpolation is always linear. Queries outside the tabulated ranges raise
-`ValueError` naming the valid extents.
+`z` interpolation is always linear. Queries outside the tabulated `z`, `x`, or
+pressure range evaluate to zero density rather than raising, so an FBPIC window that
+extends beyond the simulated jet sees vacuum there.
 
 ---
 

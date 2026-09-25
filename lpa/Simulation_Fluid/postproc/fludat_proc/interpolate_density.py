@@ -2,7 +2,10 @@
 
 Along ``z`` the tabulated grid is interpolated linearly. In the ``(x, pressure)``
 plane a :class:`scipy.interpolate.RegularGridInterpolator` with the requested
-method is used. For plotting, see :mod:`fludat_proc.plot_density`.
+method is used. Queries outside the tabulated ``z``, ``x``, or pressure range
+evaluate to :data:`FILL_VALUE` (zero density) rather than raising, so an FBPIC
+window that extends beyond the simulated gas jet simply sees vacuum there.
+For plotting, see :mod:`fludat_proc.plot_density`.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ INTERPOLATION_METHODS: tuple[InterpolationMethod, ...] = (
     "quintic",
     "pchip",
 )
+FILL_VALUE = 0.0
+"""Density returned for queries outside the tabulated ranges."""
 
 
 @dataclass(frozen=True)
@@ -65,36 +70,14 @@ class DensityInterpolation:
     def pressure_extent(self) -> tuple[float, float]:
         return self.cube.pressure_extent
 
-    def _query_error(
-        self,
-        exc: Exception,
-        *,
-        z_value: float | None = None,
-        x_value: float | None = None,
-        pressure_value: float | None = None,
-    ) -> ValueError:
-        """Build a ValueError that names the offending query and the valid extents."""
-        details = [f"geometry={self.geometry!r}"]
-        for name, value, extent, units in (
-            ("z", z_value, self.z_extent, "m"),
-            ("x", x_value, self.x_extent, "mm"),
-            ("pressure", pressure_value, self.pressure_extent, "bar"),
-        ):
-            if value is not None:
-                details.append(
-                    f"{name}={value} (valid range [{extent[0]}, {extent[1]}] {units})"
-                )
-        return ValueError(
-            "Density interpolation failed: " + "; ".join(details) + f" ({exc})"
-        )
-
     def density_at_z(self, z_value: float) -> np.ndarray:
-        """Return the ``(n_x, n_pressure)`` density slice linearly interpolated at ``z``."""
+        """Return the ``(n_x, n_pressure)`` density slice linearly interpolated at ``z``.
+
+        Outside the tabulated z range the slice is :data:`FILL_VALUE` everywhere.
+        """
         z_min, z_max = self.z_extent
         if not z_min <= z_value <= z_max:
-            raise ValueError(
-                f"z={z_value} is outside the tabulated range [{z_min}, {z_max}] m"
-            )
+            return np.full(self.cube.density.shape[1:], FILL_VALUE)
         upper = int(np.searchsorted(self.z, z_value, side="left"))
         if upper == 0:
             return self.cube.density[0].copy()
@@ -109,19 +92,15 @@ class DensityInterpolation:
             (self.x, self.pressure),
             self.density_at_z(z_value),
             method=self.method,
-            bounds_error=True,
+            bounds_error=False,
+            fill_value=FILL_VALUE,
         )
 
     def interpolate(
         self, z_value: float, x_value: float, pressure_value: float
     ) -> float:
-        """Interpolate density at a single ``(z, x, pressure)`` point."""
-        try:
-            return float(self._interpolator_at_z(z_value)((x_value, pressure_value)))
-        except ValueError as exc:
-            raise self._query_error(
-                exc, z_value=z_value, x_value=x_value, pressure_value=pressure_value
-            ) from exc
+        """Interpolate density at one ``(z, x, pressure)`` point; zero outside the cube."""
+        return float(self._interpolator_at_z(z_value)((x_value, pressure_value)))
 
     def interpolate_along_z(
         self,
@@ -129,7 +108,10 @@ class DensityInterpolation:
         x_value: float,
         pressure_value: float,
     ) -> np.ndarray:
-        """Interpolate density along ``z`` at fixed ``x`` and backing pressure."""
+        """Interpolate density along ``z`` at fixed ``x`` and backing pressure.
+
+        Points outside the tabulated ranges evaluate to :data:`FILL_VALUE`.
+        """
         z_array = np.asarray(z_values, dtype=np.float64)
         result = np.empty_like(z_array)
         for index, z_value in enumerate(z_array.flat):
@@ -149,12 +131,7 @@ class DensityInterpolation:
         query = np.column_stack((x_values, np.full(x_values.size, pressure_value)))
         density_grid = np.empty((x_values.size, len(z_values)), dtype=np.float64)
         for iz, z_value in enumerate(z_values):
-            try:
-                density_grid[:, iz] = self._interpolator_at_z(float(z_value))(query)
-            except ValueError as exc:
-                raise self._query_error(
-                    exc, z_value=float(z_value), pressure_value=pressure_value
-                ) from exc
+            density_grid[:, iz] = self._interpolator_at_z(float(z_value))(query)
         return density_grid
 
     def xz_grids_at_pressures(
@@ -173,9 +150,17 @@ class DensityInterpolation:
         xz_stack: np.ndarray,
         pressure_value: float,
     ) -> np.ndarray:
-        """Linearly interpolate a precomputed ``(pressure, x, z)`` stack to one pressure."""
+        """Linearly interpolate a precomputed ``(pressure, x, z)`` stack to one pressure.
+
+        Pressures outside the tabulated range give a :data:`FILL_VALUE` grid.
+        """
         interpolator = interp1d(
-            self.pressure, xz_stack, axis=0, bounds_error=True, assume_sorted=True
+            self.pressure,
+            xz_stack,
+            axis=0,
+            bounds_error=False,
+            fill_value=FILL_VALUE,
+            assume_sorted=True,
         )
         return np.asarray(interpolator(pressure_value), dtype=np.float64)
 
@@ -201,6 +186,7 @@ def build_density_callable(
 
     ``r`` is required by FBPIC but ignored: the profile depends on ``z`` only. The
     cube is loaded from ``hdf5_path`` unless an already-built ``field`` is supplied.
+    ``z`` values beyond the tabulated range return :data:`FILL_VALUE` (vacuum).
     """
     if field is None:
         field = build_density_interpolation(hdf5_path, method=method)
