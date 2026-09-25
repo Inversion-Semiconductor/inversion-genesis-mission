@@ -2,8 +2,8 @@
 """Build a compact JSON dataset from FBPIC simulation diagnostics.
 
 Each ``sim_*`` directory beneath the supplied root must contain ``input.ini``
-with a ``[VaryingParameters]`` section and particle diagnostics under
-``lab_diags/hdf5``. The output records the varying inputs and a phase-space
+with a ``[PhysicalParameters]`` section and particle diagnostics under
+``lab_diags/hdf5``. The output records the physical inputs and a phase-space
 descriptor for the final diagnostic in each simulation.
 
 Sample usage:
@@ -109,10 +109,10 @@ def main() -> None:
             raise ValueError(f"{run_dir}: no particle diagnostics found")
 
         input_sections = read_input(run_dir / "input.ini")
-        if "VaryingParameters" not in input_sections:
-            raise ValueError(f"{run_dir}: missing [VaryingParameters] in input.ini")
+        if "PhysicalParameters" not in input_sections:
+            raise ValueError(f"{run_dir}: missing [PhysicalParameters] in input.ini")
         records[run_dir.name] = {
-            "input": input_sections["VaryingParameters"],
+            "input": input_sections["PhysicalParameters"],
             "output": build_output(
                 diagnostic_files[-1], args.species, args.uz_min, args.central_fraction
             ),

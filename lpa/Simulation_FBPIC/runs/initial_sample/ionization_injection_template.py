@@ -354,7 +354,9 @@ class IonizationInjectionSimulation:
                 "dt": dt,
             },
         )
-        InputParameters.save_to_ini(hyperparameters["lab_diagnostic_directory"])
+        InputParameters.save_to_ini(
+            Path(hyperparameters["lab_diagnostic_directory"]).parent
+        )
 
     def run(self) -> None:
         """Launch the configured simulation through the shared FBPIC runner."""

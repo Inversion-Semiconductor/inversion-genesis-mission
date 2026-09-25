@@ -138,7 +138,7 @@ After installing the package with `pip install -e .`, the commands below can be 
       `build-dataset` converts a collection of FBPIC runs into a JSON dataset for
       downstream analysis. Its required positional argument is a directory that
       contains `sim_*` subdirectories. Each run must contain `input.ini` with a
-      `[VaryingParameters]` section and particle diagnostics in
+      `[PhysicalParameters]` section and particle diagnostics in
       `lab_diags/hdf5/`.
 
       ```bash
@@ -146,7 +146,7 @@ After installing the package with `pip install -e .`, the commands below can be 
          --species nitrogen_electrons --uz-min 30 --central-fraction 0.95
       ```
 
-      The output records each run's varying input parameters and a weighted
+      The output records each run's physical input parameters and a weighted
       six-dimensional electron-beam descriptor derived from the final diagnostic.
       The `runs/initial_sample/` directory contains an example run configuration
       and sample dataset layout.

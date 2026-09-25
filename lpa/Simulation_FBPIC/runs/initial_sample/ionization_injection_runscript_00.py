@@ -14,7 +14,7 @@ from ionization_injection_template import IonizationInjectionSimulation
 
 
 RUN_DIRECTORY = Path(__file__).parent
-DESCRIPTION: str = "sim_nominal"
+DESCRIPTION: str = "sim_0000"
 
 # FBPIC numerical and execution settings.
 HYPERPARAMETERS = {
