@@ -33,7 +33,7 @@ def main() -> None:
         "--output", type=Path, default=Path("phase_space_moments.png")
     )
     parser.add_argument(
-        "--uz-min", type=float, default=900.0, help="Minimum retained uz"
+        "--uz-min", type=float, default=30.0, help="Minimum retained uz"
     )
     parser.add_argument(
         "--crop-central-fraction",
