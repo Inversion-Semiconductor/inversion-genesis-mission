@@ -78,6 +78,7 @@ def parse_ini_value(value: str) -> bool | int | float | str:
 def read_input(path: Path) -> dict[str, dict[str, bool | int | float | str]]:
     """Read every INI section and convert scalar values where possible."""
     parser = configparser.ConfigParser()
+    parser.optionxform = str
     with path.open(encoding="utf-8") as input_file:
         parser.read_file(input_file)
     return {
