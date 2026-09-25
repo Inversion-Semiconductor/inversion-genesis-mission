@@ -9,7 +9,10 @@ comparisons additionally report pointwise error distributions.
 
 from __future__ import annotations
 
-if __package__ in (None, ""):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
+if __package__ in (
+    None,
+    "",
+):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
     import sys
     from pathlib import Path as _Path
 
@@ -92,7 +95,10 @@ def pool_distributions(distributions: Sequence[ErrorDistribution]) -> ErrorDistr
     count = sum(distribution.sample_count for distribution in distributions)
     mean = sum(d.sample_count * d.mean for d in distributions) / count
     second_moment = (
-        sum(d.sample_count * (d.standard_deviation**2 + d.mean**2) for d in distributions)
+        sum(
+            d.sample_count * (d.standard_deviation**2 + d.mean**2)
+            for d in distributions
+        )
         / count
     )
     return ErrorDistribution(
@@ -201,7 +207,11 @@ def load_resolution_cgns_fields(input_dir: Path) -> list[ResolutionField]:
         x, z, density = load_cgns_density_points(path)
         fields.append(
             ResolutionField(
-                grid_size_mm=parse_grid_size_filename(path), path=path, x=x, z=z, density=density
+                grid_size_mm=parse_grid_size_filename(path),
+                path=path,
+                x=x,
+                z=z,
+                density=density,
             )
         )
     return sorted(fields, key=lambda field: field.grid_size_mm)
@@ -311,7 +321,9 @@ def _clip_field(
     if z_max is not None:
         mask &= field.z <= z_max
     if np.count_nonzero(mask) < 3:
-        raise ValueError(f"Clipping bounds leave fewer than three CGNS samples in {field.path}")
+        raise ValueError(
+            f"Clipping bounds leave fewer than three CGNS samples in {field.path}"
+        )
     return ResolutionField(
         grid_size_mm=field.grid_size_mm,
         path=field.path,
@@ -359,12 +371,16 @@ def regrid_cgns_fields(
     z_grid = np.linspace(common_z_min, common_z_max, z_points)
     z_mesh, x_mesh = np.meshgrid(z_grid, x_grid, indexing="ij")
     interpolator_class = (
-        LinearNDInterpolator if interpolation == "linear" else CloughTocher2DInterpolator
+        LinearNDInterpolator
+        if interpolation == "linear"
+        else CloughTocher2DInterpolator
     )
     grids = {
         field.grid_size_mm: np.asarray(
             interpolator_class(
-                Delaunay(np.column_stack((field.z, field.x))), field.density, fill_value=0.0
+                Delaunay(np.column_stack((field.z, field.x))),
+                field.density,
+                fill_value=0.0,
             )(z_mesh, x_mesh)
         )
         for field in clipped
@@ -388,7 +404,9 @@ def _local_relative_errors(coarse: np.ndarray, finer: np.ndarray) -> ErrorDistri
     nonzero = np.abs(finer) > 0.0
     if not np.any(nonzero):
         raise ValueError("Finer CGNS field has no nonzero density samples")
-    return ErrorDistribution.from_samples(np.abs(coarse[nonzero] - finer[nonzero]) / np.abs(finer[nonzero]))
+    return ErrorDistribution.from_samples(
+        np.abs(coarse[nonzero] - finer[nonzero]) / np.abs(finer[nonzero])
+    )
 
 
 def _peak_normalized_errors(coarse: np.ndarray, finer: np.ndarray) -> ErrorDistribution:
@@ -440,8 +458,12 @@ def calculate_field_convergence(
                 z_max_m=float(z_grid[-1]),
                 x_min_m=float(x_grid[0]),
                 x_max_m=float(x_grid[-1]),
-                local_relative_errors=_local_relative_errors(coarse_density, finer_density),
-                peak_normalized_errors=_peak_normalized_errors(coarse_density, finer_density),
+                local_relative_errors=_local_relative_errors(
+                    coarse_density, finer_density
+                ),
+                peak_normalized_errors=_peak_normalized_errors(
+                    coarse_density, finer_density
+                ),
             )
         )
     return metrics
@@ -451,9 +473,9 @@ def summarize_convergence(metrics: list[ConvergenceMetric]) -> list[ConvergenceS
     """Aggregate metrics per grid pair, ordered from coarsest to finest."""
     grouped: dict[tuple[float, float], list[ConvergenceMetric]] = {}
     for metric in metrics:
-        grouped.setdefault((metric.coarse_grid_size_mm, metric.finer_grid_size_mm), []).append(
-            metric
-        )
+        grouped.setdefault(
+            (metric.coarse_grid_size_mm, metric.finer_grid_size_mm), []
+        ).append(metric)
 
     summaries: list[ConvergenceSummary] = []
     for (coarse_size, finer_size), group in sorted(grouped.items()):
@@ -466,10 +488,14 @@ def summarize_convergence(metrics: list[ConvergenceMetric]) -> list[ConvergenceS
                 relative_error=(
                     pool_distributions(local)
                     if all(d is not None for d in local)
-                    else ErrorDistribution.from_samples([m.relative_error for m in group])
+                    else ErrorDistribution.from_samples(
+                        [m.relative_error for m in group]
+                    )
                 ),
                 peak_normalized=(
-                    pool_distributions(peak) if all(d is not None for d in peak) else None
+                    pool_distributions(peak)
+                    if all(d is not None for d in peak)
+                    else None
                 ),
             )
         )
@@ -508,13 +534,17 @@ def write_convergence_csv(
     """Write per-lineout metrics alongside their grid-pair aggregate statistics."""
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    summary_by_pair = {(s.coarse_grid_size_mm, s.finer_grid_size_mm): s for s in summaries}
+    summary_by_pair = {
+        (s.coarse_grid_size_mm, s.finer_grid_size_mm): s for s in summaries
+    }
 
     with output_path.open("w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=CSV_FIELDNAMES)
         writer.writeheader()
         for metric in metrics:
-            summary = summary_by_pair[(metric.coarse_grid_size_mm, metric.finer_grid_size_mm)]
+            summary = summary_by_pair[
+                (metric.coarse_grid_size_mm, metric.finer_grid_size_mm)
+            ]
             local = summary.relative_error
             peak = summary.peak_normalized
             writer.writerow(
@@ -535,8 +565,12 @@ def write_convergence_csv(
                     "standard_deviation_peak_normalized_absolute_error": (
                         peak.standard_deviation if peak else None
                     ),
-                    "minimum_peak_normalized_absolute_error": peak.minimum if peak else None,
-                    "maximum_peak_normalized_absolute_error": peak.maximum if peak else None,
+                    "minimum_peak_normalized_absolute_error": (
+                        peak.minimum if peak else None
+                    ),
+                    "maximum_peak_normalized_absolute_error": (
+                        peak.maximum if peak else None
+                    ),
                 }
             )
     return output_path
@@ -610,7 +644,9 @@ def plot_convergence(
         raise ValueError(f"Unknown CGNS field-error mode {field_error!r}")
 
     if view == "both":
-        figure, (summary_axis, lineout_axis) = plt.subplots(2, 1, sharex=True, figsize=(8, 8))
+        figure, (summary_axis, lineout_axis) = plt.subplots(
+            2, 1, sharex=True, figsize=(8, 8)
+        )
     else:
         figure, axis = plt.subplots(figsize=(8, 5))
         summary_axis = axis if view == "summary" else None
@@ -619,7 +655,9 @@ def plot_convergence(
     if summary_axis is not None:
         ordered = sorted(summaries, key=lambda summary: summary.coarse_grid_size_mm)
         grid_sizes = np.array([summary.coarse_grid_size_mm for summary in ordered])
-        is_field_summary = bool(ordered) and all(s.peak_normalized is not None for s in ordered)
+        is_field_summary = bool(ordered) and all(
+            s.peak_normalized is not None for s in ordered
+        )
         _style_convergence_axis(summary_axis)
         plot_values: list[np.ndarray] = []
         if not is_field_summary or field_error in {"local-relative", "both"}:
@@ -645,7 +683,9 @@ def plot_convergence(
         if plot_values:
             _set_log_y_limits(summary_axis, np.concatenate(plot_values))
         summary_axis.set_title(
-            "Mean field errors" if is_field_summary else "Mean convergence across lineouts"
+            "Mean field errors"
+            if is_field_summary
+            else "Mean convergence across lineouts"
         )
         summary_axis.legend()
 
@@ -657,7 +697,9 @@ def plot_convergence(
             ordered_metrics = sorted(label_metrics, key=lambda m: m.coarse_grid_size_mm)
             lineout_axis.plot(
                 [m.coarse_grid_size_mm for m in ordered_metrics],
-                _positive_plot_values(np.array([m.relative_error for m in ordered_metrics])),
+                _positive_plot_values(
+                    np.array([m.relative_error for m in ordered_metrics])
+                ),
                 marker="o",
                 label=label,
             )
@@ -710,7 +752,11 @@ def main() -> None:
         "(default: both)",
     )
     parser.add_argument(
-        "-o", "--output", type=Path, default=None, help="Save the plot instead of showing it"
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Save the plot instead of showing it",
     )
     parser.add_argument(
         "--metrics-output",
@@ -734,8 +780,12 @@ def main() -> None:
         default=None,
         help="CGNS comparison z bounds [mm] (default: full common extent)",
     )
-    parser.add_argument("--x-points", type=int, default=200, help="CGNS grid points along x")
-    parser.add_argument("--z-points", type=int, default=200, help="CGNS grid points along z")
+    parser.add_argument(
+        "--x-points", type=int, default=200, help="CGNS grid points along x"
+    )
+    parser.add_argument(
+        "--z-points", type=int, default=200, help="CGNS grid points along z"
+    )
     parser.add_argument(
         "--interpolation",
         choices=FIELD_INTERPOLATIONS,
@@ -751,8 +801,12 @@ def main() -> None:
 
     if input_format == "cgns":
         try:
-            x_bounds = validate_bounds(mm_bounds_to_m(args.x_bounds), axis_name="x") or (None, None)
-            z_bounds = validate_bounds(mm_bounds_to_m(args.z_bounds), axis_name="z") or (None, None)
+            x_bounds = validate_bounds(
+                mm_bounds_to_m(args.x_bounds), axis_name="x"
+            ) or (None, None)
+            z_bounds = validate_bounds(
+                mm_bounds_to_m(args.z_bounds), axis_name="z"
+            ) or (None, None)
         except ValueError as exc:
             parser.error(str(exc))
         metrics = calculate_field_convergence(

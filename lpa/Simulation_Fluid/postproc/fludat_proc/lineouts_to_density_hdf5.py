@@ -13,7 +13,10 @@ Example (conda env inv-fbpic):
 
 from __future__ import annotations
 
-if __package__ in (None, ""):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
+if __package__ in (
+    None,
+    "",
+):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
     import sys
     from pathlib import Path as _Path
 
@@ -46,7 +49,9 @@ def collect_pressure_files(input_path: Path) -> list[tuple[float, Path]]:
     else:
         raise FileNotFoundError(input_path)
 
-    pressure_files = sorted((parse_pressure_filename(path.name), path) for path in paths)
+    pressure_files = sorted(
+        (parse_pressure_filename(path.name), path) for path in paths
+    )
     pressures = [pressure for pressure, _ in pressure_files]
     if len(set(pressures)) != len(pressures):
         raise ValueError(f"Duplicate backing pressure file in {input_path}")
@@ -72,7 +77,8 @@ def build_density_cube(
     x_positions: list[float] | None = None
     for pressure, path in pressure_files:
         parsed_sections = sorted(
-            (parse_x_position(label), data) for label, data in parse_lineout_file(path).items()
+            (parse_x_position(label), data)
+            for label, data in parse_lineout_file(path).items()
         )
         current_x_positions = [x_position for x_position, _ in parsed_sections]
         if len(set(current_x_positions)) != len(current_x_positions):
@@ -133,7 +139,9 @@ def main() -> None:
         type=Path,
         help="One nozzle directory of <pressure>_bar.txt lineout files, or one such file",
     )
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Output HDF5 path")
+    parser.add_argument(
+        "-o", "--output", type=Path, required=True, help="Output HDF5 path"
+    )
     parser.add_argument(
         "--density-units",
         required=True,

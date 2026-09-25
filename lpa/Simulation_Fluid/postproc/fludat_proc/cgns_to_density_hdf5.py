@@ -14,7 +14,10 @@ Example (conda env inv-fbpic):
 
 from __future__ import annotations
 
-if __package__ in (None, ""):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
+if __package__ in (
+    None,
+    "",
+):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
     import sys
     from pathlib import Path as _Path
 
@@ -81,7 +84,9 @@ def collect_cgns_inputs(
     return sources
 
 
-def select_positive_quadrant(x: np.ndarray, z: np.ndarray, density: np.ndarray) -> PointField:
+def select_positive_quadrant(
+    x: np.ndarray, z: np.ndarray, density: np.ndarray
+) -> PointField:
     """Keep the ``x >= 0``, ``z >= 0`` samples that define the symmetric output."""
     mask = (x >= 0.0) & (z >= 0.0)
     if np.count_nonzero(mask) < MINIMUM_POINT_COUNT:
@@ -218,7 +223,9 @@ def convert_cgns_to_density_hdf5(
     density = np.stack(
         [
             density_scale
-            * grid_density(field, z_grid, x_grid_m, method=method, outside_fill=outside_fill)
+            * grid_density(
+                field, z_grid, x_grid_m, method=method, outside_fill=outside_fill
+            )
             for field in fields
         ],
         axis=-1,
@@ -239,7 +246,8 @@ def convert_cgns_to_density_hdf5(
         attributes={
             "source_format": "CGNS",
             "source_files": np.asarray(
-                [str(path) for _, path in sources], dtype=h5py.string_dtype(encoding="utf-8")
+                [str(path) for _, path in sources],
+                dtype=h5py.string_dtype(encoding="utf-8"),
             ),
             "source_coordinate_mapping": f"z_m={z_coordinate};x_mm={x_coordinate}*1000",
             "source_selection": f"{x_coordinate} >= 0 and {z_coordinate} >= 0",
@@ -259,7 +267,9 @@ def main() -> None:
         type=Path,
         help="Directory of <pressure>_bar.cgns files, or one CGNS file with --pressure",
     )
-    parser.add_argument("-o", "--output", type=Path, required=True, help="Output HDF5 file")
+    parser.add_argument(
+        "-o", "--output", type=Path, required=True, help="Output HDF5 file"
+    )
     parser.add_argument(
         "--pressure",
         type=float,
@@ -278,10 +288,16 @@ def main() -> None:
         help="Units of the scaled density dataset, for example kg/m^3 or cm^-3",
     )
     parser.add_argument(
-        "--nozzle", default=None, help="Nozzle name stored in the output (default: input name)"
+        "--nozzle",
+        default=None,
+        help="Nozzle name stored in the output (default: input name)",
     )
-    parser.add_argument("--z-points", type=int, default=1000, help="Output z grid points")
-    parser.add_argument("--x-points", type=int, default=500, help="Output x grid points")
+    parser.add_argument(
+        "--z-points", type=int, default=1000, help="Output z grid points"
+    )
+    parser.add_argument(
+        "--x-points", type=int, default=500, help="Output x grid points"
+    )
     parser.add_argument(
         "--z-bounds",
         type=float,

@@ -9,7 +9,10 @@ from fludat_proc.density_cube import DensityCube, load_density_cube, write_densi
 
 def test_round_trip_preserves_data_units_and_attributes(tmp_path, small_cube):
     path = write_density_cube(
-        tmp_path / "cube.h5", small_cube, density_scale=2.0, attributes={"source_format": "test"}
+        tmp_path / "cube.h5",
+        small_cube,
+        density_scale=2.0,
+        attributes={"source_format": "test"},
     )
 
     loaded = load_density_cube(path)
@@ -28,11 +31,15 @@ def test_round_trip_preserves_data_units_and_attributes(tmp_path, small_cube):
 def test_cube_validates_shape_and_monotonic_coordinates():
     z = np.array([0.0, 1.0])
     with pytest.raises(ValueError, match="strictly increasing"):
-        DensityCube("n", z[::-1], np.array([0.0]), np.array([1.0]), np.zeros((2, 1, 1)), "u")
+        DensityCube(
+            "n", z[::-1], np.array([0.0]), np.array([1.0]), np.zeros((2, 1, 1)), "u"
+        )
     with pytest.raises(ValueError, match="shape"):
         DensityCube("n", z, np.array([0.0]), np.array([1.0]), np.zeros((1, 2, 1)), "u")
     with pytest.raises(ValueError, match="finite"):
-        DensityCube("n", z, np.array([0.0]), np.array([1.0]), np.full((2, 1, 1), np.nan), "u")
+        DensityCube(
+            "n", z, np.array([0.0]), np.array([1.0]), np.full((2, 1, 1), np.nan), "u"
+        )
 
 
 def test_load_rejects_missing_dimension_scales(tmp_path, small_cube):

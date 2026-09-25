@@ -11,7 +11,10 @@ Examples (conda env inv-fbpic):
 
 from __future__ import annotations
 
-if __package__ in (None, ""):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
+if __package__ in (
+    None,
+    "",
+):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
     import sys
     from pathlib import Path as _Path
 
@@ -92,7 +95,11 @@ def _figure_with_sliders(
     grid = gridspec.GridSpec(
         1 + slider_count, 1, height_ratios=[20] + [1] * slider_count, hspace=0.45
     )
-    return fig, fig.add_subplot(grid[0]), [fig.add_subplot(grid[i + 1]) for i in range(slider_count)]
+    return (
+        fig,
+        fig.add_subplot(grid[0]),
+        [fig.add_subplot(grid[i + 1]) for i in range(slider_count)],
+    )
 
 
 def plot_density_interpolation(
@@ -111,8 +118,12 @@ def plot_density_interpolation(
 
     Bounds are in the cube's units: ``x`` in mm, ``z`` in m.
     """
-    x_values = np.linspace(*_resolve_bounds(x_bounds, field.x_extent, axis_name="x"), x_points)
-    z_values = np.linspace(*_resolve_bounds(z_bounds, field.z_extent, axis_name="z"), z_points)
+    x_values = np.linspace(
+        *_resolve_bounds(x_bounds, field.x_extent, axis_name="x"), x_points
+    )
+    z_values = np.linspace(
+        *_resolve_bounds(z_bounds, field.z_extent, axis_name="z"), z_points
+    )
     if pressure is None:
         pressure = float(field.pressure[0])
 
@@ -125,7 +136,9 @@ def plot_density_interpolation(
     else:
         density_grid = field.interpolate_xz_grid(x_values, z_values, pressure)
 
-    mesh = ax.pcolormesh(z_values * MM_PER_M, x_values, density_grid, shading="auto", cmap="viridis")
+    mesh = ax.pcolormesh(
+        z_values * MM_PER_M, x_values, density_grid, shading="auto", cmap="viridis"
+    )
     colorbar = fig.colorbar(mesh, ax=ax, label=_density_label(field))
     ax.set_xlabel("z [mm]")
     ax.set_ylabel("x [mm]")
@@ -136,7 +149,12 @@ def plot_density_interpolation(
         fig.tight_layout()
         return DensityPlot(fig)
 
-    slider = Slider(slider_axes[0], "backing pressure [bar]", *field.pressure_extent, valinit=pressure)
+    slider = Slider(
+        slider_axes[0],
+        "backing pressure [bar]",
+        *field.pressure_extent,
+        valinit=pressure,
+    )
 
     def on_pressure_change(pressure_value: float) -> None:
         density = field.interpolate_xz_from_pressure_stack(xz_stack, pressure_value)
@@ -184,13 +202,17 @@ def plot_density_lineout(
 
     interactive = interactive and ax is None
     fig, plot_ax, slider_axes = _figure_with_sliders(ax, 2 if interactive else 0)
-    (line,) = plot_ax.plot(z_values * MM_PER_M, evaluate(z_values, x_position, pressure))
+    (line,) = plot_ax.plot(
+        z_values * MM_PER_M, evaluate(z_values, x_position, pressure)
+    )
     plot_ax.set_xlabel("z [mm]")
     plot_ax.set_ylabel(_density_label(field))
     plot_ax.grid()
     auto_title = title is None
     plot_ax.set_title(
-        _lineout_title(field, x_position, pressure, label=title_label) if auto_title else title
+        _lineout_title(field, x_position, pressure, label=title_label)
+        if auto_title
+        else title
     )
 
     if not interactive:
@@ -198,7 +220,10 @@ def plot_density_lineout(
         return DensityPlot(fig)
 
     pressure_slider = Slider(
-        slider_axes[0], "backing pressure [bar]", *field.pressure_extent, valinit=pressure
+        slider_axes[0],
+        "backing pressure [bar]",
+        *field.pressure_extent,
+        valinit=pressure,
     )
     x_slider = Slider(slider_axes[1], "x [mm]", *resolved_x_bounds, valinit=x_position)
 
@@ -208,7 +233,9 @@ def plot_density_lineout(
         plot_ax.autoscale_view()
         if auto_title:
             plot_ax.set_title(
-                _lineout_title(field, x_slider.val, pressure_slider.val, label=title_label)
+                _lineout_title(
+                    field, x_slider.val, pressure_slider.val, label=title_label
+                )
             )
         fig.canvas.draw_idle()
 
@@ -230,8 +257,12 @@ def plot_density_callable_lineout(
     integration rather than a faster or different plot.
     """
 
-    def density_fn(z_values: np.ndarray, x_value: float, pressure_value: float) -> np.ndarray:
-        density = build_density_callable(hdf5_path, pressure_value, x_value, method=method, field=field)
+    def density_fn(
+        z_values: np.ndarray, x_value: float, pressure_value: float
+    ) -> np.ndarray:
+        density = build_density_callable(
+            hdf5_path, pressure_value, x_value, method=method, field=field
+        )
         return density(z_values, np.zeros_like(z_values))
 
     return plot_density_lineout(
@@ -286,7 +317,11 @@ def main() -> None:
         help="z plot bounds [mm] (default: full dataset extent)",
     )
     parser.add_argument(
-        "-o", "--output", type=Path, default=None, help="Save the figure instead of showing it"
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Save the figure instead of showing it",
     )
     parser.add_argument("-t", "--title", default=None, help="Figure title")
     args = parser.parse_args()

@@ -38,7 +38,10 @@ def test_collect_cgns_inputs(tmp_path):
         write_density_cgns(tmp_path / name)
     (tmp_path / "notes.txt").write_text("ignored")
 
-    assert [p for p, _ in collect_cgns_inputs(tmp_path, pressure_bar=None)] == [5.0, 10.0]
+    assert [p for p, _ in collect_cgns_inputs(tmp_path, pressure_bar=None)] == [
+        5.0,
+        10.0,
+    ]
     assert collect_cgns_inputs(tmp_path / "5_bar.cgns", pressure_bar=7.0)[0][0] == 7.0
     with pytest.raises(ValueError, match="pressure_bar is required"):
         collect_cgns_inputs(tmp_path / "5_bar.cgns", pressure_bar=None)
@@ -95,7 +98,9 @@ def test_grid_density_samples_at_abs_z_and_fills_outside():
 
     gridded = grid_density(field, z_grid, x_grid, outside_fill="zero")
 
-    np.testing.assert_allclose(gridded[:, :3], np.abs(z_grid)[:, None] * 2 + x_grid[None, :3])
+    np.testing.assert_allclose(
+        gridded[:, :3], np.abs(z_grid)[:, None] * 2 + x_grid[None, :3]
+    )
     np.testing.assert_array_equal(gridded[:, 3], 0.0)
     with pytest.raises(ValueError, match="outside the CGNS domain"):
         grid_density(field, z_grid, x_grid, outside_fill="raise")
@@ -110,7 +115,12 @@ def test_convert_directory_writes_symmetric_cube_with_mm_x(tmp_path):
     output = tmp_path / "out.h5"
 
     convert_cgns_to_density_hdf5(
-        tmp_path, output, density_scale=2.0, density_units="kg/m^3", z_count=5, x_count=3
+        tmp_path,
+        output,
+        density_scale=2.0,
+        density_units="kg/m^3",
+        z_count=5,
+        x_count=3,
     )
 
     cube = load_density_cube(output)
@@ -130,9 +140,23 @@ def test_cli_single_file_with_pressure_and_mm_bounds(tmp_path):
     path = write_density_cgns(tmp_path / "field.cgns")
     output = tmp_path / "single.h5"
     argv = [
-        "cgns_to_density_hdf5", str(path), "-o", str(output), "--pressure", "7",
-        "--density-units", "kg/m^3", "--z-points", "3", "--x-points", "2",
-        "--x-bounds", "0", "500", "--nozzle", "htu",
+        "cgns_to_density_hdf5",
+        str(path),
+        "-o",
+        str(output),
+        "--pressure",
+        "7",
+        "--density-units",
+        "kg/m^3",
+        "--z-points",
+        "3",
+        "--x-points",
+        "2",
+        "--x-bounds",
+        "0",
+        "500",
+        "--nozzle",
+        "htu",
     ]
     with patch.object(sys, "argv", argv):
         main()

@@ -24,7 +24,9 @@ def parse_lineout_file(path: Path) -> dict[str, np.ndarray]:
             if match := SECTION_HEADER.match(line):
                 current_label = match.group(1)
                 if current_label in sections:
-                    raise ValueError(f"Duplicate lineout section {current_label!r} in {path}")
+                    raise ValueError(
+                        f"Duplicate lineout section {current_label!r} in {path}"
+                    )
                 sections[current_label] = []
                 continue
 
@@ -42,7 +44,9 @@ def parse_lineout_file(path: Path) -> dict[str, np.ndarray]:
     if not sections:
         raise ValueError(f"No lineout sections found in {path}")
 
-    return {label: np.array(points, dtype=np.float64) for label, points in sections.items()}
+    return {
+        label: np.array(points, dtype=np.float64) for label, points in sections.items()
+    }
 
 
 def parse_x_position(label: str) -> float:
@@ -79,5 +83,7 @@ def mirror_across_z0(profile: np.ndarray) -> np.ndarray:
     profile = deduplicate_and_sort_profile(profile)
     positive = profile[profile[:, 0] >= 0]
     strictly_positive = positive[positive[:, 0] > 0]
-    negative = np.column_stack((-strictly_positive[:, 0], strictly_positive[:, 1]))[::-1]
+    negative = np.column_stack((-strictly_positive[:, 0], strictly_positive[:, 1]))[
+        ::-1
+    ]
     return np.concatenate((negative, positive))

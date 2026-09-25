@@ -7,7 +7,11 @@ import numpy as np
 import pytest
 
 from fludat_proc.density_cube import load_density_cube
-from fludat_proc.lineouts_to_density_hdf5 import build_density_cube, collect_pressure_files, main
+from fludat_proc.lineouts_to_density_hdf5 import (
+    build_density_cube,
+    collect_pressure_files,
+    main,
+)
 
 from .conftest import write_lineout_file
 
@@ -19,7 +23,11 @@ def _write_nozzle(directory, pressures=(5.0, 20.0)):
             directory / f"{pressure:g}_bar.txt",
             {
                 "x-0-0": [(0.0, 1.0 * pressure), (0.001, 0.5 * pressure), (0.002, 0.0)],
-                "x-1-0": [(0.002, 0.0), (0.001, 0.25 * pressure), (0.0, 0.5 * pressure)],
+                "x-1-0": [
+                    (0.002, 0.0),
+                    (0.001, 0.25 * pressure),
+                    (0.0, 0.5 * pressure),
+                ],
             },
         )
     return directory
@@ -78,7 +86,15 @@ def test_cli_writes_loadable_cube(tmp_path):
     nozzle = _write_nozzle(tmp_path / "400_um")
     output = tmp_path / "out" / "400_um.h5"
 
-    argv = ["lineouts_to_density_hdf5", "1e20", str(nozzle), "-o", str(output), "--density-units", "m^-3"]
+    argv = [
+        "lineouts_to_density_hdf5",
+        "1e20",
+        str(nozzle),
+        "-o",
+        str(output),
+        "--density-units",
+        "m^-3",
+    ]
     with patch.object(sys, "argv", argv):
         main()
 

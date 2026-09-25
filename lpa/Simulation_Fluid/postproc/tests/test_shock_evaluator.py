@@ -9,7 +9,11 @@ import numpy as np
 import pytest
 from matplotlib.backend_bases import MouseEvent
 
-from fludat_proc.cgns_io import CgnsDataError, CgnsScalarFieldData, load_cgns_scalar_fields
+from fludat_proc.cgns_io import (
+    CgnsDataError,
+    CgnsScalarFieldData,
+    load_cgns_scalar_fields,
+)
 from fludat_proc.shock_evaluator import (
     InteractiveShockEvaluator,
     ShockEvaluation,
@@ -74,8 +78,14 @@ def test_load_discovers_point_aligned_fields_and_ignores_metadata(tmp_path):
     data = load_cgns_scalar_fields(write_shock_field(tmp_path / "field.cgns"))
 
     assert set(data.fields) == {
-        "Density", "Temperature", "Mach", "Axial_Velocity", "Radial_Velocity",
-        "Pressure", "dp-dX", "dp-dY",
+        "Density",
+        "Temperature",
+        "Mach",
+        "Axial_Velocity",
+        "Radial_Velocity",
+        "Pressure",
+        "dp-dX",
+        "dp-dY",
     }
     np.testing.assert_array_equal(data.x, [0.0, 1.0, 0.0, 1.0, 0.5])
 
@@ -95,7 +105,10 @@ def test_load_clips_all_fields_to_requested_bounds(tmp_path):
 
 def test_gradient_magnitude_requires_both_components():
     np.testing.assert_array_equal(
-        density_gradient_magnitude({"dp-dX": np.array([3.0]), "dp-dY": np.array([4.0])}), [5.0]
+        density_gradient_magnitude(
+            {"dp-dX": np.array([3.0]), "dp-dY": np.array([4.0])}
+        ),
+        [5.0],
     )
     with pytest.raises(CgnsDataError, match="dp-dY"):
         density_gradient_magnitude({"dp-dX": np.array([3.0])})
@@ -132,7 +145,9 @@ def test_normalize_lineout_values_preserves_gaps_and_zero_baseline():
         [-1.0, 0.0, 0.5, np.nan],
         equal_nan=True,
     )
-    np.testing.assert_array_equal(normalize_lineout_values(np.array([0.0, 0.0])), [0.0, 0.0])
+    np.testing.assert_array_equal(
+        normalize_lineout_values(np.array([0.0, 0.0])), [0.0, 0.0]
+    )
 
 
 def test_oblique_relations_validate_gamma():
@@ -228,7 +243,9 @@ def test_third_point_shock_direction_uses_midpoint_ray():
     assert np.rad2deg(beta_rad) == pytest.approx(90.0)
     np.testing.assert_allclose(direction, [0.0, 1.0])
     with pytest.raises(ValueError, match="differ from the segment midpoint"):
-        third_point_shock_direction((0.0, 0.0), (0.0, 2.0), (0.0, 1.0), np.array([100.0, 0.0]))
+        third_point_shock_direction(
+            (0.0, 0.0), (0.0, 2.0), (0.0, 1.0), np.array([100.0, 0.0])
+        )
 
 
 def test_controller_updates_checked_lineouts_from_selected_segment(tmp_path):
@@ -241,11 +258,16 @@ def test_controller_updates_checked_lineouts_from_selected_segment(tmp_path):
     viewer.segment = ((0.0, 0.0), (1.0, 1.0))
     viewer._update_lineout()
     assert [line.get_label() for line in viewer.lineout_axes.lines] == ["Density"]
-    np.testing.assert_allclose(viewer.lineout_axes.lines[0].get_ydata(), np.linspace(1.0, 4.0, 5))
+    np.testing.assert_allclose(
+        viewer.lineout_axes.lines[0].get_ydata(), np.linspace(1.0, 4.0, 5)
+    )
 
     viewer.field_checkboxes.set_active(list(viewer.data.fields).index("Temperature"))
     assert len(viewer.lineout_axes.lines) == 2
-    assert viewer.lineout_axes.get_ylabel() == "independently magnitude-normalized field value"
+    assert (
+        viewer.lineout_axes.get_ylabel()
+        == "independently magnitude-normalized field value"
+    )
     for line in viewer.lineout_axes.lines:
         finite = line.get_ydata()[np.isfinite(line.get_ydata())]
         assert 0.0 <= finite.min() and finite.max() <= 1.0
@@ -259,7 +281,10 @@ def test_color_limit_boxes_are_hidden_unless_requested(tmp_path):
     data = load_cgns_scalar_fields(write_shock_field(tmp_path / "field.cgns"))
 
     assert InteractiveShockEvaluator(data).lower_limit_box is None
-    assert InteractiveShockEvaluator(data, show_color_limit_boxes=True).upper_limit_box is not None
+    assert (
+        InteractiveShockEvaluator(data, show_color_limit_boxes=True).upper_limit_box
+        is not None
+    )
 
 
 def test_controller_reports_shock_state_after_segment_selection(tmp_path):
@@ -298,14 +323,19 @@ def test_controller_reports_missing_state_fields(tmp_path):
 
 
 @pytest.mark.parametrize("shock_angle", ["auto", "perp"])
-def test_controller_reports_downstream_over_upstream_regardless_of_drag_direction(shock_angle):
+def test_controller_reports_downstream_over_upstream_regardless_of_drag_direction(
+    shock_angle,
+):
     x = np.array([0.0, 1.0, 0.0, 1.0])
     data = square_field_data(mach=1.0 + 2.0 * x)
     # Mach and pressure both grow with x, so x = 1 is upstream whichever way we drag.
     data.fields["Axial_Velocity"] = 100.0 + 100.0 * x
     data.fields["Radial_Velocity"] = 20.0 * (1.0 - x)
     results = {}
-    for direction, segment in (("forward", ((0.0, 0.0), (0.0, 1.0))), ("reverse", ((0.0, 1.0), (0.0, 0.0)))):
+    for direction, segment in (
+        ("forward", ((0.0, 0.0), (0.0, 1.0))),
+        ("reverse", ((0.0, 1.0), (0.0, 0.0))),
+    ):
         viewer = InteractiveShockEvaluator(data, shock_angle=shock_angle)
         viewer.segment = segment
         viewer._update_shock_evaluation()
@@ -329,7 +359,9 @@ def test_controller_reports_downstream_over_upstream_regardless_of_drag_directio
 
 def test_controller_third_point_mode_waits_then_evaluates_direction():
     x = np.array([0.0, 1.0, 0.0, 1.0])
-    viewer = InteractiveShockEvaluator(square_field_data(mach=3.0 - x), shock_angle="manual")
+    viewer = InteractiveShockEvaluator(
+        square_field_data(mach=3.0 - x), shock_angle="manual"
+    )
     viewer.segment = ((0.0, 0.0), (0.0, 1.0))
     viewer._third_point = None
 
@@ -348,7 +380,9 @@ def test_controller_third_point_mode_waits_then_evaluates_direction():
 
 def test_manual_third_point_click_refreshes_lineout_window():
     x = np.array([0.0, 1.0, 0.0, 1.0])
-    viewer = InteractiveShockEvaluator(square_field_data(mach=3.0 - x), shock_angle="manual")
+    viewer = InteractiveShockEvaluator(
+        square_field_data(mach=3.0 - x), shock_angle="manual"
+    )
     viewer.segment = ((0.0, 0.0), (0.0, 1.0))
     viewer.figure.canvas.draw()
     pixel = viewer.heatmap_axes.transData.transform((1.0, 0.5))
@@ -378,11 +412,15 @@ def test_main_retains_drag_callbacks_through_show(tmp_path):
             ("motion_notify_event", end),
             ("button_release_event", end),
         ):
-            canvas.callbacks.process(event_name, MouseEvent(event_name, canvas, *position, button=1))
+            canvas.callbacks.process(
+                event_name, MouseEvent(event_name, canvas, *position, button=1)
+            )
         assert len(figure.axes[1].lines) == 1
 
     with (
-        patch.object(sys, "argv", ["shock_evaluator", str(path), "--x-bounds", "-1", "2000"]),
+        patch.object(
+            sys, "argv", ["shock_evaluator", str(path), "--x-bounds", "-1", "2000"]
+        ),
         patch("fludat_proc.shock_evaluator.plt.show", side_effect=exercise_drag),
     ):
         main()

@@ -24,7 +24,9 @@ def test_parser_returns_labeled_float64_profiles(tmp_path):
 
 
 def test_parser_rejects_duplicate_labels_and_empty_files(tmp_path):
-    path = write_lineout_file(tmp_path / "dup.txt", {"x-0-0": [(0.0, 1.0)], "x-0-0 ": [(1.0, 2.0)]})
+    path = write_lineout_file(
+        tmp_path / "dup.txt", {"x-0-0": [(0.0, 1.0)], "x-0-0 ": [(1.0, 2.0)]}
+    )
     path.write_text(path.read_text().replace('"x-0-0 "', '"x-0-0"'))
     with pytest.raises(ValueError, match="Duplicate lineout section"):
         parse_lineout_file(path)
@@ -65,7 +67,9 @@ def test_parse_grid_size_filename():
 def test_deduplicate_and_sort_profile_keeps_last_value():
     profile = np.array([[1.0, 2.0], [0.0, 0.0], [1.0, 3.0]])
 
-    np.testing.assert_array_equal(deduplicate_and_sort_profile(profile), [[0.0, 0.0], [1.0, 3.0]])
+    np.testing.assert_array_equal(
+        deduplicate_and_sort_profile(profile), [[0.0, 0.0], [1.0, 3.0]]
+    )
     with pytest.raises(ValueError, match="two distinct"):
         deduplicate_and_sort_profile(np.array([[1.0, 2.0], [1.0, 3.0]]))
 

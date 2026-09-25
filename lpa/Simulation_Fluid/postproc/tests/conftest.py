@@ -22,7 +22,9 @@ def _close_figures():
     plt.close("all")
 
 
-def write_lineout_file(path: Path, sections: dict[str, list[tuple[float, float]]]) -> Path:
+def write_lineout_file(
+    path: Path, sections: dict[str, list[tuple[float, float]]]
+) -> Path:
     """Write an ANSYS-style sectioned lineout export."""
     lines = ['(title "Density")', '(labels "Position" "Density")', ""]
     for label, points in sections.items():
@@ -54,9 +56,13 @@ def write_cgns_file(
 
 def write_density_cgns(path: Path, density_scale: float = 1.0) -> Path:
     """A six-point field spanning x in [-1, 1], z in [0, 1] with density x + 2z + 3."""
-    points = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.0], [-1.0, 1.0]])
+    points = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [-1.0, 0.0], [-1.0, 1.0]]
+    )
     x, z = points[:, 0], points[:, 1]
-    return write_cgns_file(path, x=x, z=z, fields={"Density": density_scale * (x + 2 * z + 3)})
+    return write_cgns_file(
+        path, x=x, z=z, fields={"Density": density_scale * (x + 2 * z + 3)}
+    )
 
 
 @pytest.fixture
@@ -67,7 +73,12 @@ def small_cube() -> DensityCube:
     pressure = np.array([5.0, 10.0])
     density = (1 + z)[:, None, None] * (1 + x)[None, :, None] * pressure[None, None, :]
     return DensityCube(
-        nozzle="test", z=z, x=x, pressure=pressure, density=density, density_units="cm^-3"
+        nozzle="test",
+        z=z,
+        x=x,
+        pressure=pressure,
+        density=density,
+        density_units="cm^-3",
     )
 
 

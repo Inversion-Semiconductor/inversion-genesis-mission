@@ -13,7 +13,10 @@ Example (conda env inv-fbpic):
 
 from __future__ import annotations
 
-if __package__ in (None, ""):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
+if __package__ in (
+    None,
+    "",
+):  # run as a plain script, e.g. `python fludat_proc/plot_density.py`
     import sys
     from pathlib import Path as _Path
 
@@ -89,7 +92,11 @@ def oblique_rho2rho1(gamma: float, m1: float, beta: float) -> float:
     """Density ratio rho2/rho1 across an oblique shock (arguments as ``oblique_p2p1``)."""
     gamma = validate_gamma(gamma)
     normal_mach_squared = m1**2 * np.sin(beta) ** 2
-    return (gamma + 1.0) * normal_mach_squared / ((gamma - 1.0) * normal_mach_squared + 2.0)
+    return (
+        (gamma + 1.0)
+        * normal_mach_squared
+        / ((gamma - 1.0) * normal_mach_squared + 2.0)
+    )
 
 
 def oblique_T2T1(gamma: float, m1: float, beta: float) -> float:
@@ -115,7 +122,9 @@ class ShockState:
         return cls(values["Pressure"], values["Density"], values["Temperature"])
 
     def as_array(self) -> np.ndarray:
-        return np.array((self.pressure, self.density, self.temperature), dtype=np.float64)
+        return np.array(
+            (self.pressure, self.density, self.temperature), dtype=np.float64
+        )
 
 
 @dataclass(frozen=True)
@@ -149,7 +158,10 @@ def validate_shock_angle_mode(mode: str) -> str:
 
 def select_upstream_endpoint(start_mach: float, end_mach: float) -> tuple[bool, str]:
     """Return whether the drag start is upstream, based on the larger endpoint Mach."""
-    if not np.isfinite((start_mach, end_mach)).all() or min(start_mach, end_mach) <= 0.0:
+    if (
+        not np.isfinite((start_mach, end_mach)).all()
+        or min(start_mach, end_mach) <= 0.0
+    ):
         raise ValueError("Endpoint Mach numbers must be finite and positive")
     if np.isclose(start_mach, end_mach):
         raise ValueError("Cannot infer upstream endpoint from equal Mach numbers")
@@ -170,7 +182,9 @@ def _to_physical(plot_direction: np.ndarray) -> np.ndarray:
     return np.array((plot_direction[1], plot_direction[0]))
 
 
-def _beta_from_direction(shock_direction: np.ndarray, upstream_velocity: np.ndarray) -> float:
+def _beta_from_direction(
+    shock_direction: np.ndarray, upstream_velocity: np.ndarray
+) -> float:
     """Return the angle between a unit shock direction and the upstream velocity."""
     upstream_speed = float(np.linalg.norm(upstream_velocity))
     if upstream_speed == 0.0:
@@ -250,7 +264,9 @@ def evaluate_oblique_shock(
         change_speed = float(np.linalg.norm(velocity_change))
         if change_speed == 0.0:
             raise ValueError("Upstream and downstream velocities must differ")
-        beta_rad = np.pi/2 - _beta_from_direction(velocity_change / change_speed, upstream_velocity)
+        beta_rad = np.pi / 2 - _beta_from_direction(
+            velocity_change / change_speed, upstream_velocity
+        )
     elif not np.isfinite(beta_rad) or not 0.0 <= beta_rad <= np.pi:
         raise ValueError("Shock angle beta must be finite and between 0 and pi radians")
 
@@ -301,8 +317,16 @@ def format_shock_report(evaluation: ShockEvaluation) -> str:
             f"angle = {evaluation.angle_source}",
             f"{'ratio (2 = downstream)':<{label_width}}{'simulated':>{value_width}}"
             f"{'predicted':>{value_width}}{'percent error [%]':>{value_width}}",
-            row("P2/P1", evaluation.pressure_ratio_simulated, evaluation.pressure_ratio_predicted),
-            row("rho2/rho1", evaluation.density_ratio_simulated, evaluation.density_ratio_predicted),
+            row(
+                "P2/P1",
+                evaluation.pressure_ratio_simulated,
+                evaluation.pressure_ratio_predicted,
+            ),
+            row(
+                "rho2/rho1",
+                evaluation.density_ratio_simulated,
+                evaluation.density_ratio_predicted,
+            ),
             row(
                 "T2/T1",
                 evaluation.temperature_ratio_simulated,
@@ -333,7 +357,9 @@ def density_gradient_magnitude(
             f"{exc.args[0]!r}; expected {x_gradient_name!r} and {y_gradient_name!r}"
         ) from exc
     if x_gradient.shape != y_gradient.shape:
-        raise CgnsDataError("Density-gradient component arrays must have matching shapes")
+        raise CgnsDataError(
+            "Density-gradient component arrays must have matching shapes"
+        )
     return np.hypot(x_gradient, y_gradient)
 
 
@@ -364,7 +390,9 @@ def parse_log_limits(lower_text: str, upper_text: str) -> tuple[float, float]:
     return lower, upper
 
 
-def sample_segment(start: Point, end: Point, *, count: int) -> tuple[np.ndarray, np.ndarray]:
+def sample_segment(
+    start: Point, end: Point, *, count: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(z, x)`` samples along a segment and their distance from its start in mm."""
     if count < 2:
         raise ValueError("line sample count must be at least 2")
@@ -470,7 +498,9 @@ class InteractiveShockEvaluator:
             self.lower_limit_box.on_submit(self._on_limits_submitted)
             self.upper_limit_box.on_submit(self._on_limits_submitted)
 
-        self.status_text = figure.text(0.06, 0.44, "Drag across the map to sample a lineout.")
+        self.status_text = figure.text(
+            0.06, 0.44, "Drag across the map to sample a lineout."
+        )
         self.segment_artist = Line2D([], [], color="cyan", linewidth=1.5)
         self.shock_direction_artist = Line2D(
             [], [], color="lime", linestyle="--", linewidth=1.5
@@ -528,7 +558,9 @@ class InteractiveShockEvaluator:
     def _on_limits_submitted(self, _: str) -> None:
         assert self.lower_limit_box is not None and self.upper_limit_box is not None
         try:
-            self.limits = parse_log_limits(self.lower_limit_box.text, self.upper_limit_box.text)
+            self.limits = parse_log_limits(
+                self.lower_limit_box.text, self.upper_limit_box.text
+            )
         except ValueError as exc:
             self.status_text.set_text(str(exc))
             self._redraw()
@@ -539,7 +571,11 @@ class InteractiveShockEvaluator:
         self._redraw()
 
     def _event_point(self, event: MouseEvent) -> Point | None:
-        if event.inaxes is not self.heatmap_axes or event.xdata is None or event.ydata is None:
+        if (
+            event.inaxes is not self.heatmap_axes
+            or event.xdata is None
+            or event.ydata is None
+        ):
             return None
         return float(event.xdata), float(event.ydata)
 
@@ -547,7 +583,9 @@ class InteractiveShockEvaluator:
         if event.button != 1:
             return
         awaiting_third_point = (
-            self.shock_angle == "manual" and self.segment is not None and self._third_point is None
+            self.shock_angle == "manual"
+            and self.segment is not None
+            and self._third_point is None
         )
         if awaiting_third_point:
             third_point = self._event_point(event)
@@ -566,7 +604,9 @@ class InteractiveShockEvaluator:
         end = self._event_point(event)
         if end is None:
             return
-        self.segment_artist.set_data((self._drag_start[0], end[0]), (self._drag_start[1], end[1]))
+        self.segment_artist.set_data(
+            (self._drag_start[0], end[0]), (self._drag_start[1], end[1])
+        )
         self._redraw()
 
     def _on_release(self, event: MouseEvent) -> None:
@@ -586,7 +626,9 @@ class InteractiveShockEvaluator:
             self._clear_shock_evaluation(
                 "Click a third point on the heatmap to select the shock direction."
             )
-            self.status_text.set_text("Segment selected; click a third point for shock direction.")
+            self.status_text.set_text(
+                "Segment selected; click a third point for shock direction."
+            )
         else:
             self._update_shock_evaluation()
         self._update_lineout()
@@ -628,12 +670,16 @@ class InteractiveShockEvaluator:
     def _update_shock_evaluation(self) -> None:
         """Calculate and display endpoint shock ratios for the selected segment."""
         assert self.segment is not None
-        missing_fields = [name for name in SHOCK_STATE_FIELD_NAMES if name not in self._samplers]
+        missing_fields = [
+            name for name in SHOCK_STATE_FIELD_NAMES if name not in self._samplers
+        ]
         if missing_fields:
             self._clear_shock_evaluation(
                 "Shock evaluation unavailable: missing " + ", ".join(missing_fields)
             )
-            self.status_text.set_text("Lineout updated; shock-state fields are unavailable.")
+            self.status_text.set_text(
+                "Lineout updated; shock-state fields are unavailable."
+            )
             return
 
         start, end = self.segment
@@ -646,7 +692,9 @@ class InteractiveShockEvaluator:
                 start_values["Mach"], end_values["Mach"]
             )
             upstream_values, downstream_values = (
-                (start_values, end_values) if start_is_upstream else (end_values, start_values)
+                (start_values, end_values)
+                if start_is_upstream
+                else (end_values, start_values)
             )
             beta_rad: float | None = None
 
@@ -663,7 +711,9 @@ class InteractiveShockEvaluator:
                 )
                 angle_source = "third point"
             else:
-                shock_direction = (self._velocity(upstream_values) - self._velocity(downstream_values)) @ np.array([[0,-1],[1,0]])
+                shock_direction = (
+                    self._velocity(upstream_values) - self._velocity(downstream_values)
+                ) @ np.array([[0, -1], [1, 0]])
                 angle_source = "velocity change"
 
             self.shock_evaluation = evaluate_oblique_shock(
@@ -679,7 +729,9 @@ class InteractiveShockEvaluator:
             )
         except ValueError as exc:
             self._clear_shock_evaluation(f"Shock evaluation unavailable: {exc}")
-            self.status_text.set_text("Lineout updated; select endpoints inside the field.")
+            self.status_text.set_text(
+                "Lineout updated; select endpoints inside the field."
+            )
             return
 
         self._draw_shock_direction(
@@ -709,9 +761,12 @@ class InteractiveShockEvaluator:
         line_end = (
             np.asarray(direction_point)
             if direction_point is not None
-            else midpoint + float(np.linalg.norm(end_point - start_point)) * plot_direction
+            else midpoint
+            + float(np.linalg.norm(end_point - start_point)) * plot_direction
         )
-        self.shock_direction_artist.set_data((midpoint[0], line_end[0]), (midpoint[1], line_end[1]))
+        self.shock_direction_artist.set_data(
+            (midpoint[0], line_end[0]), (midpoint[1], line_end[1])
+        )
         if direction_point is None:
             self.shock_direction_point_artist.set_data([], [])
         else:
@@ -736,7 +791,9 @@ class InteractiveShockEvaluator:
         else:
             normalize = len(selected_names) > 1
             if normalize:
-                self.lineout_axes.set_ylabel("independently magnitude-normalized field value")
+                self.lineout_axes.set_ylabel(
+                    "independently magnitude-normalized field value"
+                )
                 self.lineout_axes.set_title(
                     "Selected fields independently scaled to unit magnitude"
                 )

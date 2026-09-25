@@ -31,7 +31,11 @@ class DensityCube:
     density_units: str
 
     def __post_init__(self) -> None:
-        for name, values in (("z_m", self.z), ("x_mm", self.x), ("pressure_bar", self.pressure)):
+        for name, values in (
+            ("z_m", self.z),
+            ("x_mm", self.x),
+            ("pressure_bar", self.pressure),
+        ):
             _validate_coordinates(name, values)
         expected_shape = (self.z.size, self.x.size, self.pressure.size)
         if self.density.shape != expected_shape:

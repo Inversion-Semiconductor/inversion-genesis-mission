@@ -34,7 +34,10 @@ def _write_three_resolutions(input_dir):
 
 
 def test_reference_pairs():
-    assert reference_pairs([3, 1, 2], grid_size=float, reference_mode="finest") == [(3, 1), (2, 1)]
+    assert reference_pairs([3, 1, 2], grid_size=float, reference_mode="finest") == [
+        (3, 1),
+        (2, 1),
+    ]
     assert reference_pairs([3, 1, 2], grid_size=float, reference_mode="adjacent") == [
         (3, 2),
         (2, 1),
@@ -88,7 +91,9 @@ def test_cgns_fields_support_x_clipping_and_triangulate_once(tmp_path):
     write_density_cgns(tmp_path / "0_2.cgns", density_scale=1.1)
     write_density_cgns(tmp_path / "0_1.cgns", density_scale=1.2)
 
-    with patch("fludat_proc.convergence.Delaunay", wraps=convergence.Delaunay) as delaunay:
+    with patch(
+        "fludat_proc.convergence.Delaunay", wraps=convergence.Delaunay
+    ) as delaunay:
         metrics = calculate_field_convergence(
             load_resolution_cgns_fields(tmp_path), x_min=0.0, x_points=20, z_points=20
         )
@@ -107,7 +112,10 @@ def test_cgns_convergence_supports_cubic_interpolation(tmp_path):
     write_density_cgns(tmp_path / "0_1.cgns", density_scale=1.1)
 
     metrics = calculate_field_convergence(
-        load_resolution_cgns_fields(tmp_path), x_min=0.0, x_points=20, z_points=20,
+        load_resolution_cgns_fields(tmp_path),
+        x_min=0.0,
+        x_points=20,
+        z_points=20,
         interpolation="cubic",
     )
 
@@ -145,7 +153,11 @@ def test_cgns_summary_pools_pointwise_errors_and_selects_plot_curves(tmp_path):
     fields = load_resolution_cgns_fields(tmp_path)
     coarse = fields[1]
     fields[1] = convergence.ResolutionField(
-        coarse.grid_size_mm, coarse.path, coarse.x, coarse.z, coarse.density * (1 + 0.1 * coarse.x)
+        coarse.grid_size_mm,
+        coarse.path,
+        coarse.x,
+        coarse.z,
+        coarse.density * (1 + 0.1 * coarse.x),
     )
     metrics = calculate_field_convergence(fields, x_min=0.0, x_points=20, z_points=20)
     summaries = summarize_convergence(metrics)
@@ -158,7 +170,11 @@ def test_cgns_summary_pools_pointwise_errors_and_selects_plot_curves(tmp_path):
         mode: plot_convergence(metrics, summaries, view="summary", field_error=mode)
         for mode in ("local-relative", "peak-normalized", "both")
     }
-    for mode, expected_curves in (("local-relative", 1), ("peak-normalized", 1), ("both", 2)):
+    for mode, expected_curves in (
+        ("local-relative", 1),
+        ("peak-normalized", 1),
+        ("both", 2),
+    ):
         (axis,) = figures[mode].axes
         assert axis.get_title() == "Mean field errors"
         assert len(axis.lines) == expected_curves

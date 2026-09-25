@@ -90,11 +90,15 @@ def _read_coordinates(
 ) -> tuple[np.ndarray, np.ndarray]:
     coordinates = zone["GridCoordinates"]
     x = validate_point_array(
-        read_cgns_data(coordinates[x_coordinate], f"{cgns_path} coordinate {x_coordinate!r}"),
+        read_cgns_data(
+            coordinates[x_coordinate], f"{cgns_path} coordinate {x_coordinate!r}"
+        ),
         name=f"{cgns_path} coordinate {x_coordinate!r}",
     )
     z = validate_point_array(
-        read_cgns_data(coordinates[z_coordinate], f"{cgns_path} coordinate {z_coordinate!r}"),
+        read_cgns_data(
+            coordinates[z_coordinate], f"{cgns_path} coordinate {z_coordinate!r}"
+        ),
         name=f"{cgns_path} coordinate {z_coordinate!r}",
         point_count=x.size,
     )
