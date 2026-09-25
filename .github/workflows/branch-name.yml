@@ -29,8 +29,8 @@ jobs:
       # 2  Duplicate ticket-ID check
       - name: Duplicate ticket ID check
         run: |
-          # Extract ticket prefix: IS-123
-          id=$(echo "$BRANCH" | sed -E 's/^(IS-[0-9]{3}).*$/\1/')
+          # Extract ticket prefix: IG-123
+          id=$(echo "$BRANCH" | sed -E 's/^(IG-[0-9]{3}).*$/\1/')
 
           # List remote branches that share the same ticket ID
           duplicates=$(git ls-remote --heads origin \
