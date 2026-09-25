@@ -106,7 +106,6 @@ The [demos](../demos) directory contains runnable examples. Start with the core 
 - [Laser pulses](../demos/demo_lasers): generates and plots Gaussian-laser YAML configurations for supported polarization variants.
 - [Downramp simulation](../demos/demo_downramp_simulation/README.md): script-assembled hydrogen flattop/downramp LPA simulation, with recorded configuration, diagnostics, and density movie output.
 - [Ionization simulation](../demos/demo_ionization_simulation/README.md): helium plasma with nitrogen doping, showing species-specific macroparticle settings and ionization injection.
-- [Optimas exploration](../demos/demo_optimas/README.md): Bayesian optimization of the downramp LPA, using a parameterized simulation template and per-trial diagnostics analysis.
 
 ## Skipping Runs if Complete
 
@@ -138,7 +137,7 @@ The type tags and serialized parameter names are part of the persisted run inter
 
 `_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets (WIP) and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.
 
-`_doc_management/` parses the `attrs` configuration hierarchy without importing it, merges inherited docstrings and `Args:` entries, and generates `.pyi` stubs with explicit keyword-only constructors. Pylance can therefore display inherited required parameters and documentation alongside subclass fields. Run `scripts/sync_config_docstrings.py --check` to detect stub/documentation drift.
+`_doc_management/` parses the `attrs` configuration hierarchy without importing it, merges inherited docstrings and `Args:` entries, and generates `.pyi` stubs with explicit keyword-only constructors. Pylance can therefore display inherited required parameters and documentation alongside subclass fields. Run `tools/sync_config_docstrings.py --check` to detect stub/documentation drift.
 
 ## Testing
 
