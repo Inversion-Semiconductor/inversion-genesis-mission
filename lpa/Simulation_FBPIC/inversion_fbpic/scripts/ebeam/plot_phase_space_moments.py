@@ -3,10 +3,9 @@
 
 Example:
 
-    python phase_space_moments_from_h5.py \
-        sample_dataset/raw_data/sim_0000/lab_diags/hdf5/data00000049.h5 \
+    plot-phase-space-moments /path/to/lab_diags/hdf5/data00000049.h5 \
         --species nitrogen_electrons --uz-min 30 --all \
-        --output sample_dataset/sim_0000_phase_space_moments.png
+        --output phase_space_moments.png
 """
 from __future__ import annotations
 

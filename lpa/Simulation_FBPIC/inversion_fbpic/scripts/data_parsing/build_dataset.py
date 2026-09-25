@@ -1,24 +1,14 @@
 #!/usr/bin/env python3
-"""Build a compact JSON dataset from the bundled sample FBPIC raw data.
+"""Build a compact JSON dataset from FBPIC simulation diagnostics.
 
-From the repository root, build the seven-run example dataset with:
+Each ``sim_*`` directory beneath the supplied root must contain ``input.ini``
+with a ``[VaryingParameters]`` section and particle diagnostics under
+``lab_diags/hdf5``. The output records the varying inputs and a phase-space
+descriptor for the final diagnostic in each simulation.
 
-    python build_sample_dataset.py
+Sample usage:
+build-dataset /path/to/raw_runs --output /path/to/dataset.json
 
-This writes ``sample_dataset/sample_dataset.json``. Each simulation contains
-its ``[VaryingParameters]`` input dictionary and the 33-scalar phase-space
-descriptor under ``output``. The default selection is ``uz >= 30`` for the
-``nitrogen_electrons`` species, followed by a central 95% crop on each
-phase-space axis.
-
-To plot one raw sample diagnostic with the same openPMD reader and selection:
-
-    python phase_space_moments_from_h5.py \
-        sample_dataset/raw_data/sim_0000/lab_diags/hdf5/data00000049.h5 \
-        --species nitrogen_electrons \
-        --uz-min 30 \
-        --output sample_dataset/sim_0000_phase_space_moments.png \
-        --all
 """
 from __future__ import annotations
 
@@ -27,8 +17,6 @@ import configparser
 import json
 from pathlib import Path
 
-import numpy as np
-
 from inversion_fbpic.utils.distributions import (
     compute_moment_descriptor,
     crop_central_particles,
@@ -36,21 +24,20 @@ from inversion_fbpic.utils.distributions import (
     select_by_uz,
 )
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Convert sample raw FBPIC runs into an input/output JSON dataset."
     )
     parser.add_argument(
         "root",
-        nargs="?",
         type=Path,
-        default=Path("sample_dataset/raw_data"),
         help="Directory containing sim_*/input.ini folders",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("sample_dataset/sample_dataset.json"),
+        required=True,
         help="Output JSON path",
     )
     parser.add_argument(
