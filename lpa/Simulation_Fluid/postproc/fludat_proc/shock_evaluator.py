@@ -245,7 +245,7 @@ def evaluate_oblique_shock(
         change_speed = float(np.linalg.norm(velocity_change))
         if change_speed == 0.0:
             raise ValueError("Upstream and downstream velocities must differ")
-        beta_rad = _beta_from_direction(velocity_change / change_speed, upstream_velocity)
+        beta_rad = np.pi/2 - _beta_from_direction(velocity_change / change_speed, upstream_velocity)
     elif not np.isfinite(beta_rad) or not 0.0 <= beta_rad <= np.pi:
         raise ValueError("Shock angle beta must be finite and between 0 and pi radians")
 
@@ -664,9 +664,7 @@ class InteractiveShockEvaluator:
                 )
                 angle_source = "third point"
             else:
-                shock_direction = self._velocity(upstream_values) - self._velocity(
-                    downstream_values
-                )
+                shock_direction = (self._velocity(upstream_values) - self._velocity(downstream_values)) @ np.array([[0,-1],[1,0]])
                 angle_source = "velocity change"
 
             self.shock_evaluation = evaluate_oblique_shock(
