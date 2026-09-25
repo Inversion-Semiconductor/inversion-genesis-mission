@@ -12,6 +12,7 @@ setup(
         "matplotlib",
         "mpi4py",
         "h5py",
+        "openpmd-viewer",
         "opencv-python",
         "lasy",
         "periodictable",
