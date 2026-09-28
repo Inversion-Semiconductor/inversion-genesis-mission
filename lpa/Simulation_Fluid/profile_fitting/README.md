@@ -1,0 +1,275 @@
+# Density-profile fitting (`fludat_fit`)
+
+Fit the parameterized density profiles of `inversion_fbpic` to lineouts of the gas-jet
+density cubes produced by [`../postproc`](../postproc/) (`fludat_proc`), and compare
+how well each profile family reproduces a lineout.
+
+```
+density cube (fludat_proc)                              inversion_fbpic.lib.density_profiles
+  density[z_m, x_mm, pressure_bar]                        AsymmetricSine, GenericConicalTarget, ...
+            │                                                          │
+            ▼ dataset                                                  ▼ families
+   NozzleDataset.lineout(x, pressure, angle)              ProfileFamily(parameter_space, build)
+   (density along an oblique line in (z, x))
+            └──────────────────────┬───────────────────────────────────┘
+                                   ▼ fitting
+                        FittingScheme.fit(lineout, family) -> FitResult
+                        (MultiStartLocalFit: bounded L-BFGS-B, Latin-hypercube starts)
+                                   │
+                                   ▼ goodness_of_fit
+                        compare_families -> ranked FamilyComparison
+                     ┌─────────────┴──────────────┐
+                     ▼                            ▼
+              explore_fits                  fit_statistics
+   sliders for x, pressure, angle;   a distribution of (x, pressure, angle)
+   fit + save the selected point     points; per-family performance report
+```
+
+A lineout is selected by its physical conditions `(x_mm, pressure_bar, angle_deg)`: the
+transverse offset of the lineout line at `z = 0`, the backing pressure, and the angle of
+the line to the `z` axis. Those conditions travel with every fit result, so a set of
+fits is already a table of `conditions -> profile parameters`; learning that mapping is
+future work and nothing here has to change for it beyond adding a new `FittingScheme`.
+
+## Installation and running
+
+The package lives in [`fludat_fit/`](fludat_fit/). It imports `inversion_fbpic`
+(installed in the `inv-fbpic` conda env) and `fludat_proc` (found automatically in the
+sibling `../postproc` checkout; no install needed). Run the command-line module with
+`python -m` from this directory, or `pip install -e .` to register the console scripts below.
+
+```bash
+conda run -n inv-fbpic python -m fludat_fit.explore_fits ../postproc/data/density_field/htu_dens_7_0.h5
+conda run -n inv-fbpic python -m fludat_fit.fit_statistics \
+    ../postproc/data/density_field/htu_dens_7_0.h5 --angle-range -10 10 --samples 32
+conda run -n inv-fbpic python -m fludat_fit.explore_fits --list-families
+```
+
+| Module | Console script | Purpose |
+|---|---|---|
+| `fludat_fit.explore_fits` | `explore-fits` | Interactive fit of the lineout selected by x / pressure / angle sliders |
+| `fludat_fit.fit_statistics` | `fit-statistics` | Fit a distribution of condition points and report per-family performance |
+
+Library modules: `dataset` (oblique lineouts of a cube), `lineout`, `families`, `fitting`,
+`goodness_of_fit`, `plotting`, `cli_common` (shared command-line options).
+
+Requirements: Python ≥ 3.10, NumPy ≥ 2.0, SciPy, Matplotlib, attrs, `inversion_fbpic`,
+`fludat_proc`. Tests: `conda run -n inv-fbpic python -m pytest` from this directory.
+
+## Datasets and the lineout angle
+
+A density cube has axes `(z, x, pressure)`. The third physical parameter, `angle_deg`,
+is the angle of the **lineout line** to the `z` axis in the `(z, x)` plane, following
+the affine-path form of `inversion_fbpic`'s `InterpolateFromH5Profile`:
+
+```
+z_m(t)  = cos(angle) * t              x_mm(t) = x_mm + 1000 * sin(angle) * t
+```
+
+with the path parameter `t` in metres and the angle positive towards `+x`. `angle = 0`
+is a plain lineout along `z` at fixed `x`. `NozzleDataset.lineout` follows that class's
+conventions exactly: the path is clipped to the part inside the cube (the range of `t`
+over which both `z` and `x` stay on their grids), it is sampled with one point per
+participating grid point (`n_z` for an axial line, `n_z + n_x` otherwise), and the
+density is trilinear in `(z, x, pressure)`. The returned `Lineout.z` is `t`, the
+longitudinal coordinate FBPIC sees. `NozzleDataset.h5_profile_kwargs(conditions)` gives
+the matching `InterpolateFromH5Profile` arguments (`lineout_axis`, `interpolation_points`),
+and the explorer's *Save* writes them next to each fit.
+
+For `--method linear` the trilinear path is vectorised and fast enough for slider use;
+other methods fall back to the per-point `fludat_proc` interpolation, which is slow.
+
+### Options shared by both scripts
+
+| Argument | Default | Description |
+|---|---|---|
+| `hdf5_path` | — | The density cube. |
+| `--method` | `linear` | `(x, pressure)` interpolation method of `fludat_proc`. |
+| `--z-bounds` | jet support + padding | Fit window along the lineout [mm]. |
+| `--cutoff-ratio` | `1e-3` | Peak fraction that defines the jet support. |
+| `--padding` | `0.25` | Vacuum kept on each side, as a fraction of the support width. |
+| `--max-points` | `1000` | Resample longer lineouts to this many samples (`0`: keep all). |
+| `--families` | all | Family names; see `--list-families`. |
+| `--starts` | `8` (`4` in the explorer) | Latin-hypercube starting points per family, plus the heuristic guess. |
+| `--optimizer` | `L-BFGS-B` | Any bounded `scipy.optimize.minimize` method (`Powell`, `TNC`, ...). |
+| `--seed` | `0` | Seed of the start sample. |
+| `--rank-by` | `bic` | `bic`, `aic`, `nrmse`, `rmse`, `sse`, `integrated_relative_error`, `max_abs_error`, `r_squared`. |
+
+The fit window matters: by default the lineout is trimmed to where the density exceeds
+`--cutoff-ratio` of its peak, plus `--padding` of vacuum on each side, so profiles are
+also required to vanish outside the jet without the far vacuum dominating the residual.
+
+## `explore_fits`
+
+```bash
+python -m fludat_fit.explore_fits htu_dens_7_0.h5 --x 1.0 --pressure 20 --angle 5 \
+    --families conical:supergaussian generalized_lorentzian_sum[2] --live \
+    --output-dir fits --species H
+python -m fludat_fit.explore_fits cube.h5 --x 0.5 -o explorer.png     # static figure
+```
+
+Sliders for x, pressure and the lineout angle select the lineout line, whose density is
+redrawn immediately. **Fit** fits the families and overlays the `--top` best curves with
+their residuals and a ranked table; **Save** writes the ranked results as JSON and the
+best profile as an FBPIC YAML config to `--output-dir`. After each fit the previous
+parameters of every family are used as warm starts, so small slider moves refit quickly.
+
+| Argument | Default | Description |
+|---|---|---|
+| `--x`, `--pressure`, `--angle` | lowest, lowest, `0` | Initial slider values. |
+| `--angle-range` | `-45 45` | Angle slider range [deg] (at most ±89). |
+| `--top` | `3` | Ranked model curves drawn. |
+| `--live` | off | Refit on every slider change instead of on *Fit*. |
+| `--fit` | off | Fit the initial point before showing the window. |
+| `--output-dir` | `fits` | Where *Save* writes `<family>_x..mm_p..bar_a..deg.json/.yaml`. |
+| `--nominal-density`, `--species` | fitted amplitude, none | Values written into the YAML config. |
+| `-o`, `--output` | — | Fit the initial point and save the figure instead of showing it. |
+
+## `fit_statistics`
+
+```bash
+python -m fludat_fit.fit_statistics htu_dens_7_0.h5 \
+    --x-range 0 3 --pressure-range 5 40 --angle-range -10 10 --samples 32 --workers 4 \
+    --json stats.json --csv stats.csv --plot stats.png
+python -m fludat_fit.fit_statistics cube.h5 --pressure-range 5 35 --sampling grid --samples 9
+```
+
+Samples `--samples` condition points over the selected ranges (default: the cube's x and
+pressure extents with the angle fixed at 0; ranges reaching outside are clamped with a
+warning), fits every family at every point, and reports per family: how often it ranks first, its mean rank, the median /
+90th percentile / maximum NRMSE, the median integrated relative error and BIC, the
+success rate and the time per fit. Families are ordered by the median of the ranking
+metric. The plot shows the NRMSE distribution and rank-first frequency per family and
+NRMSE against one condition for the best families.
+
+| Argument | Default | Description |
+|---|---|---|
+| `--x-range`, `--pressure-range` | cube extent | `MIN MAX`; equal values fix the axis. |
+| `--angle-range` | `0 0` | Lineout angle range [deg], at most ±89. |
+| `--samples` | `16` | Number of condition points (a grid rounds up to a full lattice). |
+| `--sampling` | `lhs` | `lhs`, `random`, or `grid`. |
+| `--sample-seed` | `0` | Seed of the point sample. |
+| `--workers` | `1` | Processes fitting points in parallel (lineouts are extracted first, so the cubes stay in the main process). |
+| `--json` | — | Summary plus every fit; `--include-profiles` adds each serialized FBPIC config. |
+| `--csv` | — | One row per (point, family): conditions, rank, metrics, amplitude and the fitted parameters. |
+| `--plot`, `--show` | — | Save / show the summary figure; `--plot-axis` picks the condition on the scatter's x axis. |
+| `-q`, `--quiet` | off | Suppress per-point progress on stderr. |
+
+The CSV is the raw material for a `conditions -> parameters` mapping: filter it to one
+family and you have `(x_mm, pressure_bar, angle_deg) -> theta` rows.
+
+## Library use
+
+```python
+from fludat_fit import (
+    LineoutConditions, MultiStartLocalFit, NozzleDataset, compare_families,
+    fit_family, get_families, load_lineout,
+)
+
+lineout = load_lineout("cube.h5", x_mm=1.0, pressure_bar=12.5).trimmed()
+# or along a line tilted 5 degrees from the z axis:
+dataset = NozzleDataset.load("cube.h5")
+lineout = dataset.lineout(LineoutConditions(x_mm=1.0, pressure_bar=12.5, angle_deg=5.0)).trimmed()
+dataset.h5_profile_kwargs(lineout.conditions)   # InterpolateFromH5Profile arguments
+
+comparison = compare_families(lineout, scheme=MultiStartLocalFit(n_starts=16))
+print(comparison.table())
+best = comparison.best                       # FitResult, ranked by BIC by default
+best.parameters                              # {"center": ..., "fwhm": ..., ...}
+best.amplitude, lineout.density_units        # peak scale in cube units
+best.model_density(lineout.z)                # fitted curve in cube units
+profile = best.build_profile(species="H", ionization=0, p_nz=2, p_nr=2, p_nt=4)
+profile.to_yaml_file("best.yaml")            # ready for an FBPIC config
+
+result = fit_family(lineout, get_families(["asymmetric_sine"])[0])
+```
+
+`build_profile` converts the fitted amplitude to `nominal_density` in m^-3 when the
+cube units are recognised (`m^-3`, `cm^-3`, `mm^-3`); otherwise pass `nominal_density`
+explicitly. Density profiles evaluate at `r = 0` only; all supported profiles are
+functions of `z` alone.
+
+## Profile families
+
+Each family wraps one `inversion_fbpic` profile class. The family declares bounds
+derived from the lineout (positions inside the window, lengths from 1/200 of the jet
+support to twice the window, searched in log scale) and builds the actual profile
+object for every evaluation, so the fitted curve is exactly what FBPIC would load.
+
+The profile *shape* is what a family parameterizes; the overall *amplitude* is solved
+in closed form at every evaluation (variable projection) and reported separately.
+Families therefore fix intrinsic amplitudes (`gauss_peak`, the first Lorentzian `A`) to
+one, and the amplitude counts as one extra parameter in the information criteria.
+
+| Family name | Class | Parameters (shape) |
+|---|---|---|
+| `asymmetric_sine` | `AsymmetricSine` | `peak_z0`, `upramp_length`, `downramp_length` |
+| `smooth_sine_flattop` | `SmoothSineFlattop` | `center`, `flattop_width`, `upramp_length`, `downramp_length` |
+| `gaussian_plus_triangle` | `GaussianPlusTriangle` | `gauss_z0`, `gauss_sigma`, `tri_z0`, `tri_left_width`, `tri_right_width`, `tri_height` |
+| `generalized_gaussian_plus_triangle` | `GeneralizedGaussianPlusTriangle` | as above with `gauss_alpha`, `gauss_beta` (`gauss_peak = 1`) |
+| `generalized_lorentzian_sum[n]`, n = 1, 2, 3 | `GeneralizedLorentzianSum` | per term `c_i`, `w_i`, `b_i`, `m_i`; `A_0 = 1`, `A_i ∈ [-1, 1]` |
+| `power_law_flattop` | `PowerLawFlattop` | `center`, `flattop_width`, `transition_length`, `transition_exponent`, `skew_rate` |
+| `conical:<main>` | `GenericConicalTarget` | `center`, the main-type parameters, `skew_rate` |
+| `conical:<main>+<fringe>` | `GenericConicalTarget` | plus `fringe_center_offset`, `fringe_relative_height`, `fringe_*` |
+
+Main types: `supergaussian`, `cosine_squared_flattop`, `power_law_flattop`,
+`lorentzian_flattop`; fringe types: `supergaussian`, `cosine_squared`, `power_law`,
+`lorentzian`. The registry includes the four fringe-less conical families plus
+`conical:supergaussian+cosine_squared` and `conical:lorentzian_flattop+lorentzian`; any
+other combination is one constructor call away:
+
+```python
+from fludat_fit.families import GenericConicalTargetFamily, GeneralizedLorentzianSumFamily
+extra = [
+    GenericConicalTargetFamily("power_law_flattop", "supergaussian", fringe_side="right"),
+    GeneralizedLorentzianSumFamily(n_terms=4),
+]
+comparison = compare_families(lineout, [*get_families(), *extra])
+```
+
+Centred profiles (`center`) replace the classes' `start_position`, and the cosine
+flattop's `ramp_length` becomes `ramp_fraction * fwhm` so the class constraint is a plain
+bound. Note that the `_FiniteSkewedProfile` classes multiply by a Gaussian envelope in
+their default `finite_supergaussian` skew mode even at zero skew, so e.g. a fitted
+super-Gaussian `fwhm` is the class parameter, not the curve's measured FWHM.
+
+Not fitted: `InterpolateFromH5Profile` (it reads the same cubes the lineouts come from)
+and `ExampleDensityProfile` (documented as not for practical use).
+
+## Fitting schemes and goodness of fit
+
+`MultiStartLocalFit` optimises the weighted, normalised sum of squared residuals over the
+family's unit cube from `n_starts` Latin-hypercube points plus the family's heuristic
+initial guess, with `scipy.optimize.minimize` (`L-BFGS-B` by default). Parameter
+vectors that cannot build a profile score a large constant. Options: `method`, `seed`,
+`options` (solver options), `fit_amplitude=False` to pin the amplitude to the data peak,
+and `Lineout.weights` for weighted fits.
+
+`GoodnessOfFit` reports `sse`, `rmse`, `nrmse` (÷ peak), `r_squared`, `max_abs_error`
+(÷ peak), `integrated_relative_error` (`∫|model − data| dz / ∫|data| dz`, the metric of
+`fludat_proc.convergence`), and Gaussian-residual `aic`/`bic`. Families are ranked by
+`bic` by default so that extra parameters have to earn their keep.
+
+### Adding a family or a scheme
+
+- **Family**: subclass `ProfileFamily`, set `name` and `profile_class`, implement
+  `parameter_space(summary)` and `build(parameters, *, nominal_density, **overrides)`;
+  optionally `initial_guess(summary)`. Register it in `family_registry` or pass it to
+  `compare_families` directly.
+- **Scheme**: any object with a `name` and `fit(lineout, family) -> FitResult`
+  satisfies `FittingScheme`. A model that predicts parameters from
+  `LineoutConditions` would return the predicted `theta` with the closed-form
+  amplitude (`fitting.optimal_amplitude`) and a `GoodnessOfFit.compute(...)`, and plugs
+  into `compare_families`, the JSON report and the plots unchanged. `fit_lineouts`
+  produces the `(conditions, theta)` pairs such a model would train on.
+
+## Development
+
+```bash
+conda run -n inv-fbpic python -m pytest      # from this directory
+pre-commit run --files fludat_fit/*.py tests/*.py
+```
+
+The tests build small synthetic cubes; the real HTU cubes under
+`../postproc/data/density_field/` (about 0.5 GB each, loaded fully into memory) are the
+intended inputs for the two scripts.

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fludat-fit"
+version = "0.1.0"
+description = "Fit parameterized FBPIC density profiles to gas-jet fluid-simulation lineouts"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "attrs>=23.2",
+    "h5py>=3.0",
+    # Sibling packages of this monorepo. Neither needs to be installed when the
+    # checkout layout is intact: fludat_proc is found through ../postproc and
+    # inversion_fbpic through an editable install of lpa/Simulation_FBPIC.
+    "fludat-proc",
+    "inversion-fbpic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+explore-fits = "fludat_fit.explore_fits:main"
+fit-statistics = "fludat_fit.fit_statistics:main"
+
+[tool.setuptools]
+packages = ["fludat_fit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "../postproc"]
+
+[tool.ruff]
+# Linting follows the repo-wide pre-commit setup (ruff defaults + black formatting).
+
+[tool.ruff.lint.per-file-ignores]
+# CLI modules bootstrap sys.path before their imports so they also run as plain scripts.
+"fludat_fit/explore_fits.py" = ["E402"]
+"fludat_fit/fit_statistics.py" = ["E402"]
