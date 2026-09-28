@@ -164,14 +164,127 @@ def optimal_amplitude(
     return max(float(np.sum(weights * relative * data)) / denominator, 0.0)
 
 
+class FitObjective:
+    """The local-fit objective for one lineout and family, on a unit cube.
+
+    ``__call__(u)`` returns the weighted sum of squared residuals normalised by
+    the weighted sum of squared data (so tolerances are unit-free), with the
+    amplitude eliminated in closed form (variable projection). This is the exact
+    quantity :class:`MultiStartLocalFit` minimises, and the *direct* loss a
+    learned ``conditions -> parameters`` model is judged and trained on.
+
+    Args:
+        lineout: The data.
+        family: The profile family.
+        space: The unit cube's physical bounds; default: the family's space for
+            this lineout. A learned model uses one fixed space for a whole dataset.
+        fit_amplitude: If ``False`` the amplitude is fixed to the lineout peak.
+    """
+
+    def __init__(
+        self,
+        lineout: Lineout,
+        family: ProfileFamily,
+        space: ParameterSpace | None = None,
+        *,
+        fit_amplitude: bool = True,
+    ) -> None:
+        self.lineout = lineout
+        self.family = family
+        self.space = space or family.parameter_space(lineout.summary())
+        self.fixed_amplitude = None if fit_amplitude else lineout.peak
+        self._weights = lineout.effective_weights()
+        self._normalisation = float(np.sum(self._weights * lineout.density**2)) or 1.0
+        self.evaluations = 0
+
+    @property
+    def dimension(self) -> int:
+        return self.space.dimension
+
+    @property
+    def n_parameters(self) -> int:
+        """Shape parameters plus the amplitude when it is fitted."""
+        return self.space.dimension + (1 if self.fixed_amplitude is None else 0)
+
+    def evaluate(self, u: np.ndarray) -> tuple[float, np.ndarray] | None:
+        """``(amplitude, relative_density)`` at unit point ``u``; ``None`` if invalid."""
+        parameters = self.space.as_dict(self.space.from_unit(np.clip(u, 0.0, 1.0)))
+        try:
+            relative = self.family.relative_density(parameters, self.lineout.z)
+        except (ValueError, ZeroDivisionError, FloatingPointError):
+            return None
+        if not np.all(np.isfinite(relative)):
+            return None
+        amplitude = (
+            optimal_amplitude(relative, self.lineout.density, self._weights)
+            if self.fixed_amplitude is None
+            else self.fixed_amplitude
+        )
+        return amplitude, relative
+
+    def __call__(self, u: np.ndarray) -> float:
+        self.evaluations += 1
+        evaluated = self.evaluate(u)
+        if evaluated is None:
+            return INVALID_OBJECTIVE
+        amplitude, relative = evaluated
+        residual = amplitude * relative - self.lineout.density
+        return float(np.sum(self._weights * residual * residual)) / self._normalisation
+
+    def result(
+        self,
+        u: np.ndarray,
+        *,
+        scheme: str,
+        success: bool = True,
+        message: str = "",
+        n_starts: int = 0,
+        n_function_evaluations: int | None = None,
+        elapsed_seconds: float = 0.0,
+    ) -> FitResult:
+        """Package unit point ``u`` as a :class:`FitResult` with its goodness of fit."""
+        u = np.clip(np.asarray(u, dtype=np.float64), 0.0, 1.0)
+        theta = self.space.from_unit(u)
+        evaluated = self.evaluate(u)
+        if evaluated is None:
+            amplitude, model = 0.0, np.zeros_like(self.lineout.density)
+            success = False
+        else:
+            amplitude, relative = evaluated
+            model = amplitude * relative
+        goodness = GoodnessOfFit.compute(
+            self.lineout.z,
+            self.lineout.density,
+            model,
+            n_parameters=self.n_parameters,
+            weights=self.lineout.weights,
+        )
+        return FitResult(
+            family=self.family,
+            lineout=self.lineout,
+            space=self.space,
+            theta=theta,
+            amplitude=amplitude,
+            goodness=goodness,
+            scheme=scheme,
+            success=success,
+            message=message,
+            n_starts=n_starts,
+            n_function_evaluations=(
+                self.evaluations
+                if n_function_evaluations is None
+                else n_function_evaluations
+            ),
+            elapsed_seconds=elapsed_seconds,
+        )
+
+
 class MultiStartLocalFit:
     """Bounded local optimisation from several starting points.
 
     Each start is a point of a Latin-hypercube sample in the family's unit cube;
-    the family's :meth:`~fludat_fit.families.ProfileFamily.initial_guess` is
-    added when available. The objective is the weighted sum of squared
-    residuals, normalised by the weighted sum of squared data so tolerances are
-    unit-free, with the amplitude eliminated in closed form (variable projection).
+    the family's :meth:`~fludat_fit.families.ProfileFamily.initial_guess` and
+    any warm start are added. The objective is :class:`FitObjective`.
 
     Args:
         n_starts: Number of sampled starting points.
@@ -201,8 +314,8 @@ class MultiStartLocalFit:
         options: Mapping[str, Any] | None = None,
         fit_amplitude: bool = True,
     ) -> None:
-        if n_starts < 0 or (n_starts == 0 and not include_initial_guess):
-            raise ValueError("need at least one start")
+        if n_starts < 0:
+            raise ValueError("n_starts must be non-negative")
         self.n_starts = int(n_starts)
         self.method = method
         self.seed = seed
@@ -213,75 +326,63 @@ class MultiStartLocalFit:
         """Family name -> parameters used as one more start (e.g. the previous fit)."""
 
     # -- public --------------------------------------------------------------
-    def fit(self, lineout: Lineout, family: ProfileFamily) -> FitResult:
-        started = time.perf_counter()
-        space = family.parameter_space(lineout.summary())
-        z, data, weights = lineout.z, lineout.density, lineout.effective_weights()
-        normalisation = float(np.sum(weights * data * data)) or 1.0
-        fixed_amplitude = None if self.fit_amplitude else lineout.peak
-        evaluations = 0
+    def fit(
+        self,
+        lineout: Lineout,
+        family: ProfileFamily,
+        *,
+        space: ParameterSpace | None = None,
+        warm_start: Mapping[str, float] | np.ndarray | None = None,
+    ) -> FitResult:
+        """Fit ``family`` to ``lineout``.
 
-        def objective(u: np.ndarray) -> float:
-            nonlocal evaluations
-            evaluations += 1
-            parameters = space.as_dict(space.from_unit(np.clip(u, 0.0, 1.0)))
-            try:
-                relative = family.relative_density(parameters, z)
-            except (ValueError, ZeroDivisionError, FloatingPointError):
-                return INVALID_OBJECTIVE
-            if not np.all(np.isfinite(relative)):
-                return INVALID_OBJECTIVE
-            amplitude = (
-                optimal_amplitude(relative, data, weights)
-                if fixed_amplitude is None
-                else fixed_amplitude
+        Args:
+            space: Unit-cube bounds to optimise in; default: the family's space
+                for this lineout.
+            warm_start: One more starting point, as physical parameters by name
+                or as a unit-cube vector (used by learned-model refinement).
+        """
+        started = time.perf_counter()
+        objective = FitObjective(
+            lineout, family, space, fit_amplitude=self.fit_amplitude
+        )
+        starts = self._starts(objective.space, lineout, family, warm_start)
+        if not starts:
+            raise ValueError(
+                "no starting points: increase n_starts or give a warm start"
             )
-            residual = amplitude * relative - data
-            return float(np.sum(weights * residual * residual)) / normalisation
 
         best: OptimizeResult | None = None
-        starts = self._starts(space, lineout, family)
         for u0 in starts:
-            result = self._minimize(objective, u0, space.dimension)
+            result = self._minimize(objective, u0, objective.dimension)
             if best is None or result.fun < best.fun:
                 best = result
         assert best is not None
-
-        theta = space.from_unit(np.clip(best.x, 0.0, 1.0))
-        parameters = space.as_dict(theta)
-        relative = family.relative_density(parameters, z)
-        amplitude = (
-            optimal_amplitude(relative, data, weights)
-            if fixed_amplitude is None
-            else fixed_amplitude
-        )
-        goodness = GoodnessOfFit.compute(
-            z,
-            data,
-            amplitude * relative,
-            n_parameters=space.dimension + (1 if fixed_amplitude is None else 0),
-            weights=lineout.weights,
-        )
-        return FitResult(
-            family=family,
-            lineout=lineout,
-            space=space,
-            theta=theta,
-            amplitude=amplitude,
-            goodness=goodness,
+        return objective.result(
+            best.x,
             scheme=f"{self.name}[{self.method}]",
             success=bool(best.success) and best.fun < INVALID_OBJECTIVE,
             message=str(best.message),
             n_starts=len(starts),
-            n_function_evaluations=evaluations,
             elapsed_seconds=time.perf_counter() - started,
         )
 
     # -- internals -----------------------------------------------------------
     def _starts(
-        self, space: ParameterSpace, lineout: Lineout, family: ProfileFamily
+        self,
+        space: ParameterSpace,
+        lineout: Lineout,
+        family: ProfileFamily,
+        warm_start: Mapping[str, float] | np.ndarray | None,
     ) -> list[np.ndarray]:
         starts: list[np.ndarray] = []
+        if warm_start is not None:
+            if isinstance(warm_start, Mapping):
+                starts.append(self._unit_point(space, warm_start))
+            else:
+                starts.append(
+                    np.clip(np.asarray(warm_start, dtype=np.float64), 0.0, 1.0)
+                )
         warm = self.warm_starts.get(family.name)
         if warm is not None and set(warm) >= set(space.names):
             starts.append(self._unit_point(space, warm))

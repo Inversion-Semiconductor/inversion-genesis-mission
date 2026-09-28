@@ -7,6 +7,7 @@ import pytest
 
 from fludat_fit.families import GenericConicalTargetFamily, get_families
 from fludat_fit.fitting import (
+    FitObjective,
     FitResult,
     FittingScheme,
     MultiStartLocalFit,
@@ -18,6 +19,7 @@ from fludat_fit.fitting import (
 )
 from fludat_fit.goodness_of_fit import GoodnessOfFit, rank_results
 from fludat_fit.lineout import LineoutConditions
+from fludat_fit.parameters import ParameterSpace, ParameterSpec
 from fludat_fit.plotting import plot_fit_comparison
 
 from .conftest import make_lineout
@@ -145,9 +147,56 @@ def test_fixed_amplitude_and_other_optimizers(
     assert powell.goodness.nrmse < 0.05
 
 
-def test_invalid_scheme_configuration():
+def test_scheme_needs_a_start_and_accepts_warm_starts(
+    supergaussian_lineout, supergaussian_truth
+):
+    family, truth = supergaussian_truth
+    lineout = supergaussian_lineout.trimmed()
     with pytest.raises(ValueError):
-        MultiStartLocalFit(n_starts=0, include_initial_guess=False)
+        MultiStartLocalFit(n_starts=-1)
+    cold = MultiStartLocalFit(n_starts=0, include_initial_guess=False)
+    with pytest.raises(ValueError, match="no starting points"):
+        cold.fit(lineout, family)
+    # A warm start alone is enough, and a fixed reference space is honoured.
+    space = family.parameter_space(lineout.summary())
+    wide = ParameterSpace(
+        tuple(
+            ParameterSpec(
+                spec.name,
+                spec.lower * 0.5 if spec.log_scale else spec.lower - 1e-3,
+                spec.upper * 2.0 if spec.log_scale else spec.upper + 1e-3,
+                log_scale=spec.log_scale,
+                unit=spec.unit,
+            )
+            for spec in space.specs
+        )
+    )
+    warm = cold.fit(lineout, family, space=wide, warm_start=truth)
+    assert warm.space is wide and warm.n_starts == 1
+    assert warm.goodness.nrmse < 0.01
+    by_vector = cold.fit(
+        lineout, family, space=wide, warm_start=wide.to_unit(wide.from_dict(truth))
+    )
+    assert by_vector.goodness.nrmse == pytest.approx(warm.goodness.nrmse, rel=1e-6)
+
+
+def test_fit_objective_is_the_optimizer_loss(
+    supergaussian_lineout, supergaussian_truth
+):
+    family, truth = supergaussian_truth
+    lineout = supergaussian_lineout.trimmed()
+    objective = FitObjective(lineout, family)
+    u_truth = objective.space.to_unit(objective.space.from_dict(truth))
+    loss = objective(u_truth)
+    assert 0.0 < loss < 1e-3  # noise only
+    assert objective(np.full(objective.dimension, 0.5)) > loss
+    assert objective.evaluations == 2
+    result = objective.result(u_truth, scheme="oracle")
+    assert result.scheme == "oracle" and result.goodness.nrmse < 0.01
+    assert result.n_function_evaluations == 2  # result() does not count as a call
+    # The loss is the SSE normalised by the sum of squared data.
+    sse = result.goodness.sse
+    assert loss == pytest.approx(sse / float(np.sum(lineout.density**2)), rel=1e-9)
 
 
 def test_compare_families_ranks_the_generating_family_first(supergaussian_lineout):

@@ -33,17 +33,15 @@ import json
 import math
 import sys
 import time
-import warnings
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.figure import Figure
-from scipy.stats import qmc
 
 from .cli_common import (
     FitWindow,
@@ -63,14 +61,14 @@ from .goodness_of_fit import DEFAULT_RANKING_METRIC, RANKING_METRICS
 from .lineout import Lineout, LineoutConditions
 from .plotting import DATA_COLOR, SERIES_COLORS
 
-Sampling = Literal["lhs", "random", "grid"]
-SAMPLING_METHODS: tuple[Sampling, ...] = ("lhs", "random", "grid")
-CONDITION_AXES = ("x_mm", "pressure_bar", "angle_deg")
-AXIS_LABELS = {
-    "x_mm": "x [mm]",
-    "pressure_bar": "pressure [bar]",
-    "angle_deg": "angle [deg]",
-}
+from .sampling import (  # noqa: F401  (re-exported for backwards compatibility)
+    AXIS_LABELS,
+    CONDITION_AXES,
+    SAMPLING_METHODS,
+    ConditionRanges,
+    Sampling,
+)
+
 METRIC_COLUMNS = (
     "nrmse",
     "rmse",
@@ -80,118 +78,6 @@ METRIC_COLUMNS = (
     "aic",
     "bic",
 )
-
-
-# ----------------------------------------------------------------- sampling
-@dataclass(frozen=True)
-class ConditionRanges:
-    """The box of physical conditions to sample.
-
-    Each axis is a ``(lower, upper)`` pair; a pair with equal values fixes that
-    axis. The angle is the lineout line's angle to the ``z`` axis [deg].
-    """
-
-    x_mm: tuple[float, float]
-    pressure_bar: tuple[float, float]
-    angle_deg: tuple[float, float] = (0.0, 0.0)
-
-    @classmethod
-    def from_dataset(
-        cls,
-        dataset: NozzleDataset,
-        *,
-        x_range: Sequence[float] | None = None,
-        pressure_range: Sequence[float] | None = None,
-        angle_range: Sequence[float] | None = None,
-    ) -> ConditionRanges:
-        """Ranges inside the dataset extents.
-
-        ``None`` selects the full x or pressure extent; the angle defaults to a
-        fixed ``0`` (axial lineouts). Ranges reaching outside are clamped with a
-        warning.
-        """
-        return cls(
-            x_mm=_validated_range(x_range, dataset.x_extent, "x"),
-            pressure_bar=_validated_range(
-                pressure_range, dataset.pressure_extent, "pressure"
-            ),
-            angle_deg=(
-                (0.0, 0.0)
-                if angle_range is None
-                else _validated_range(angle_range, dataset.angle_extent, "angle")
-            ),
-        )
-
-    @property
-    def axes(self) -> dict[str, tuple[float, float]]:
-        return {
-            "x_mm": self.x_mm,
-            "pressure_bar": self.pressure_bar,
-            "angle_deg": self.angle_deg,
-        }
-
-    @property
-    def varying_axes(self) -> list[str]:
-        return [name for name, (lower, upper) in self.axes.items() if lower < upper]
-
-    def sample(
-        self, n: int, sampling: Sampling = "lhs", seed: int | None = 0
-    ) -> list[LineoutConditions]:
-        """``n`` condition points (a grid rounds ``n`` up to a full lattice)."""
-        if n < 1:
-            raise ValueError("n must be at least one")
-        varying = self.varying_axes
-        d = len(varying)
-        if d == 0:
-            unit = np.zeros((1, 0))
-        elif sampling == "lhs":
-            unit = qmc.LatinHypercube(d=d, seed=seed).random(n)
-        elif sampling == "random":
-            unit = np.random.default_rng(seed).random((n, d))
-        elif sampling == "grid":
-            per_axis = max(2, math.ceil(n ** (1.0 / d)))
-            axes = np.meshgrid(*[np.linspace(0.0, 1.0, per_axis)] * d, indexing="ij")
-            unit = np.column_stack([axis.ravel() for axis in axes])
-        else:
-            raise ValueError(f"unknown sampling {sampling!r}")
-
-        points = []
-        for row in unit:
-            values: dict[str, float] = {}
-            column = 0
-            for name, (lower, upper) in self.axes.items():
-                if name in varying:
-                    values[name] = float(lower + row[column] * (upper - lower))
-                    column += 1
-                else:
-                    values[name] = float(lower)
-            points.append(LineoutConditions(**values))
-        return points
-
-    def to_dict(self) -> dict[str, Any]:
-        return {name: list(bounds) for name, bounds in self.axes.items()}
-
-
-def _validated_range(
-    requested: Sequence[float] | None, extent: tuple[float, float], axis: str
-) -> tuple[float, float]:
-    """The requested range clamped to the dataset extent (with a warning)."""
-    if requested is None:
-        return (float(extent[0]), float(extent[1]))
-    lower, upper = sorted(float(value) for value in requested)
-    if upper < extent[0] or lower > extent[1]:
-        raise ValueError(
-            f"{axis} range [{lower:g}, {upper:g}] does not overlap the dataset extent "
-            f"[{extent[0]:g}, {extent[1]:g}]"
-        )
-    clamped = (max(lower, extent[0]), min(upper, extent[1]))
-    if clamped != (lower, upper):
-        warnings.warn(
-            f"{axis} range [{lower:g}, {upper:g}] clamped to the dataset extent "
-            f"[{clamped[0]:g}, {clamped[1]:g}]",
-            stacklevel=3,
-        )
-    return clamped
 
 
 # ------------------------------------------------------------------ fitting

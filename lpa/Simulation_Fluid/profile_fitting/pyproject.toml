@@ -26,9 +26,10 @@ dev = ["pytest", "ruff"]
 [project.scripts]
 explore-fits = "fludat_fit.explore_fits:main"
 fit-statistics = "fludat_fit.fit_statistics:main"
+evaluate-models = "fludat_fit.evaluate_models:main"
 
 [tool.setuptools]
-packages = ["fludat_fit"]
+packages = ["fludat_fit", "fludat_fit.learning"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -41,3 +42,4 @@ pythonpath = [".", "../postproc"]
 # CLI modules bootstrap sys.path before their imports so they also run as plain scripts.
 "fludat_fit/explore_fits.py" = ["E402"]
 "fludat_fit/fit_statistics.py" = ["E402"]
+"fludat_fit/evaluate_models.py" = ["E402"]

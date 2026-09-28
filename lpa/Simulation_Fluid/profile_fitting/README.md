@@ -18,11 +18,13 @@ density cube (fludat_proc)                              inversion_fbpic.lib.dens
                                    │
                                    ▼ goodness_of_fit
                         compare_families -> ranked FamilyComparison
-                     ┌─────────────┴──────────────┐
-                     ▼                            ▼
-              explore_fits                  fit_statistics
-   sliders for x, pressure, angle;   a distribution of (x, pressure, angle)
-   fit + save the selected point     points; per-family performance report
+            ┌──────────────────────┼──────────────────────┐
+            ▼                      ▼                      ▼
+     explore_fits            fit_statistics          evaluate_models
+  sliders for x, pressure,   a distribution of     learning: TrainingSet of
+  angle; fit + save the      condition points;     (conditions, local fit) ->
+  selected point             per-family report     models scored by direct /
+                                                   indirect loss
 ```
 
 A lineout is selected by its physical conditions `(x_mm, pressure_bar, angle_deg)`: the
@@ -49,9 +51,11 @@ conda run -n inv-fbpic python -m fludat_fit.explore_fits --list-families
 |---|---|---|
 | `fludat_fit.explore_fits` | `explore-fits` | Interactive fit of the lineout selected by x / pressure / angle sliders |
 | `fludat_fit.fit_statistics` | `fit-statistics` | Fit a distribution of condition points and report per-family performance |
+| `fludat_fit.evaluate_models` | `evaluate-models` | Build a training set and evaluate `conditions -> parameters` models |
 
 Library modules: `dataset` (oblique lineouts of a cube), `lineout`, `families`, `fitting`,
-`goodness_of_fit`, `plotting`, `cli_common` (shared command-line options).
+`goodness_of_fit`, `sampling` (condition boxes), `plotting`, `cli_common` (shared
+command-line options), and the `learning` subpackage (model evaluation framework).
 
 Requirements: Python ≥ 3.10, NumPy ≥ 2.0, SciPy, Matplotlib, attrs, `inversion_fbpic`,
 `fludat_proc`. Tests: `conda run -n inv-fbpic python -m pytest` from this directory.
@@ -236,6 +240,106 @@ super-Gaussian `fwhm` is the class parameter, not the curve's measured FWHM.
 Not fitted: `InterpolateFromH5Profile` (it reads the same cubes the lineouts come from)
 and `ExampleDensityProfile` (documented as not for practical use).
 
+## Learning `conditions -> parameters` (`fludat_fit.learning`)
+
+The end goal is a model that predicts a family's parameters directly from
+`(x_mm, pressure_bar, angle_deg)`. The `learning` subpackage is the evaluation framework
+for such models; it does not care what the model is.
+
+**Data.** `build_training_set` samples conditions, extracts the lineouts, and fits the
+family to each with the local multi-start optimiser. Everything lives in one *reference*
+`ParameterSpace` per family (the envelope of the per-lineout bounds), so a
+`TrainingSet` exposes `features` (conditions normalised to `[0, 1]`) and `targets` (the
+local optima as unit-cube vectors). It splits (`split`, `k_folds`), saves and loads as
+`.npz`, and hands out each sample's `FitObjective`.
+
+**Objectives.** Both score a predicted unit-cube vector `u` per sample:
+
+| Objective | Loss | Needs local fits | Gradient |
+|---|---|---|---|
+| `DirectObjective` | the local optimiser's own normalised SSE of the profile built from `u` against the lineout (`FitObjective`) | no | central finite differences in the unit cube |
+| `IndirectObjective` | `mean_k w_k (u_k - u*_k)^2` against the local optimum `u*` | yes | analytic |
+
+A model trained on the direct loss learns to minimise the fit error itself; the indirect
+loss is a plain regression on the local optimiser's answers.
+
+**Models.** Anything with `fit(training_set, objective)` and `predict(features)` is a
+`ParameterModel`. `fit` may use `objective.loss` and `objective.gradient` (a
+gradient-based model trains on either loss through them), or ignore the objective (a
+lookup). Baselines: `constant`, `knn3` (needs targets), `poly1` / `poly2` (sigmoid-squashed
+polynomial trained by L-BFGS-B on whichever objective, the template for differentiable
+models). A `ModelFactory` (zero-argument callable) supplies fresh instances per fold.
+
+**Evaluation.** `evaluate_model` trains on one set and scores on another: the fit
+quality of the predictions (`GoodnessOfFit` through the same `FitObjective`), the ratio
+to the local fit's NRMSE, the unit-cube parameter error (when targets exist), and with
+`refine=True` how many objective evaluations a local optimiser needs when warm-started
+from the prediction versus the cold multi-start fit. `compare_models` runs every model
+under every objective with k-fold cross-validation (or one split) and reports a ranked
+table, JSON, per-sample CSV rows and a figure.
+
+```python
+from fludat_fit import NozzleDataset, get_families, MultiStartLocalFit
+from fludat_fit.sampling import ConditionRanges
+from fludat_fit.learning import (
+    DirectObjective, IndirectObjective, TrainingSet, build_training_set,
+    compare_models, get_model_factories,
+)
+
+dataset = NozzleDataset.load("htu_dens_7_0.h5")
+family = get_families(["conical:supergaussian"])[0]
+ranges = ConditionRanges.from_dataset(dataset, x_range=(0, 3), angle_range=(-10, 10))
+training_set = build_training_set(
+    dataset, ranges.sample(64), family, ranges=ranges, scheme=MultiStartLocalFit(), workers=4
+)
+training_set.save("htu_sg.npz")            # reuse: TrainingSet.load("htu_sg.npz")
+
+class MyModel:                              # any framework: torch, sklearn, ...
+    name = "mine"
+    def fit(self, training_set, objective):
+        # training_set.features (N, 3), objective.loss(u, training_set), objective.gradient(...)
+        ...
+    def predict(self, features):
+        return ...                          # (N, d) in [0, 1]
+
+comparison = compare_models(
+    {"mine": MyModel, **get_model_factories()}, training_set,
+    [DirectObjective(), IndirectObjective()], folds=4, refine=True,
+)
+print(comparison.table())
+best = comparison.ranked()[0]               # ModelEvaluation
+best.test_set.space.from_unit(best.predictions[0])   # physical parameters of one prediction
+```
+
+### `evaluate_models`
+
+```bash
+python -m fludat_fit.evaluate_models htu_dens_7_0.h5 --family conical:supergaussian \
+    --x-range 0 3 --angle-range -10 10 --samples 64 --workers 4 \
+    --training-set htu_sg.npz --refine --json models.json --csv models.csv --plot models.png
+python -m fludat_fit.evaluate_models --training-set htu_sg.npz --models poly1 knn3 \
+    --objectives direct --folds 0 --test-fraction 0.3
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `hdf5_path`, `--method`, window options | | As for the other scripts; the cube is optional when `--training-set` exists. |
+| `--family` | `conical:supergaussian` | Family whose parameters are learned. |
+| `--training-set` | — | `.npz` cache: loaded when present, otherwise built and saved. |
+| `--x-range`, `--pressure-range`, `--angle-range` | cube extent, angle `0` | Sampled condition box. |
+| `--samples`, `--sampling`, `--sample-seed` | `32`, `lhs`, `0` | Condition points. |
+| `--starts`, `--optimizer`, `--workers` | `8`, `L-BFGS-B`, `1` | Local fits for the targets. |
+| `--no-targets` | off | Skip local fits (direct objective only; no reference or indirect metrics). |
+| `--models` | all built-in | `constant`, `knn3`, `poly1`, `poly2`. |
+| `--objectives` | both | `direct`, `indirect`. |
+| `--folds`, `--test-fraction`, `--seed` | `4`, `0.25`, `0` | Cross-validation folds (`0`: one split). |
+| `--refine` | off | Warm-start a local optimiser from each prediction and report the savings. |
+| `--json`, `--csv`, `--plot`, `--show`, `-t` | — | Outputs. |
+
+Table columns: `nrmse med/p90` of the predicted fits, `ratio med` (predicted / local-fit
+NRMSE), `indirect` (median unit-cube squared error), `refined` (NRMSE after polishing)
+and `evals%` (objective evaluations of the polish relative to the cold fit).
+
 ## Fitting schemes and goodness of fit
 
 `MultiStartLocalFit` optimises the weighted, normalised sum of squared residuals over the
@@ -260,8 +364,9 @@ and `Lineout.weights` for weighted fits.
   satisfies `FittingScheme`. A model that predicts parameters from
   `LineoutConditions` would return the predicted `theta` with the closed-form
   amplitude (`fitting.optimal_amplitude`) and a `GoodnessOfFit.compute(...)`, and plugs
-  into `compare_families`, the JSON report and the plots unchanged. `fit_lineouts`
-  produces the `(conditions, theta)` pairs such a model would train on.
+  into `compare_families`, the JSON report and the plots unchanged.
+- **Learned model**: implement `fit(training_set, objective)` / `predict(features)` (see
+  above) and pass a factory to `compare_models`; no framework code changes.
 
 ## Development
 
