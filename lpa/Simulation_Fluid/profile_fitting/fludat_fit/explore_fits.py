@@ -325,7 +325,17 @@ class FitExplorer:
         for ax in (self.ax_fit, self.ax_res):
             ax.relim()
             ax.autoscale_view()
-        self.ax_fit.set_ylim(bottom=min(0.0, self.ax_fit.get_ylim()[0]))
+        # set_ylim disables y autoscaling, so derive the top from the drawn curves
+        # on every call instead of relying on autoscale_view.
+        peaks = [
+            np.nanmax(y)
+            for line in (self.data_line, *self.model_lines)
+            if len(y := np.asarray(line.get_ydata(), dtype=float))
+        ]
+        top = max(peaks, default=0.0)
+        if not np.isfinite(top) or top <= 0.0:
+            top = 1.0
+        self.ax_fit.set_ylim(0.0, 1.05 * top)
 
     def _ranking_text(self) -> str:
         assert self.comparison is not None and self.lineout is not None
