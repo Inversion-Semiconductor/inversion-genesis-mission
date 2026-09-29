@@ -20,7 +20,7 @@
 - `laser.py`: laser validation and FBPIC profile construction. `GaussianLaserPulse` builds analytic FBPIC profiles; `LasyLaserPulse` wraps `utils.laser.HighOrderLasyLaser` (super-Gaussian transverse profile with Zernike aberrations), writes a LASY HDF5 file on rank zero during `Simulation.setup_simulation()`, and emits it through FBPIC's laser antenna.
 - `simulation.py`: FBPIC assembly, execution, diagnostics, and completion hashing.
 - `commented_yaml.py`: comment-aware YAML I/O.
-- `_density_implementations/` and `_doc_management/`: numerical profile internals and generated editor-facing documentation.
+- `_density_implementations/`, `_laser_implementations/`, and `_doc_management/`: density profile internals, laser pulse implementations, and generated editor-facing documentation.
 
 # Usage
 
@@ -158,7 +158,9 @@ The type tags and serialized parameter names are part of the persisted run inter
 
 ## Internal Maintenance Layers
 
-`_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets (WIP) and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.
+`_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.
+
+`_laser_implementations/` fulfills a similar role in storing lengthy and specialized laser pulse implementations, while `laser.py` holds the base class and the basic profiles.
 
 `_doc_management/` parses the `attrs` configuration hierarchy without importing it, merges inherited docstrings and `Args:` entries, and generates `.pyi` stubs with explicit keyword-only constructors. Pylance can therefore display inherited required parameters and documentation alongside subclass fields. Run `tools/sync_config_docstrings.py --check` to detect stub/documentation drift.
 

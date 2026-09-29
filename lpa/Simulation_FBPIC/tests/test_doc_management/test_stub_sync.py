@@ -333,7 +333,9 @@ def test_modified_density_profile_includes_list_default() -> None:
 def test_lasy_laser_pulse_init_fields() -> None:
     """Inherited base fields plus the LASY-specific ones; cache fields are excluded."""
     index = _index()
-    fields = index.init_fields(index.classes[("laser", "LasyLaserPulse")])
+    fields = index.init_fields(
+        index.classes[("_laser_implementations.lasy_laser", "LasyLaserPulse")]
+    )
     assert {field.name for field in fields} == {
         "energy",
         "a0",

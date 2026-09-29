@@ -473,7 +473,7 @@ class TestLasyLaserPulse:
     def test_resolve_comm_accepts_none_fbpic_and_mpi4py_forms(self) -> None:
         from types import SimpleNamespace
 
-        from inversion_fbpic.lib.laser import _resolve_comm
+        from inversion_fbpic.lib._laser_implementations.lasy_laser import _resolve_comm
 
         assert _resolve_comm(None) == (0, None)
 
