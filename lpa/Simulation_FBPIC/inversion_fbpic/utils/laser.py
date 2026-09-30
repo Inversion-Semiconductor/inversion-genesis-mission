@@ -94,7 +94,12 @@ class _ZernikeSuperGaussianProfile(Profile):
     beam wings.
     """
 
-    def __init__(self, parameters: Mapping[str, Any], pupil_radius: float) -> None:
+    def __init__(
+        self,
+        parameters: Mapping[str, Any],
+        pupil_radius: float,
+        longitudinal_profile: Any,
+    ) -> None:
         super().__init__(parameters["wavelength"], parameters["polarization"])
         self.laser_energy = parameters["energy"]
         zernike_amplitudes = {
@@ -107,11 +112,7 @@ class _ZernikeSuperGaussianProfile(Profile):
             zernike_amplitudes=zernike_amplitudes,
         )
         self.pupil_radius = pupil_radius
-        self.longitudinal_profile = GaussianLongitudinalProfile(
-            wavelength=parameters["wavelength"],
-            tau=parameters["pulse_duration_fwhm"] / np.sqrt(2.0 * np.log(2.0)),
-            t_peak=0.0,
-        )
+        self.longitudinal_profile = longitudinal_profile
         self.transverse_profile = SuperGaussianTransverseProfile(
             w0=parameters["spot_size"],
             n_order=parameters["super_gaussian_order"],
@@ -130,6 +131,63 @@ class _ZernikeSuperGaussianProfile(Profile):
                 omega,
             )
         )
+
+
+class AnalyticSpectralLongitudinalProfile:
+    """Complex temporal envelope synthesized from a scalar Gaussian spectrum.
+
+    The spectral intensity has a Gaussian FWHM of ``bandwidth_fwhm`` in angular
+    frequency. ``gdd``, ``tod``, and ``fod`` are the second-, third-, and
+    fourth-order spectral-phase coefficients about the central frequency.
+    """
+
+    def __init__(
+        self,
+        wavelength: float,
+        bandwidth_fwhm: float,
+        time_half_width: float,
+        npoints: int,
+        cep_phase: float = 0.0,
+        gdd: float = 0.0,
+        tod: float = 0.0,
+        fod: float = 0.0,
+    ) -> None:
+        if bandwidth_fwhm <= 0.0:
+            raise ValueError("bandwidth_fwhm must be positive.")
+        if time_half_width <= 0.0:
+            raise ValueError("time_half_width must be positive.")
+        if npoints < 2:
+            raise ValueError("npoints must be at least 2.")
+        self.wavelength = wavelength
+        self.bandwidth_fwhm = bandwidth_fwhm
+        self.time_axis = np.linspace(
+            -time_half_width,
+            time_half_width,
+            npoints,
+            endpoint=False,
+        )
+        dt = float(self.time_axis[1] - self.time_axis[0])
+        angular_frequency_offset = 2.0 * np.pi * np.fft.fftfreq(npoints, d=dt)
+        spectral_amplitude = np.exp(
+            -2.0
+            * np.log(2.0)
+            * (angular_frequency_offset / bandwidth_fwhm) ** 2
+        )
+        spectral_phase = (
+            cep_phase
+            + 0.5 * gdd * angular_frequency_offset**2
+            + tod * angular_frequency_offset**3 / 6.0
+            + fod * angular_frequency_offset**4 / 24.0
+        )
+        self.spectral_field = spectral_amplitude * np.exp(1j * spectral_phase)
+        self.temporal_field = np.fft.fftshift(np.fft.ifft(self.spectral_field))
+        self.temporal_field /= np.max(np.abs(self.temporal_field))
+
+    def evaluate(self, t: Array) -> Array:
+        """Return the complex envelope, zero-padded outside the synthesis grid."""
+        real = np.interp(t, self.time_axis, self.temporal_field.real, left=0.0, right=0.0)
+        imag = np.interp(t, self.time_axis, self.temporal_field.imag, left=0.0, right=0.0)
+        return real + 1j * imag
 
 
 class HighOrderLasyLaser:
@@ -152,6 +210,19 @@ class HighOrderLasyLaser:
             *(f"zernike_{name}" for name in ZERNIKE_OSA_INDICES),
         }
     )
+    _PHYSICAL_PARAMETER_DEFAULTS: dict[str, float] = {
+        "laser_spectral_bandwidth_rad_s": 0.0,
+        "laser_cep_phase_rad": 0.0,
+        "laser_gdd_s2": 0.0,
+        "laser_tod_s3": 0.0,
+        "laser_fod_s4": 0.0,
+        "laser_relative_gdd_s2": None,
+        "laser_relative_tod_s3": None,
+    }
+    OPTIONAL_PHYSICAL_PARAMETER_KEYS = frozenset(_PHYSICAL_PARAMETER_DEFAULTS)
+    _REFERENCE_PULSE_DURATION_FWHM_S = 30e-15
+    _REFERENCE_GDD_S2 = 5e-28
+    _REFERENCE_TOD_S3 = 1e-41
     _HYPERPARAMETER_DEFAULTS: dict[str, Any] = {
         "polarization": (1, 0),
         "n_azimuthal_modes": 5,
@@ -159,6 +230,9 @@ class HighOrderLasyLaser:
         "hi_range": 8.0,
         "center_and_remove_tilt": True,
         "centering_angles": 72,
+        "spectral_time_window_factor": 6.0,
+        "peak_delay_from_file_start_s": None,
+        "maximum_pulse_duration_fwhm_s": None,
     }
 
     def __init__(
@@ -166,7 +240,14 @@ class HighOrderLasyLaser:
         physical_parameters: Mapping[str, Any],
         hyperparameters: Optional[Mapping[str, Any]] = None,
     ) -> None:
-        self.physical_parameters = dict(physical_parameters)
+        self.physical_parameters = {
+            **self._PHYSICAL_PARAMETER_DEFAULTS,
+            **physical_parameters,
+        }
+        self.physical_parameters["laser_spectral_bandwidth_rad_s"] = (
+            self._resolve_spectral_bandwidth()
+        )
+        self._resolve_relative_spectral_phase()
         self.hyperparameters = {
             **self._HYPERPARAMETER_DEFAULTS,
             **(hyperparameters or {}),
@@ -182,11 +263,57 @@ class HighOrderLasyLaser:
             self.physical_parameters["laser_energy_J"],
             kind="energy",
         )
+        self._set_peak_delay_from_file_start()
+        self._validate_pulse_duration()
         self._validate_start_plane_grid()
+
+    def _resolve_spectral_bandwidth(self) -> float:
+        """Resolve a numeric bandwidth or derive a transform-limited Gaussian value."""
+        bandwidth = self.physical_parameters["laser_spectral_bandwidth_rad_s"]
+        if bandwidth == "auto":
+            duration = self.physical_parameters["laser_pulse_duration_fwhm_s"]
+            if duration <= 0.0:
+                raise ValueError("laser_pulse_duration_fwhm_s must be positive.")
+            return float(4.0 * np.log(2.0) / duration)
+        if isinstance(bandwidth, str):
+            raise ValueError(
+                "laser_spectral_bandwidth_rad_s must be a non-negative number or 'auto'."
+            )
+        return float(bandwidth)
+
+    def _resolve_relative_spectral_phase(self) -> None:
+        """Convert duration-normalized GDD/TOD controls to SI coefficients.
+
+        At a 30 fs FWHM reference pulse, relative values of ``+1`` correspond
+        to ``+5e-28 s^2`` GDD and ``+1e-41 s^3`` TOD. Scaling the coefficients
+        with duration squared/cubed keeps their phase contribution comparable
+        when an auto bandwidth is derived from pulse duration.
+        """
+        duration = self.physical_parameters["laser_pulse_duration_fwhm_s"]
+        relative_gdd = self.physical_parameters["laser_relative_gdd_s2"]
+        relative_tod = self.physical_parameters["laser_relative_tod_s3"]
+        for name, value in (
+            ("laser_relative_gdd_s2", relative_gdd),
+            ("laser_relative_tod_s3", relative_tod),
+        ):
+            if value is not None and not -1.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in the interval [-1, 1].")
+        duration_ratio = duration / self._REFERENCE_PULSE_DURATION_FWHM_S
+        if relative_gdd is not None:
+            self.physical_parameters["laser_gdd_s2"] = float(
+                relative_gdd * self._REFERENCE_GDD_S2 * duration_ratio**2
+            )
+        if relative_tod is not None:
+            self.physical_parameters["laser_tod_s3"] = float(
+                relative_tod * self._REFERENCE_TOD_S3 * duration_ratio**3
+            )
 
     def _validate_parameters(self) -> None:
         missing_physical = self.PHYSICAL_PARAMETER_KEYS - set(self.physical_parameters)
-        unknown_physical = set(self.physical_parameters) - self.PHYSICAL_PARAMETER_KEYS
+        accepted_physical = (
+            self.PHYSICAL_PARAMETER_KEYS | self.OPTIONAL_PHYSICAL_PARAMETER_KEYS
+        )
+        unknown_physical = set(self.physical_parameters) - accepted_physical
         unknown_hyperparameters = set(self.hyperparameters) - set(
             self._HYPERPARAMETER_DEFAULTS
         )
@@ -208,6 +335,18 @@ class HighOrderLasyLaser:
                 "centering_angles must be at least "
                 f"{minimum_angles} for the configured azimuthal modes."
             )
+        if self.physical_parameters["laser_spectral_bandwidth_rad_s"] < 0.0:
+            raise ValueError("laser_spectral_bandwidth_rad_s must be non-negative.")
+        if self.hyperparameters["spectral_time_window_factor"] <= 0.0:
+            raise ValueError("spectral_time_window_factor must be positive.")
+        peak_delay = self.hyperparameters["peak_delay_from_file_start_s"]
+        if peak_delay is not None and peak_delay < 0.0:
+            raise ValueError("peak_delay_from_file_start_s must be non-negative.")
+        maximum_duration = self.hyperparameters["maximum_pulse_duration_fwhm_s"]
+        if maximum_duration is not None and maximum_duration <= 0.0:
+            raise ValueError(
+                "maximum_pulse_duration_fwhm_s must be positive when specified."
+            )
 
     def _lasy_parameters(self) -> dict[str, Any]:
         """Translate flat public inputs to the parameter names LASY expects."""
@@ -217,6 +356,13 @@ class HighOrderLasyLaser:
             "pulse_duration_fwhm": self.physical_parameters[
                 "laser_pulse_duration_fwhm_s"
             ],
+            "spectral_bandwidth": self.physical_parameters[
+                "laser_spectral_bandwidth_rad_s"
+            ],
+            "cep_phase": self.physical_parameters["laser_cep_phase_rad"],
+            "gdd": self.physical_parameters["laser_gdd_s2"],
+            "tod": self.physical_parameters["laser_tod_s3"],
+            "fod": self.physical_parameters["laser_fod_s4"],
             "spot_size": self.physical_parameters["laser_spot_size_m"],
             "super_gaussian_order": self.physical_parameters[
                 "laser_super_gaussian_order"
@@ -232,7 +378,11 @@ class HighOrderLasyLaser:
         parameters = self._lasy_parameters() | {
             "polarization": self.hyperparameters["polarization"]
         }
-        time_half_width = 3.0 * parameters["pulse_duration_fwhm"]
+        time_half_width = self._time_half_width(parameters)
+        longitudinal_profile = self._build_longitudinal_profile(
+            parameters,
+            time_half_width,
+        )
         pupil_radius = self._reference_focus_pupil_radius(
             parameters,
             time_half_width,
@@ -248,9 +398,125 @@ class HighOrderLasyLaser:
             profile=_ZernikeSuperGaussianProfile(
                 parameters,
                 pupil_radius,
+                longitudinal_profile,
             ),
             n_azimuthal_modes=self.hyperparameters["n_azimuthal_modes"],
         )
+
+    def _time_half_width(self, parameters: Mapping[str, Any]) -> float:
+        """Return a temporal extent that retains the transform-limited pulse and dispersion delay."""
+        bandwidth = parameters["spectral_bandwidth"]
+        if bandwidth == 0.0:
+            return 3.0 * parameters["pulse_duration_fwhm"]
+        spectral_extent = 3.0 * bandwidth
+        dispersion_delay = abs(
+            parameters["gdd"] * spectral_extent
+            + parameters["tod"] * spectral_extent**2 / 2.0
+            + parameters["fod"] * spectral_extent**3 / 6.0
+        )
+        return (
+            self.hyperparameters["spectral_time_window_factor"]
+            * 2.0
+            * np.log(2.0)
+            / bandwidth
+            + dispersion_delay
+        )
+
+    def _build_longitudinal_profile(
+        self,
+        parameters: Mapping[str, Any],
+        time_half_width: float,
+    ) -> Any:
+        """Build either the legacy transform-limited pulse or analytic spectral pulse."""
+        bandwidth = parameters["spectral_bandwidth"]
+        if bandwidth == 0.0:
+            return GaussianLongitudinalProfile(
+                wavelength=parameters["wavelength"],
+                tau=parameters["pulse_duration_fwhm"] / np.sqrt(2.0 * np.log(2.0)),
+                t_peak=0.0,
+                cep_phase=parameters["cep_phase"],
+            )
+        return AnalyticSpectralLongitudinalProfile(
+            wavelength=parameters["wavelength"],
+            bandwidth_fwhm=bandwidth,
+            time_half_width=time_half_width,
+            npoints=self.hyperparameters["num_points"][1],
+            cep_phase=parameters["cep_phase"],
+            gdd=parameters["gdd"],
+            tod=parameters["tod"],
+            fod=parameters["fod"],
+        )
+
+    def _on_axis_intensity(self) -> tuple[Array, Array]:
+        """Return the start-plane on-axis intensity on the LASY time grid."""
+        _, time = self.laser.grid.axes
+        field = self.laser.grid.get_temporal_field()[0, 0]
+        return time, np.abs(field) ** 2
+
+    @staticmethod
+    def _fwhm(time: Array, intensity: Array) -> float:
+        """Return the FWHM of the peak containing the global intensity maximum."""
+        peak_index = int(np.argmax(intensity))
+        threshold = intensity[peak_index] / 2.0
+        below_threshold = intensity < threshold
+        left_indices = np.flatnonzero(below_threshold[: peak_index + 1])
+        right_indices = np.flatnonzero(below_threshold[peak_index:])
+        if left_indices.size == 0 or right_indices.size == 0:
+            raise ValueError("Laser temporal grid does not contain the pulse FWHM.")
+        left_upper = int(left_indices[-1])
+        right_upper = peak_index + int(right_indices[0])
+        left_crossing = np.interp(
+            threshold,
+            intensity[left_upper : left_upper + 2],
+            time[left_upper : left_upper + 2],
+        )
+        right_crossing = np.interp(
+            threshold,
+            intensity[right_upper - 1 : right_upper + 1][::-1],
+            time[right_upper - 1 : right_upper + 1][::-1],
+        )
+        return float(right_crossing - left_crossing)
+
+    def _set_peak_delay_from_file_start(self) -> None:
+        """Place the on-axis peak at a fixed delay from FBPIC's file-time origin."""
+        target_delay = self.hyperparameters["peak_delay_from_file_start_s"]
+        if target_delay is None:
+            return
+        time, intensity = self._on_axis_intensity()
+        current_delay = float(time[int(np.argmax(intensity))] - time[0])
+        shift = target_delay - current_delay
+        field = self.laser.grid.get_temporal_field()
+        shifted_field = np.empty_like(field)
+        for mode_index in range(field.shape[0]):
+            for radius_index in range(field.shape[1]):
+                source = field[mode_index, radius_index]
+                shifted_field[mode_index, radius_index] = np.interp(
+                    time - shift,
+                    time,
+                    source.real,
+                    left=0.0,
+                    right=0.0,
+                ) + 1j * np.interp(
+                    time - shift,
+                    time,
+                    source.imag,
+                    left=0.0,
+                    right=0.0,
+                )
+        self.laser.grid.set_temporal_field(shifted_field)
+
+    def _validate_pulse_duration(self) -> None:
+        """Reject spectral-phase settings that exceed the configured FWHM limit."""
+        maximum_duration = self.hyperparameters["maximum_pulse_duration_fwhm_s"]
+        if maximum_duration is None:
+            return
+        time, intensity = self._on_axis_intensity()
+        duration = self._fwhm(time, intensity)
+        if duration > maximum_duration:
+            raise ValueError(
+                "Laser pulse duration exceeds maximum_pulse_duration_fwhm_s: "
+                f"{duration:.3e} s > {maximum_duration:.3e} s."
+            )
 
     def _reference_focus_pupil_radius(
         self,
@@ -277,6 +543,10 @@ class HighOrderLasyLaser:
             profile=_ZernikeSuperGaussianProfile(
                 reference_parameters,
                 1.0,
+                self._build_longitudinal_profile(
+                    reference_parameters,
+                    time_half_width,
+                ),
             ),
             n_azimuthal_modes=self.hyperparameters["n_azimuthal_modes"],
         )
