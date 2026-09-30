@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import ClassVar, Literal
+from typing import Callable, ClassVar, Literal
 
 import attrs
 import numpy as np
@@ -335,6 +335,51 @@ def _validated_shape_parameters(
     return normalized
 
 
+def _skew_corrected_half_span(
+    evaluate: Callable[[float], float], nominal_span: float, target: float
+) -> float:
+    """Distance from the centre where ``evaluate`` first reaches ``target``.
+
+    ``evaluate(s)`` is the profile's actual (skewed) density a distance ``s``
+    from the centroid on one side; it is assumed to decrease monotonically
+    with ``s`` beyond the profile's core, from ``evaluate(0) == 1`` (every
+    supported shape is normalised to a peak of one at its centre, and so is
+    the skew multiplier there) down towards zero. ``nominal_span`` is that
+    side's *unskewed* half-extent (from ``_profile_support_spans``) and
+    ``target`` is the unskewed density at that point: the reference "edge of
+    support" density the shape's own cutoff convention defines.
+
+    The search starts from ``nominal_span``: if skew has already suppressed
+    the density below ``target`` there, the true (smaller) crossing lies
+    between the centre and ``nominal_span``; if skew has stretched the tail
+    so density is still above ``target`` there, the search expands outward
+    (doubling) until it brackets the crossing, then bisects.
+
+    ``target`` at or below ``1e-12`` covers exact, compact-support shapes
+    (density is already zero, to floating-point noise, at and beyond
+    ``nominal_span``, with or without skew, since skew only rescales an
+    already-zero value): no search is needed or possible, so ``nominal_span``
+    is returned unchanged.
+    """
+    if target <= 1.0e-12 or nominal_span <= 0.0:
+        return nominal_span
+    lower, upper = 0.0, nominal_span
+    if evaluate(upper) > target:
+        for _ in range(50):
+            upper *= 2.0
+            if evaluate(upper) <= target:
+                break
+        else:
+            return upper
+    for _ in range(40):
+        midpoint = 0.5 * (lower + upper)
+        if evaluate(midpoint) > target:
+            lower = midpoint
+        else:
+            upper = midpoint
+    return upper
+
+
 def _skew_multiplier(
     shifted_z: npt.NDArray[np.float64],
     left_span: float,
@@ -379,10 +424,37 @@ class _FiniteSkewedProfile(_DensityProfile):
 
     def get_z_extent(self) -> tuple[float, float]:
         left_span, right_span = self._profile_support_spans()
-        return (
-            self.start_position,
-            self.start_position + left_span + right_span,
-        )
+        if self.skew_rate == 0.0:
+            return (
+                self.start_position,
+                self.start_position + left_span + right_span,
+            )
+
+        # Skew is applied after these (unskewed) spans are derived, and can
+        # shift the density at either nominal edge far from what the shape's
+        # own cutoff convention intended; correct each side against the
+        # profile's actual (skewed) density, holding fixed the same reference
+        # density the unskewed shape would have reached there. A search this
+        # wide can legitimately probe skew multipliers large enough to
+        # overflow to +inf (a saturated-mode skew rate near the parameter
+        # space's own edge); that is a harmless, handled case (inf compares
+        # correctly as "still above target"), not a sign of a bad value, so
+        # it is not left to warn.
+        density = self.build_density_function()
+        target_left = float(self._unskewed_density(np.array([-left_span]))[0])
+        target_right = float(self._unskewed_density(np.array([right_span]))[0])
+        with np.errstate(over="ignore"):
+            corrected_left = _skew_corrected_half_span(
+                lambda s: float(density(self.centroid - s, 0.0)),
+                left_span,
+                target_left,
+            )
+            corrected_right = _skew_corrected_half_span(
+                lambda s: float(density(self.centroid + s, 0.0)),
+                right_span,
+                target_right,
+            )
+        return (self.centroid - corrected_left, self.centroid + corrected_right)
 
     def get_r_extent(self) -> float | None:
         return None

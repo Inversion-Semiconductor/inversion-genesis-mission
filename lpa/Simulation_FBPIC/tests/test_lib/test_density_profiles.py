@@ -407,6 +407,54 @@ class TestGeneralizedLorentzianSum:
 
 
 # ===================================================================
+# Unit tests — _skew_corrected_half_span
+# ===================================================================
+
+
+class TestSkewCorrectedHalfSpan:
+    def _helper(self):
+        from inversion_fbpic.lib._density_implementations.generic_conical_target import (
+            _skew_corrected_half_span,
+        )
+
+        return _skew_corrected_half_span
+
+    def test_bypasses_the_search_for_exact_or_near_zero_targets(self) -> None:
+        helper = self._helper()
+        calls: list[float] = []
+
+        def evaluate(s: float) -> float:
+            calls.append(s)
+            return 0.0
+
+        assert helper(evaluate, nominal_span=3.0, target=0.0) == pytest.approx(3.0)
+        assert helper(evaluate, nominal_span=3.0, target=1.0e-13) == pytest.approx(3.0)
+        assert helper(evaluate, nominal_span=0.0, target=0.5) == pytest.approx(0.0)
+        assert calls == []  # never evaluated: both guards short-circuit
+
+    def test_bisects_inward_when_skew_has_already_suppressed_the_nominal_edge(
+        self,
+    ) -> None:
+        helper = self._helper()
+        # A synthetic, exactly-known decreasing function: evaluate(s) = exp(-s).
+        target = np.exp(-1.0)  # true crossing at s = 1.0
+        result = helper(lambda s: np.exp(-s), nominal_span=5.0, target=target)
+        assert result == pytest.approx(1.0, abs=1.0e-9)
+
+    def test_expands_outward_when_skew_has_stretched_the_nominal_edge(self) -> None:
+        helper = self._helper()
+        target = np.exp(-10.0)  # true crossing at s = 10, well past nominal_span
+        result = helper(lambda s: np.exp(-s), nominal_span=0.1, target=target)
+        assert result == pytest.approx(10.0, rel=1.0e-8)
+
+    def test_gives_up_gracefully_if_the_target_is_never_reached(self) -> None:
+        helper = self._helper()
+        # A function that never drops below an unreachable target.
+        result = helper(lambda s: 1.0, nominal_span=1.0, target=0.5)
+        assert np.isfinite(result) and result > 1.0
+
+
+# ===================================================================
 # Unit tests — GenericConicalTarget
 # ===================================================================
 
@@ -825,6 +873,113 @@ class TestGenericConicalTarget:
         assert np.all(np.isfinite(density(np.linspace(z_min, z_max, 101), 0.0)))
         assert density(z_max + 1.0e-9, 0.0) == pytest.approx(0.0)
 
+    def test_z_extent_of_an_infinite_tail_shape_accounts_for_skew(self) -> None:
+        """A skewed supergaussian's reported edges must reach its own cutoff density.
+
+        Before this was corrected, ``get_z_extent`` used the *unskewed* shape's
+        half-span on both sides regardless of skew, so a strongly skewed profile
+        could report an edge where the true (skewed) density was still far above
+        (or already far below) the density the unskewed shape's own convention
+        intends as "the edge of support".
+        """
+        num_sigma_extent = 3.0
+        reference_ratio = np.exp(-(num_sigma_extent**2) / 2.0)
+        profile = self._build(
+            main_profile_type="supergaussian",
+            main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=600.0,
+            skew_mode="finite_supergaussian",
+        )
+        z_min, z_max = profile.get_z_extent()
+        density = profile.build_density_function()
+        peak = density(profile.centroid, 0.0)
+
+        assert peak == pytest.approx(1.0)
+        # Strong skew must make the two sides genuinely asymmetric ...
+        assert (profile.centroid - z_min) != pytest.approx(
+            z_max - profile.centroid, rel=1.0e-2
+        )
+        # ... yet both edges reach the *same* reference density, unlike the old
+        # unskewed-only calculation (which this reference ratio would only match
+        # for skew_rate == 0).
+        assert density(z_min, 0.0) / peak == pytest.approx(reference_ratio, rel=1.0e-6)
+        assert density(z_max, 0.0) / peak == pytest.approx(reference_ratio, rel=1.0e-6)
+
+    def test_z_extent_of_a_lorentzian_shape_accounts_for_skew(self) -> None:
+        cutoff = 2.0e-3
+        profile = self._build(
+            main_profile_type="lorentzian_flattop",
+            main_profile_parameters={
+                "flattop_width": 1.0e-4,
+                "transition_length": 5.0e-4,
+                "coordinate_exponent": 2.5,
+                "profile_exponent": 1.5,
+                "density_cutoff_ratio": cutoff,
+            },
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=500.0,
+            skew_mode="saturated",
+        )
+        z_min, z_max = profile.get_z_extent()
+        density = profile.build_density_function()
+        peak = density(profile.centroid, 0.0)
+
+        assert (profile.centroid - z_min) != pytest.approx(
+            z_max - profile.centroid, rel=1.0e-2
+        )
+        assert density(z_min, 0.0) / peak == pytest.approx(cutoff, rel=1.0e-6)
+        assert density(z_max, 0.0) / peak == pytest.approx(cutoff, rel=1.0e-6)
+
+    @pytest.mark.parametrize("skew_rate", [0.0, 3.0, -3.0])
+    def test_z_extent_of_a_compact_support_shape_is_unaffected_by_skew(
+        self, skew_rate
+    ) -> None:
+        """Compact-support shapes are already exactly zero at their nominal edge;
+        skew only rescales an already-zero density, so it cannot move that edge."""
+        unskewed = self._build(
+            main_profile_parameters={"fwhm": 4.0, "ramp_length": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=0.0,
+        )
+        skewed = self._build(
+            main_profile_parameters={"fwhm": 4.0, "ramp_length": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=skew_rate,
+            skew_mode="finite_supergaussian",
+        )
+
+        assert skewed.get_z_extent() == pytest.approx(unskewed.get_z_extent())
+
+    def test_z_extent_correction_is_skipped_when_skew_rate_is_zero(self) -> None:
+        """The skew-correction search never runs at skew_rate == 0 (the common case)."""
+        profile = self._build(
+            main_profile_type="supergaussian",
+            main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=0.0,
+        )
+        left_span, right_span = profile._profile_support_spans()
+
+        assert profile.get_z_extent() == pytest.approx(
+            (profile.start_position, profile.start_position + left_span + right_span)
+        )
+
     @pytest.mark.parametrize(
         "overrides",
         [
@@ -926,6 +1081,16 @@ class TestPowerLawFlattop:
     def test_requires_exponent_greater_than_two(self) -> None:
         with pytest.raises(ValueError, match="transition_exponent"):
             self._build(transition_exponent=2.0)
+
+    @pytest.mark.parametrize("skew_rate", [0.0, 5.0, -5.0])
+    def test_z_extent_is_unaffected_by_skew(self, skew_rate) -> None:
+        """This shape is always compact-support (density_cutoff_ratio is not
+        even one of its parameters), so its edges are already exactly zero and
+        the skew correction in the shared base class must be a no-op here."""
+        unskewed = self._build(skew_rate=0.0)
+        skewed = self._build(skew_rate=skew_rate, skew_mode="finite_supergaussian")
+
+        assert skewed.get_z_extent() == pytest.approx(unskewed.get_z_extent())
 
 
 # ===================================================================

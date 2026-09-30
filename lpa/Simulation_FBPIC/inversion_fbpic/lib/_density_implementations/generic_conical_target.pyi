@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..density_core import _DensityProfile
 
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
-from typing import ClassVar, Literal
+from typing import Callable, ClassVar, Literal
 
 SkewMode = Literal['auto', 'finite_supergaussian', 'exponential', 'saturated']
 
