@@ -34,18 +34,19 @@ PHYSICAL_PARAMETERS = {
     "laser_spot_size_m": 24e-6,
     "laser_super_gaussian_order": 3,
     "laser_focal_position_m": 3.5e-3,
-    "zernike_astigmatism_2": 8.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_astigmatism_4": 8.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_coma_x": -0.25,
-    "zernike_coma_y": 8.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_trefoil_x": 80.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_trefoil_y": 80.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_spherical_3": 6.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_astigmatism_6": 4.0 * RANDOM_PHASE_AMP * (random() - 0.5),
-    "zernike_coma_5_x": 0.0,
-    "zernike_coma_5_y": 0.0,
-    "zernike_secondary_trefoil_x": 0.0,
-    "zernike_secondary_trefoil_y": 0.0,
+    "zernike_astigmatism_2": 0.0, #  +/- 0.5
+    "zernike_astigmatism_4": 0.0,
+    "zernike_coma_x": 0.0,  #+/- 0.25
+    "zernike_coma_y": 0.0,
+    "zernike_trefoil_x": 0.0, # +/- 0.75
+    "zernike_trefoil_y": 0.0,
+    "zernike_spherical_3": 0.0,  # +/- 0.25
+    # the following are higher order terms that I will ignore for the present study
+    "zernike_astigmatism_6": 0.00,  # Keep at 0
+    "zernike_coma_5_x": 0.0,  # Keep at 0
+    "zernike_coma_5_y": 0.0,  # Keep at 0
+    "zernike_secondary_trefoil_x": 0.0,  # Keep at 0
+    "zernike_secondary_trefoil_y": 0.0,  # Keep at 0
 }
 
 # Numerical representation settings.
