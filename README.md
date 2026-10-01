@@ -1,10 +1,10 @@
 # inversion-genesis-mission
 Repository for Genesis mission-related code.
 
-| Folder                  | What it contains                                                       | Key tech                                                          |
-| ----------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| **`lpa/`**| PIC simulations for LPA injectors                                      | FBPIC                                                      |
-
+| Folder | What it contains | Key tech
+| - | - | -
+**`lpa/Simulation_FBPIC`** | PIC simulations for LPA injectors | FBPIC
+**`lpa/Simulation_Fluid`** | Fluid simulation analysis and parameterization of density lineouts | Ansys Fluent (data source) |
 ---
 
 ## Quick start
@@ -28,14 +28,14 @@ Python baseline: 3.12.x (min 3.11, tests also run on 3.13)
 
 ## Development workflow
 
-| Step                        | Command / action                                            |
-| --------------------------- | ----------------------------------------------------------- |
-| **1. Create ticket branch** | `git switch -c IG-123-short-description`                    |
-| **2. Code & commit**        | Hooks run Ruff → Black → clang-format                       |
-| **3. Push**                 | `git push -u origin IG-123-short-description`               |
-| **4. CI**                   | Branch-name guard + unit tests                              |
-| **5. PR**                   | Requires _Code-Owner_ approval; `main` is fast-forward-only |
-| **6. Merge**                | PR _Squash & Merge_ →                                       |
+| Step | Command / action |
+| - | - |
+| **1. Create ticket branch** | `git switch -c IG-123-short-description` |
+| **2. Code & commit** | Hooks run Ruff → Black → clang-format |
+| **3. Push** | `git push -u origin IG-123-short-description` |
+| **4. CI** | Branch-name guard + unit tests |
+| **5. PR** | Requires _Code-Owner_ approval; `main` is fast-forward-only |
+| **6. Merge** | PR _Squash & Merge_ → |
 
 Branch names must match `IG-###-short-description`; duplicate ticket IDs are blocked by
 `.github/workflows/branch-name.yml`.
