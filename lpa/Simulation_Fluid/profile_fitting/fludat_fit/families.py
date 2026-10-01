@@ -743,3 +743,79 @@ def get_families(
             )
         families.append(registry[name])
     return families
+
+
+class FixedParameterFamily(ProfileFamily):
+    """Wrap a family with one of its parameters pinned to a fixed value.
+
+    The named parameter is removed from the searched
+    :class:`~fludat_fit.parameters.ParameterSpace` and merged back in at
+    ``fixed_value`` whenever the wrapped family builds a profile or evaluates
+    its relative density, so the local optimiser never sees or moves it: every
+    *other* parameter is still fitted normally, free to compensate (a
+    different ``skew_rate``, a different satellite-term amplitude, ...) for
+    the fixed one.
+
+    Useful when a parameter's correct value is known externally and should
+    not vary per fit — for example, pinning every family's position parameter
+    (``center`` on ``GenericConicalTarget``/``PowerLawFlattop``, ``c_0`` on
+    ``GeneralizedLorentzianSum``) to one shared, data-driven centroid, so a
+    set of otherwise-independent fits to the same lineout agree on a physical
+    anchor point (e.g. the laser focus) instead of each fitting it on its own.
+    This is a genuine constraint enforced during optimisation, not a
+    translation applied after the fact: a rigid shift after fitting freely
+    would preserve fit quality perfectly only for shapes with no other
+    position-coupled parameters, but skewed or multi-term shapes can fit
+    markedly worse once rigidly moved away from where they were fitted.
+
+    Args:
+        family: The family to wrap.
+        parameter_name: One of ``family``'s parameter names.
+        fixed_value: The value that parameter is held at.
+    """
+
+    def __init__(
+        self, family: ProfileFamily, parameter_name: str, fixed_value: float
+    ) -> None:
+        super().__init__(family.profile_kwargs)
+        self.family = family
+        self.parameter_name = parameter_name
+        self.fixed_value = float(fixed_value)
+        self.name = f"{family.name}[{parameter_name}={fixed_value:.4g}]"
+        self.profile_class = family.profile_class
+
+    def parameter_space(self, summary: LineoutSummary) -> ParameterSpace:
+        space = self.family.parameter_space(summary)
+        if self.parameter_name not in space.names:
+            raise KeyError(
+                f"{self.family.name!r} has no parameter {self.parameter_name!r} to fix"
+            )
+        specs = tuple(spec for spec in space.specs if spec.name != self.parameter_name)
+        return ParameterSpace(specs)
+
+    def _with_fixed(self, parameters: Mapping[str, float]) -> dict[str, float]:
+        return {**parameters, self.parameter_name: self.fixed_value}
+
+    def relative_density(
+        self, parameters: Mapping[str, float], z: np.ndarray
+    ) -> np.ndarray:
+        return self.family.relative_density(self._with_fixed(parameters), z)
+
+    def build(
+        self,
+        parameters: Mapping[str, float],
+        *,
+        nominal_density: float = 1.0,
+        **overrides: Any,
+    ) -> _DensityProfile:
+        return self.family.build(
+            self._with_fixed(parameters), nominal_density=nominal_density, **overrides
+        )
+
+    def initial_guess(self, summary: LineoutSummary) -> dict[str, float] | None:
+        guess = self.family.initial_guess(summary)
+        if guess is None:
+            return None
+        return {
+            key: value for key, value in guess.items() if key != self.parameter_name
+        }
