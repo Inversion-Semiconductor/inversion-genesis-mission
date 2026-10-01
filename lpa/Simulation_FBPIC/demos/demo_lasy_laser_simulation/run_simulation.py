@@ -132,7 +132,7 @@ if __name__ == "__main__":
         rmax=120e-6,
         nz=1024,
         nr=300,
-        nm=3,
+        nm=5,
         use_mpi=USE_MPI,
         number_dumps=100,
         gamma_boost=3,
