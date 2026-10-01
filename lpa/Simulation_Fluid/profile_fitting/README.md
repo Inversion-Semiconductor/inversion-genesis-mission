@@ -90,7 +90,7 @@ other methods fall back to the per-point `fludat_proc` interpolation, which is s
 | `hdf5_path` | — | The density cube. |
 | `--method` | `linear` | `(x, pressure)` interpolation method of `fludat_proc`. |
 | `--z-bounds` | jet support + padding | Fit window along the lineout [mm]. |
-| `--cutoff-ratio` | `1e-3` | Peak fraction that defines the jet support. |
+| `--cutoff-ratio` | `5e-3` | Peak fraction that defines the jet support. |
 | `--padding` | `0.25` | Vacuum kept on each side, as a fraction of the support width. |
 | `--max-points` | `1000` | Resample longer lineouts to this many samples (`0`: keep all). |
 | `--families` | all | Family names; see `--list-families`. |

@@ -34,7 +34,7 @@ except ImportError:  # sibling checkout without an installed fludat_proc
         build_density_interpolation,
     )
 
-DEFAULT_CUTOFF_RATIO = 1.0e-3
+DEFAULT_CUTOFF_RATIO = 5.0e-3
 """Fraction of the peak below which a lineout is considered vacuum."""
 
 

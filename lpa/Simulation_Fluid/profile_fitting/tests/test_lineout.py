@@ -51,9 +51,9 @@ def test_summary_of_a_gaussian():
     assert summary.centroid == pytest.approx(0.5e-3, abs=1.0e-5)
     assert summary.fwhm == pytest.approx(2.3548e-3, rel=0.02)
     lower, upper = summary.support
-    # density >= 1e-3 * peak within about 3.7 sigma of the centre
-    assert lower == pytest.approx(0.5e-3 - 3.72e-3, abs=5.0e-5)
-    assert upper == pytest.approx(0.5e-3 + 3.72e-3, abs=5.0e-5)
+    # density >= DEFAULT_CUTOFF_RATIO (5e-3) * peak within about 3.26 sigma of the centre
+    assert lower == pytest.approx(0.5e-3 - 3.255e-3, abs=5.0e-5)
+    assert upper == pytest.approx(0.5e-3 + 3.255e-3, abs=5.0e-5)
     assert summary.z_scale == pytest.approx(upper - lower)
 
 

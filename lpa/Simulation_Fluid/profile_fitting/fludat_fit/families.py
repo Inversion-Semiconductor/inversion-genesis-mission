@@ -344,7 +344,7 @@ class GeneralizedLorentzianSumFamily(ProfileFamily):
         self,
         n_terms: int = 1,
         profile_kwargs: Mapping[str, Any] | None = None,
-        density_cutoff_ratio: float = 1.0e-3,
+        density_cutoff_ratio: float = 5.0e-3,
     ) -> None:
         super().__init__(profile_kwargs)
         if n_terms < 1:
