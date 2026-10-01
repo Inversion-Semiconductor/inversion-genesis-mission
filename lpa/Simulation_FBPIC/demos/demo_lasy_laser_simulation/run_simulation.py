@@ -135,7 +135,7 @@ if __name__ == "__main__":
         nm=3,
         use_mpi=USE_MPI,
         number_dumps=100,
-        gamma_boost=2,
+        gamma_boost=3,
         field_diagnostics=["E", "B", "rho"],
     )
 

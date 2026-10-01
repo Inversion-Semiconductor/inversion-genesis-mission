@@ -25,6 +25,8 @@ Two things differ from the Gaussian demos:
   resets the LASY time axis to zero, so the peak leaves the antenna at
   `t_start + 3 * tau_fwhm`. The script places the antenna 5 um inside the front
   of the box and sizes the window so the full pulse fits behind it.
+- The number of modes is increased to 5. The higher level of transverse detail 
+  in the laser profile necessitates using more orders to resolve.
 
 The LASY build takes roughly 20 s on the default (600, 900) grid with five
 azimuthal modes and runs on MPI rank 0 only; other ranks wait at a barrier.
