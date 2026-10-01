@@ -27,6 +27,8 @@ dev = ["pytest", "ruff"]
 explore-fits = "fludat_fit.explore_fits:main"
 fit-statistics = "fludat_fit.fit_statistics:main"
 evaluate-models = "fludat_fit.evaluate_models:main"
+generate-profile-configs = "fludat_fit.generate_profile_configs:main"
+plot-profile-configs = "fludat_fit.plot_profile_configs:main"
 
 [tool.setuptools]
 packages = ["fludat_fit", "fludat_fit.learning"]
@@ -43,3 +45,5 @@ pythonpath = [".", "../postproc"]
 "fludat_fit/explore_fits.py" = ["E402"]
 "fludat_fit/fit_statistics.py" = ["E402"]
 "fludat_fit/evaluate_models.py" = ["E402"]
+"fludat_fit/generate_profile_configs.py" = ["E402"]
+"fludat_fit/plot_profile_configs.py" = ["E402"]

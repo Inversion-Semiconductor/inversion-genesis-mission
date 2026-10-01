@@ -52,10 +52,14 @@ conda run -n inv-fbpic python -m fludat_fit.explore_fits --list-families
 | `fludat_fit.explore_fits` | `explore-fits` | Interactive fit of the lineout selected by x / pressure / angle sliders |
 | `fludat_fit.fit_statistics` | `fit-statistics` | Fit a distribution of condition points and report per-family performance |
 | `fludat_fit.evaluate_models` | `evaluate-models` | Build a training set and evaluate `conditions -> parameters` models |
+| `fludat_fit.generate_profile_configs` | `generate-profile-configs` | Fit a JSON template of profile families at given `(x, p, angle)` points |
+| `fludat_fit.plot_profile_configs` | `plot-profile-configs` | Plot every profile of a filled config on one figure, with vlines at their centres |
 
 Library modules: `dataset` (oblique lineouts of a cube), `lineout`, `families`, `fitting`,
 `goodness_of_fit`, `sampling` (condition boxes), `plotting`, `cli_common` (shared
-command-line options), and the `learning` subpackage (model evaluation framework).
+command-line options), `profile_reconstruction` (rebuilding real `inversion_fbpic`
+profiles from a filled config, shared by `generate_profile_configs` and
+`plot_profile_configs`), and the `learning` subpackage (model evaluation framework).
 
 Requirements: Python ≥ 3.10, NumPy ≥ 2.0, SciPy, Matplotlib, attrs, `inversion_fbpic`,
 `fludat_proc`. Tests: `conda run -n inv-fbpic python -m pytest` from this directory.
@@ -239,6 +243,100 @@ super-Gaussian `fwhm` is the class parameter, not the curve's measured FWHM.
 
 Not fitted: `InterpolateFromH5Profile` (it reads the same cubes the lineouts come from)
 and `ExampleDensityProfile` (documented as not for practical use).
+
+`families.FixedParameterFamily(family, parameter_name, fixed_value)` wraps any family
+with one named parameter pinned to a fixed value: it is removed from the searched
+`ParameterSpace` and merged back in wherever the wrapped family builds a profile or
+evaluates its relative density, so every *other* parameter is still fitted normally,
+free to compensate. `generate_profile_configs` uses this to pin every family's position
+parameter to one shared, data-driven centroid (see below); it is equally usable
+anywhere else a parameter's correct value is known externally and should not vary per fit.
+
+### Plotting a filled config (`plot_profile_configs`)
+
+```bash
+python -m fludat_fit.plot_profile_configs data/fit_cfgs/profile_parameters_x1mm_p20bar_a0deg.json
+python -m fludat_fit.plot_profile_configs data/fit_cfgs/profile_parameters_x*.json -o data/fit_cfgs
+```
+
+Reconstructs every profile of a filled config with the real `inversion_fbpic` classes
+(`center` substitutes for `start_position` on conical profiles, as the template
+documents) and draws each one over its own `get_z_extent()` — its full defined support,
+not just the region it was fitted against — on one figure, each with a dashed vertical
+line at its `center` or `centroid` (the same concept under two names, depending on the
+class). Showing the full extent matters: a profile can fit well where it was compared to
+data while still carrying an isolated, badly-placed bump elsewhere (what
+`max_deviation_weight` above discourages during fitting; this plot is how you check it
+actually did). `InterpolateFromH5Profile` has no builder or centre here: its curve is the
+density cube's own lineout, converted to m^-3 and sampled over the union of every other
+profile's extent, drawn as the reference the others were fitted against, with no line.
+One PNG is written per config, named after it.
+
+Each reconstructed profile is translated back out of its own left-edge-zero output frame
+into the frame it was actually fit in, where every profile shares one common anchor — the
+lineout's own crossing of `z_m = 0`. Without this, profiles would overlay in a coordinate
+frame the data itself does not use, making the comparison meaningless; with it, every
+dashed vline coincides at that one shared anchor, exactly as before the re-basing was
+introduced in `generate_profile_configs`.
+
+## Generating FBPIC profile configs (`generate_profile_configs`)
+
+`data/fit_cfgs/profile_parameters_template.json` is a hand-written schema for a
+downstream FBPIC run script: one physical point (`density_file`, `x_mm`, `p_bar`,
+`angle`) plus several named profiles, each `null` until filled in. `generate_profile_configs`
+fills every profile's `null` fields by fitting its matching family (by `class`, and for
+`GenericConicalTarget` by `main_profile_type`/`fringe_profile_type`) to the lineout at
+each requested point, and writes one config per point. A profile with no `null` in its
+`kwargs` (such as `h5_direct`) is copied through unchanged since it needs no fit.
+
+Every fitted profile shares one `center`/`centroid` (the same concept under two names):
+the point along *that* lineout where it crosses the gas target's physical `z_m = 0`
+symmetry plane (`dataset.path_for(conditions).t_at_physical_z(0.0)`), which by
+construction of the lineout path is always `t = 0`, regardless of `x_mm` or `angle`. This
+is *not* the density-weighted centroid of the lineout's own data: the target is
+symmetric about `z_m = 0`, but an oblique line (or an axial one off `x = 0`) samples that
+symmetric field along an asymmetric path, so the sampled data's own weighted centroid is
+generally offset from `z_m = 0` even though the target's true centre is not. Fitting each
+family to its own data-weighted centroid would reproduce that sampling artefact rather
+than the target's real geometry, and the families would disagree with each other besides.
+
+That anchor is pinned *during* fitting via `families.FixedParameterFamily` (`center` on
+`GenericConicalTarget`; the dominant term's `c_0` on `GeneralizedLorentzianSum`), not
+translated afterwards — every other parameter is still free to compensate, so the fit
+only pays for the constraint it actually needs. `GenericConicalTarget`'s `center` *is*
+its centroid, so this pins it exactly. `GeneralizedLorentzianSum` has no single centre
+parameter; its reported `centroid` is the same fixed anchor by definition, not a
+density-weighted average recomputed from the fitted terms, which would generally
+disagree with it once there is more than one term.
+
+Every written-out profile is then rigidly re-based into its own frame where its
+`get_z_extent()` starts at exactly `0.0` — the same convention `InterpolateFromH5Profile`'s
+`centering_mode="left"` already uses for `h5_direct`. A profile's support is generally
+asymmetric about its pinned anchor (skew, fringes, satellite terms), so this shift differs
+per profile even within one config. After the shift the anchor is no longer at `0`; the
+*reported* `center`/`centroid` is updated to the anchor's new position in that profile's
+own frame (`-z_extent[0]` measured before the shift), which is what a consumer needs in
+order to place the laser focus correctly once it has instantiated the profile in its own
+left-based frame. `GeneralizedLorentzianSum`'s `density_cutoff_ratio` is recorded
+explicitly in the written `kwargs` for the same reason: `get_z_extent()` depends on it, so
+a reconstruction that silently fell back to the class's own default instead of the value
+actually used at fit time would no longer land exactly on `0`.
+
+```bash
+python -m fludat_fit.generate_profile_configs htu_dens_7_0.h5 \
+    data/fit_cfgs/profile_parameters_template.json \
+    --point 1.0 20.0 0.0 --point 2.0 20.0 30.0 --point 3.0 20.0 -30.0 \
+    --output-dir data/fit_cfgs
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `hdf5_path`, `template` | — | The density cube and the template JSON. |
+| `--point X_MM P_BAR ANGLE_DEG` | — | Repeatable; one config is written per point. |
+| window options | jet support + padding | As for the other scripts. |
+| `--starts`, `--optimizer`, `--seed` | `16`, `L-BFGS-B`, `0` | Local-fit settings (more starts than the other scripts by default, since a handful of points is cheap to fit well). |
+| `--output-dir` | the template's directory | Where the filled configs are written. |
+| `--density-file` | `hdf5_path` relative to `--output-dir` | Overrides the recorded `density_file`, e.g. to keep a path relative to a different location. |
 
 ## Learning `conditions -> parameters` (`fludat_fit.learning`)
 
