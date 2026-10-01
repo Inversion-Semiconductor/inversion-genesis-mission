@@ -83,3 +83,7 @@ inversion-radiasoft-plasma-injector/
 
 # fluid sim data files
 *.cgns
+
+# large document files
+*.pdf
+*.pptx
