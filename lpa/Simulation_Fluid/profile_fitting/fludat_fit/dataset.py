@@ -66,6 +66,18 @@ class LineoutPath:
     def x_mm(self, t: np.ndarray) -> np.ndarray:
         return self.x_origin + self.x_coefficient * np.asarray(t, dtype=np.float64)
 
+    def t_at_physical_z(self, z_m_target: float = 0.0) -> float:
+        """The path parameter ``t`` where this line crosses ``z_m = z_m_target``.
+
+        The gas target is symmetric about the physical ``z_m = 0`` plane, so
+        this (default ``z_m_target=0.0``) is the profile's true physical
+        centre in this lineout's own coordinate — *not* the density-weighted
+        mean of the sampled lineout, which for an oblique or off-axis line
+        samples that symmetric field asymmetrically and so is generally
+        offset from it even though the target itself is not.
+        """
+        return (z_m_target - self.z_origin) / self.z_coefficient
+
     def lineout_axis(self) -> dict[str, dict[str, float]]:
         """The ``InterpolateFromH5Profile.lineout_axis`` dictionary for this line."""
         return {

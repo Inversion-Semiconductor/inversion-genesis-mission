@@ -66,6 +66,28 @@ def test_axial_lineout_uses_the_z_grid(small_cube_path):
     }
 
 
+@pytest.mark.parametrize("angle", [0.0, 15.0, -30.0, 60.0])
+@pytest.mark.parametrize("x_mm", [0.0, 1.0, 2.0])
+def test_t_at_physical_z_is_always_zero_since_z_origin_is_always_zero(
+    small_cube_path, x_mm, angle
+):
+    """Every lineout line passes through (z_m=0, x_mm=x_mm) by construction, so
+    the path parameter at the physical z_m=0 plane is always t=0, regardless
+    of x or angle. This is the anchor fludat_fit.generate_profile_configs pins
+    every profile family's centroid to, since the gas target is symmetric
+    about z_m=0 but an oblique or off-axis lineout samples it asymmetrically
+    (its own density-weighted centroid need not be, and generally is not, 0)."""
+    dataset = NozzleDataset.load(small_cube_path)
+    path = dataset.path_for(LineoutConditions(x_mm, 10.0, angle))
+
+    assert path.z_m(path.t_at_physical_z(0.0)) == pytest.approx(0.0, abs=1.0e-12)
+    assert path.t_at_physical_z(0.0) == pytest.approx(0.0, abs=1.0e-12)
+    # A non-zero target still resolves correctly, from the same (origin=0) line.
+    other = 3.0e-4
+    t_other = path.t_at_physical_z(other)
+    assert path.z_m(t_other) == pytest.approx(other)
+
+
 @pytest.mark.parametrize("angle", [15.0, -30.0, 60.0])
 def test_oblique_lineout_matches_the_fbpic_convention(small_cube_path, angle):
     dataset = NozzleDataset.load(small_cube_path)
