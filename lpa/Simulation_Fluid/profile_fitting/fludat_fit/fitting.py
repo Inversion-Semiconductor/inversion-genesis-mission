@@ -15,7 +15,7 @@ import time
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 import numpy as np
 from inversion_fbpic.lib.density_core import _DensityProfile
@@ -164,14 +164,68 @@ def optimal_amplitude(
     return max(float(np.sum(weights * relative * data)) / denominator, 0.0)
 
 
+MAX_DEVIATION_EXPONENT = 8
+"""Even power whose weighted power-mean stands in for ``max(|residual|)`` in
+:class:`FitObjective`, smoothly (see there for why)."""
+
+
+class _Evaluated(NamedTuple):
+    """The built profile's contribution to :class:`FitObjective` at one unit point."""
+
+    amplitude: float
+    relative: np.ndarray
+    z_extent: tuple[float, float]
+
+
 class FitObjective:
     """The local-fit objective for one lineout and family, on a unit cube.
 
-    ``__call__(u)`` returns the weighted sum of squared residuals normalised by
-    the weighted sum of squared data (so tolerances are unit-free), with the
-    amplitude eliminated in closed form (variable projection). This is the exact
-    quantity :class:`MultiStartLocalFit` minimises, and the *direct* loss a
-    learned ``conditions -> parameters`` model is judged and trained on.
+    ``__call__(u)`` returns three terms added together:
+
+    * the weighted sum of squared residuals normalised by the weighted sum of
+      squared data, so it is unit-free (this alone was the whole objective
+      before the other two terms were added);
+    * ``max_deviation_weight`` times the squared, weighted
+      ``MAX_DEVIATION_EXPONENT``-power mean of ``|residual| / peak``: a smooth
+      stand-in for the squared *relative* worst-point error
+      ``(max(|residual|) / peak) ** 2``, which it approaches as the exponent
+      grows. The exact max is avoided because it is only piecewise
+      differentiable (which point attains it can change discontinuously as
+      parameters move), and ``MultiStartLocalFit`` estimates gradients by
+      finite differences; that combination made ``scipy.optimize.minimize``'s
+      line search fail intermittently in practice.
+    * ``extent_weight`` times the squared excess of the built profile's own
+      ``get_z_extent()`` width over ``allowed_extent_ratio`` times the fit
+      window's width (a hinge: zero unless that ratio is exceeded).
+
+    The power-mean's degree does not change the calibration
+    ``max_deviation_weight = 1.0`` promises: if ``model - data`` were a
+    nonzero constant ``c`` everywhere over a flat ``data`` of value ``d``,
+    every term in the power mean is identical, so it equals ``|c|`` exactly
+    (for any exponent, and independent of weights) and both terms equal
+    ``(c / d) ** 2``. A pure sum-of-squares fit can leave an isolated,
+    badly-missed region far from the bulk of the data (its contribution to
+    the *sum* of squares is small next to everywhere else); this term
+    penalises that worst region directly.
+
+    The extent term addresses a different failure mode: a family like
+    ``GeneralizedLorentzianSum`` can fit the data inside the window perfectly
+    while one term's shape parameters give it an enormous, numerically
+    negligible tail, since nothing in the first two terms is evaluated outside
+    the window. ``get_z_extent()`` is the same quantity
+    :meth:`~fludat_fit.families.ProfileFamily.build` (and downstream plotting)
+    report as the profile's support, so a fit this term accepts will not later
+    turn out to carry a wildly disproportionate tail. Unlike
+    ``max_deviation_weight``, there is no flat-data identity calibrating
+    ``allowed_extent_ratio``; a fit window is already padded around the jet's
+    support, so a ratio of ``2.0`` (built profile at most twice as wide as
+    the window it was compared against) is a threshold choice, not a
+    derivation.
+
+    With the amplitude eliminated in closed form (variable projection), this
+    is the exact quantity :class:`MultiStartLocalFit` minimises, and the
+    *direct* loss a learned ``conditions -> parameters`` model is judged and
+    trained on.
 
     Args:
         lineout: The data.
@@ -179,6 +233,13 @@ class FitObjective:
         space: The unit cube's physical bounds; default: the family's space for
             this lineout. A learned model uses one fixed space for a whole dataset.
         fit_amplitude: If ``False`` the amplitude is fixed to the lineout peak.
+        max_deviation_weight: Weight of the worst-point term relative to the
+            sum-of-squares term; ``0.0`` recovers the original sum-of-squares-only
+            objective.
+        extent_weight: Weight of the excess-extent term; ``0.0`` disables it.
+        allowed_extent_ratio: How many multiples of the fit window's width the
+            built profile's ``get_z_extent()`` may reach before the extent term
+            becomes nonzero.
     """
 
     def __init__(
@@ -188,13 +249,28 @@ class FitObjective:
         space: ParameterSpace | None = None,
         *,
         fit_amplitude: bool = True,
+        max_deviation_weight: float = 1.0,
+        extent_weight: float = 1.0,
+        allowed_extent_ratio: float = 2.0,
     ) -> None:
+        if max_deviation_weight < 0.0:
+            raise ValueError("max_deviation_weight must be non-negative")
+        if extent_weight < 0.0:
+            raise ValueError("extent_weight must be non-negative")
+        if allowed_extent_ratio <= 0.0:
+            raise ValueError("allowed_extent_ratio must be positive")
         self.lineout = lineout
         self.family = family
         self.space = space or family.parameter_space(lineout.summary())
         self.fixed_amplitude = None if fit_amplitude else lineout.peak
+        self.max_deviation_weight = float(max_deviation_weight)
+        self.extent_weight = float(extent_weight)
+        self.allowed_extent_ratio = float(allowed_extent_ratio)
         self._weights = lineout.effective_weights()
+        self._sum_weights = float(np.sum(self._weights))
         self._normalisation = float(np.sum(self._weights * lineout.density**2)) or 1.0
+        self._peak = lineout.peak if lineout.peak > 0.0 else 1.0
+        self._window_width = float(lineout.z[-1] - lineout.z[0])
         self.evaluations = 0
 
     @property
@@ -206,30 +282,49 @@ class FitObjective:
         """Shape parameters plus the amplitude when it is fitted."""
         return self.space.dimension + (1 if self.fixed_amplitude is None else 0)
 
-    def evaluate(self, u: np.ndarray) -> tuple[float, np.ndarray] | None:
-        """``(amplitude, relative_density)`` at unit point ``u``; ``None`` if invalid."""
+    def evaluate(self, u: np.ndarray) -> _Evaluated | None:
+        """The built profile's amplitude, relative density and extent; ``None`` if invalid."""
         parameters = self.space.as_dict(self.space.from_unit(np.clip(u, 0.0, 1.0)))
         try:
-            relative = self.family.relative_density(parameters, self.lineout.z)
+            profile = self.family.build(parameters)
+            relative = np.asarray(
+                profile.build_density_function()(
+                    self.lineout.z, np.zeros_like(self.lineout.z)
+                ),
+                dtype=np.float64,
+            )
+            z_extent = profile.get_z_extent()
         except (ValueError, ZeroDivisionError, FloatingPointError):
             return None
-        if not np.all(np.isfinite(relative)):
+        if not np.all(np.isfinite(relative)) or not np.all(np.isfinite(z_extent)):
             return None
         amplitude = (
             optimal_amplitude(relative, self.lineout.density, self._weights)
             if self.fixed_amplitude is None
             else self.fixed_amplitude
         )
-        return amplitude, relative
+        return _Evaluated(amplitude, relative, z_extent)
 
     def __call__(self, u: np.ndarray) -> float:
         self.evaluations += 1
         evaluated = self.evaluate(u)
         if evaluated is None:
             return INVALID_OBJECTIVE
-        amplitude, relative = evaluated
+        amplitude, relative, z_extent = evaluated
         residual = amplitude * relative - self.lineout.density
-        return float(np.sum(self._weights * residual * residual)) / self._normalisation
+        total = float(np.sum(self._weights * residual * residual)) / self._normalisation
+        if self.max_deviation_weight > 0.0:
+            relative_residual = np.abs(residual) / self._peak
+            power_mean = (
+                float(np.sum(self._weights * relative_residual**MAX_DEVIATION_EXPONENT))
+                / self._sum_weights
+            ) ** (1.0 / MAX_DEVIATION_EXPONENT)
+            total += self.max_deviation_weight * power_mean**2
+        if self.extent_weight > 0.0:
+            extent_ratio = (z_extent[1] - z_extent[0]) / self._window_width
+            excess = max(0.0, extent_ratio - self.allowed_extent_ratio)
+            total += self.extent_weight * excess * excess
+        return total
 
     def result(
         self,
@@ -250,7 +345,7 @@ class FitObjective:
             amplitude, model = 0.0, np.zeros_like(self.lineout.density)
             success = False
         else:
-            amplitude, relative = evaluated
+            amplitude, relative, _z_extent = evaluated
             model = amplitude * relative
         goodness = GoodnessOfFit.compute(
             self.lineout.z,
@@ -294,6 +389,12 @@ class MultiStartLocalFit:
         include_initial_guess: Add the family heuristic as one more start.
         options: Extra solver options; merged over the per-method defaults.
         fit_amplitude: If ``False`` the amplitude is fixed to the lineout peak.
+        max_deviation_weight: Weight of the worst-point term in
+            :class:`FitObjective`; see there for the calibration behind its
+            default of ``1.0``. ``0.0`` recovers a plain sum-of-squares fit.
+        extent_weight: Weight of :class:`FitObjective`'s excess-extent term;
+            ``0.0`` disables it.
+        allowed_extent_ratio: See :class:`FitObjective`.
     """
 
     name = "multistart_local"
@@ -313,6 +414,9 @@ class MultiStartLocalFit:
         include_initial_guess: bool = True,
         options: Mapping[str, Any] | None = None,
         fit_amplitude: bool = True,
+        max_deviation_weight: float = 1.0,
+        extent_weight: float = 1.0,
+        allowed_extent_ratio: float = 2.0,
     ) -> None:
         if n_starts < 0:
             raise ValueError("n_starts must be non-negative")
@@ -322,6 +426,9 @@ class MultiStartLocalFit:
         self.include_initial_guess = include_initial_guess
         self.options = {**self._DEFAULT_OPTIONS.get(method, {}), **(options or {})}
         self.fit_amplitude = fit_amplitude
+        self.max_deviation_weight = max_deviation_weight
+        self.extent_weight = extent_weight
+        self.allowed_extent_ratio = allowed_extent_ratio
         self.warm_starts: dict[str, Mapping[str, float]] = {}
         """Family name -> parameters used as one more start (e.g. the previous fit)."""
 
@@ -344,7 +451,13 @@ class MultiStartLocalFit:
         """
         started = time.perf_counter()
         objective = FitObjective(
-            lineout, family, space, fit_amplitude=self.fit_amplitude
+            lineout,
+            family,
+            space,
+            fit_amplitude=self.fit_amplitude,
+            max_deviation_weight=self.max_deviation_weight,
+            extent_weight=self.extent_weight,
+            allowed_extent_ratio=self.allowed_extent_ratio,
         )
         starts = self._starts(objective.space, lineout, family, warm_start)
         if not starts:

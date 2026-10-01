@@ -342,12 +342,37 @@ and `evals%` (objective evaluations of the polish relative to the cold fit).
 
 ## Fitting schemes and goodness of fit
 
-`MultiStartLocalFit` optimises the weighted, normalised sum of squared residuals over the
-family's unit cube from `n_starts` Latin-hypercube points plus the family's heuristic
-initial guess, with `scipy.optimize.minimize` (`L-BFGS-B` by default). Parameter
-vectors that cannot build a profile score a large constant. Options: `method`, `seed`,
-`options` (solver options), `fit_amplitude=False` to pin the amplitude to the data peak,
-and `Lineout.weights` for weighted fits.
+`MultiStartLocalFit` optimises `FitObjective` over the family's unit cube from
+`n_starts` Latin-hypercube points plus the family's heuristic initial guess, with
+`scipy.optimize.minimize` (`L-BFGS-B` by default). `FitObjective` adds three terms:
+
+- The weighted, normalised sum of squared residuals (unit-free: it is divided by the
+  weighted sum of squared data). This alone was the whole objective originally.
+- `max_deviation_weight` (default `1.0`) times a smooth stand-in for the squared
+  *relative* worst-point error, `(max(|residual|) / peak) ** 2` (a weighted power mean
+  of `|residual| / peak`, not the exact max, so gradients stay well behaved for the
+  finite-difference line search `L-BFGS-B` uses). The default weight is calibrated so
+  this term matches the sum-of-squares term exactly when `model - data` is a nonzero
+  constant over flat data, independent of the number of points: a plain sum-of-squares
+  fit can leave an isolated, badly-missed region far from the bulk of the data (its
+  share of the *sum* is small next to everywhere else); this term penalises that worst
+  region directly. Pass `max_deviation_weight=0.0` to drop it.
+- `extent_weight` (default `1.0`) times the squared excess of the built profile's own
+  `get_z_extent()` width over `allowed_extent_ratio` (default `2.0`) times the fit
+  window's width — zero unless that ratio is exceeded. The first two terms are only
+  ever evaluated inside the fit window, so a family like `generalized_lorentzian_sum`
+  can fit the window perfectly while one term's shape parameters give it an enormous,
+  numerically negligible tail outside it (nothing before this term would notice).
+  `get_z_extent()` is the same quantity `plot_profile_configs` draws over, so a fit
+  this term accepts will not later turn out to carry a wildly disproportionate tail.
+  Unlike the worst-point term, there is no flat-data identity calibrating
+  `allowed_extent_ratio`; since the fit window is already padded around the jet's
+  support, a built profile at most twice as wide as that window is a threshold choice,
+  not a derivation. Pass `extent_weight=0.0` to drop it.
+
+Parameter vectors that cannot build a profile score a large constant. Options:
+`method`, `seed`, `options` (solver options), `fit_amplitude=False` to pin the amplitude
+to the data peak, and `Lineout.weights` for weighted fits.
 
 `GoodnessOfFit` reports `sse`, `rmse`, `nrmse` (÷ peak), `r_squared`, `max_abs_error`
 (÷ peak), `integrated_relative_error` (`∫|model − data| dz / ∫|data| dz`, the metric of

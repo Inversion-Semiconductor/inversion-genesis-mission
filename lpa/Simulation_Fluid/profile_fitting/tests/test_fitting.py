@@ -5,8 +5,13 @@ import json
 import numpy as np
 import pytest
 
-from fludat_fit.families import GenericConicalTargetFamily, get_families
+from fludat_fit.families import (
+    GeneralizedLorentzianSumFamily,
+    GenericConicalTargetFamily,
+    get_families,
+)
 from fludat_fit.fitting import (
+    MAX_DEVIATION_EXPONENT,
     FitObjective,
     FitResult,
     FittingScheme,
@@ -194,9 +199,224 @@ def test_fit_objective_is_the_optimizer_loss(
     result = objective.result(u_truth, scheme="oracle")
     assert result.scheme == "oracle" and result.goodness.nrmse < 0.01
     assert result.n_function_evaluations == 2  # result() does not count as a call
-    # The loss is the SSE normalised by the sum of squared data.
-    sse = result.goodness.sse
+    # The loss is the SSE term (normalised by the sum of squared data) plus the
+    # smooth worst-point term (default weight 1.0): a weighted power mean of
+    # |residual| / peak, standing in for the exact max (see FitObjective).
+    sse_term = result.goodness.sse / float(np.sum(lineout.density**2))
+    relative_residual = np.abs(result.model_density() - lineout.density) / lineout.peak
+    power_mean = np.mean(relative_residual**MAX_DEVIATION_EXPONENT) ** (
+        1.0 / MAX_DEVIATION_EXPONENT
+    )
+    assert loss == pytest.approx(sse_term + power_mean**2, rel=1e-9)
+
+
+def test_max_deviation_weight_zero_recovers_the_pure_sse_objective(
+    supergaussian_lineout, supergaussian_truth
+):
+    family, truth = supergaussian_truth
+    lineout = supergaussian_lineout.trimmed()
+    objective = FitObjective(lineout, family, max_deviation_weight=0.0)
+    u = objective.space.to_unit(objective.space.from_dict(truth))
+    loss = objective(u)
+    sse = objective.result(u, scheme="oracle").goodness.sse
     assert loss == pytest.approx(sse / float(np.sum(lineout.density**2)), rel=1e-9)
+    with pytest.raises(ValueError, match="non-negative"):
+        FitObjective(lineout, family, max_deviation_weight=-1.0)
+
+
+class _FakeProfile:
+    """Just enough of ``_DensityProfile`` for :meth:`FitObjective.evaluate`."""
+
+    def __init__(self, density_fn, z_extent):
+        self._density_fn = density_fn
+        self._z_extent = z_extent
+
+    def build_density_function(self):
+        return self._density_fn
+
+    def get_z_extent(self):
+        return self._z_extent
+
+
+class _ConstantRelativeFamily:
+    """A stand-in family whose relative density is a fixed constant everywhere.
+
+    ``build()`` reports the lineout's own extent, so the extent term (default
+    ``allowed_extent_ratio=2.0``) stays exactly zero and does not interfere
+    with tests isolating the other two terms.
+    """
+
+    name = "constant_relative"
+
+    def __init__(self, value: float, z_extent=None) -> None:
+        self.value = value
+        self.z_extent = z_extent
+
+    def relative_density(self, parameters, z):
+        return np.full_like(np.asarray(z, dtype=np.float64), self.value)
+
+    def build(self, parameters, *, nominal_density=1.0, **overrides):
+        z_extent = self.z_extent
+        return _FakeProfile(lambda z, r: self.relative_density(parameters, z), z_extent)
+
+
+def test_max_deviation_weight_one_is_calibrated_by_the_flat_constant_case():
+    """The docstring's calibration: flat data, constant offset -> equal terms."""
+    peak = 3.7
+    offset = 0.42
+    z = np.linspace(0.0, 1.0, 25)
+    lineout = make_lineout(np.ones_like(z), z, amplitude=peak, units="m^-3")
+    space = ParameterSpace((ParameterSpec("dummy", 0.0, 1.0),))
+    # fit_amplitude=False fixes the amplitude to the data's peak, so the model is
+    # exactly peak * (1 + offset / peak) = peak + offset: a constant residual.
+    family = _ConstantRelativeFamily(1.0 + offset / peak, z_extent=(z[0], z[-1]))
+
+    sse_only = FitObjective(
+        lineout, family, space, fit_amplitude=False, max_deviation_weight=0.0
+    )
+    combined = FitObjective(lineout, family, space, fit_amplitude=False)
+    u = np.array([0.5])
+
+    expected_term = (offset / peak) ** 2
+    assert sse_only(u) == pytest.approx(expected_term)
+    assert combined(u) == pytest.approx(2.0 * expected_term)  # both terms equal
+
+
+def test_max_deviation_term_penalises_an_isolated_outlier_more_than_sse_alone():
+    """A single badly-missed point barely moves the SSE term but dominates ours."""
+    n = 500
+    z = np.linspace(0.0, 1.0, n)
+    peak = 1.0
+    lineout = make_lineout(np.ones_like(z), z, amplitude=peak, units="m^-3")
+    space = ParameterSpace((ParameterSpec("dummy", 0.0, 1.0),))
+
+    class _AlmostFlatWithOneOutlier:
+        name = "outlier"
+
+        def relative_density(self, parameters, z):
+            relative = np.ones_like(np.asarray(z, dtype=np.float64))
+            relative[0] = (
+                3.0  # with amplitude fixed to peak, this point misses by 2 * peak
+            )
+            return relative
+
+        def build(self, parameters, *, nominal_density=1.0, **overrides):
+            return _FakeProfile(
+                lambda z, r: self.relative_density(parameters, z), (z[0], z[-1])
+            )
+
+    family = _AlmostFlatWithOneOutlier()
+    u = np.array([0.5])
+    sse_only = FitObjective(
+        lineout, family, space, fit_amplitude=False, max_deviation_weight=0.0
+    )(u)
+    combined = FitObjective(lineout, family, space, fit_amplitude=False)(u)
+    # One point out of n misses by 2 * peak: sse_term = (2 * peak) ** 2 / n, barely
+    # visible. The worst-point term is a power mean over all n points (only one of
+    # which is nonzero), so it is diluted relative to the true max but still
+    # dominates: (2**p / n) ** (2 / p), roughly two orders of magnitude above sse_only.
+    expected_max_term = (2.0**MAX_DEVIATION_EXPONENT / n) ** (
+        2.0 / MAX_DEVIATION_EXPONENT
+    )
+    assert sse_only == pytest.approx(4.0 / n)
+    assert combined == pytest.approx(sse_only + expected_max_term)
+    assert combined > 50 * sse_only  # still overwhelmingly outlier-driven
+
+
+def test_extent_term_is_a_hinge_on_the_window_width_ratio():
+    """A perfect in-window fit whose reported extent is (not) too wide."""
+    z = np.linspace(0.0, 1.0, 11)
+    window_width = z[-1] - z[0]
+    lineout = make_lineout(np.ones_like(z), z, amplitude=1.0, units="m^-3")
+    space = ParameterSpace((ParameterSpec("dummy", 0.0, 1.0),))
+
+    class _PerfectFitWithExtent:
+        name = "wide"
+        extent = (0.0, 0.0)
+
+        def relative_density(self, parameters, z):
+            return np.ones_like(np.asarray(z, dtype=np.float64))
+
+        def build(self, parameters, *, nominal_density=1.0, **overrides):
+            return _FakeProfile(
+                lambda z, r: self.relative_density(parameters, z), self.extent
+            )
+
+    family = _PerfectFitWithExtent()
+    u = np.array([0.5])
+    common = dict(fit_amplitude=False, max_deviation_weight=0.0)
+
+    # Exactly at the default allowed ratio (2x the window): no penalty yet.
+    family.extent = (0.0, 2.0 * window_width)
+    at_threshold = FitObjective(lineout, family, space, **common)
+    assert at_threshold(u) == pytest.approx(0.0, abs=1e-12)
+
+    # Comfortably past it: a quadratic hinge on the excess ratio.
+    family.extent = (0.0, 5.0 * window_width)
+    over_threshold = FitObjective(lineout, family, space, **common)
+    assert over_threshold(u) == pytest.approx(9.0)  # excess = 5 - 2 = 3, 3**2 = 9
+    assert over_threshold.allowed_extent_ratio == pytest.approx(2.0)
+
+    # extent_weight=0.0 disables the term regardless of how wide the extent is.
+    disabled = FitObjective(lineout, family, space, **common, extent_weight=0.0)
+    assert disabled(u) == pytest.approx(0.0)
+
+    # A custom allowed_extent_ratio shifts where the hinge kicks in.
+    lenient = FitObjective(lineout, family, space, **common, allowed_extent_ratio=10.0)
+    assert lenient(u) == pytest.approx(0.0)
+
+    with pytest.raises(ValueError, match="extent_weight must be non-negative"):
+        FitObjective(lineout, family, space, extent_weight=-1.0)
+    with pytest.raises(ValueError, match="allowed_extent_ratio must be positive"):
+        FitObjective(lineout, family, space, allowed_extent_ratio=0.0)
+
+
+def test_extent_term_catches_a_realistic_heavy_tailed_lorentzian_term():
+    """The motivating case: a term whose shape parameter (m) blows up get_z_extent()."""
+    family = GeneralizedLorentzianSumFamily(n_terms=1)
+    z = np.linspace(-5.0e-3, 5.0e-3, 401)
+    lineout = make_lineout(np.exp(-((z / 1.0e-3) ** 2) / 2.0), z, units="m^-3")
+    space = family.parameter_space(lineout.summary())
+
+    # m pinned just above its lower bound: a heavy, slowly-decaying power-law tail.
+    extreme = {
+        "c_0": 0.0,
+        "w_0": 5.0e-4,
+        "b_0": 2.0,
+        "m_0": space["m_0"].lower + 1.0e-3,
+    }
+    theta = space.clip(space.from_dict(extreme))
+    u = space.to_unit(theta)
+
+    profile = family.build(space.as_dict(theta))
+    z_min, z_max = profile.get_z_extent()
+    window_width = lineout.z[-1] - lineout.z[0]
+    extent_ratio = (z_max - z_min) / window_width
+    assert extent_ratio > 50.0  # confirms this really is the pathological case
+
+    with_extent = FitObjective(
+        lineout, family, space
+    )  # defaults: weight 1.0, ratio 2.0
+    without_extent = FitObjective(lineout, family, space, extent_weight=0.0)
+    loss_with = with_extent(u)
+    loss_without = without_extent(u)
+    expected_excess = extent_ratio - with_extent.allowed_extent_ratio
+    assert loss_with == pytest.approx(loss_without + expected_excess**2, rel=1e-6)
+    assert loss_with > loss_without + 1000.0  # the extent term dominates the total
+
+
+def test_multi_start_local_fit_exposes_and_threads_the_extent_parameters(
+    supergaussian_lineout, supergaussian_truth
+):
+    family, _truth = supergaussian_truth
+    lineout = supergaussian_lineout.trimmed()
+    default = MultiStartLocalFit(n_starts=1)
+    assert default.extent_weight == pytest.approx(1.0)
+    assert default.allowed_extent_ratio == pytest.approx(2.0)
+
+    disabled = MultiStartLocalFit(n_starts=1, extent_weight=0.0)
+    result = disabled.fit(lineout, family)
+    assert result.goodness.nrmse < 0.05  # still fits fine with the term switched off
 
 
 def test_compare_families_ranks_the_generating_family_first(supergaussian_lineout):
