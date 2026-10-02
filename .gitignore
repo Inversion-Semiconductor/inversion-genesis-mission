@@ -83,3 +83,6 @@ inversion-radiasoft-plasma-injector/
 
 # fluid sim data files
 *.cgns
+
+# fluid sim processing output files
+**/Simulation_Fluid/**/data/
