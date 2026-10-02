@@ -1,7 +1,6 @@
 """Initialize, diagnose, and export an aberrated LASY pulse for FBPIC."""
 
 from pathlib import Path
-from random import random
 from time import perf_counter
 
 from inversion_fbpic.utils.laser import HighOrderLasyLaser
@@ -12,7 +11,6 @@ except ImportError:
     from lasy_propagation import run_propagation_diagnostics
 
 
-RANDOM_PHASE_AMP = 0.0
 OUTPUT_DIRECTORY = Path("diags")
 OUTPUT_PREFIX = "experimental_laser"
 SHOW_PLOTS = True
@@ -53,8 +51,8 @@ PHYSICAL_PARAMETERS = {
 HYPERPARAMETERS = {
     "polarization": (1, 0),
     "n_azimuthal_modes": 5,
-    "num_points": (600, 900),
-    "hi_range": 10.0,
+    "num_points": (1200, 600),  # (r, z)
+    "hi_range": 20.0,
     "center_and_remove_tilt": True,
     "centering_angles": 72,
     "spectral_time_window_factor": 6.0,
