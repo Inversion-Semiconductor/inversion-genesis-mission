@@ -375,7 +375,8 @@ class LasyLaserPulse(_LaserPulse):
             mode: (Literal["lineout", "lineout_and_2d"]) Panel layout.
                 ``"lineout"`` shows only the on-axis longitudinal envelope.
                 ``"lineout_and_2d"`` (default) adds a face-on field-amplitude
-                map at the start plane with the polarization direction marked.
+                map at the start plane with a quiver overlay of the
+                polarization field.
             ax: (matplotlib.axes.Axes|None) If provided, the longitudinal envelope
                 is also drawn on this external axes (for combined overlay figures).
             num: (int) Number of points for the resampled longitudinal lineout.
@@ -461,15 +462,41 @@ class LasyLaserPulse(_LaserPulse):
             cbar = fig.colorbar(im, ax=ax_xy, fraction=0.046, pad=0.04)
             cbar.set_label("|E| (V/m)")
 
+            # Quiver the polarization field: LASY stores a scalar envelope and
+            # applies the real Jones vector (px, py) as a fixed spatial
+            # scaling, so the local field vector is Re(peak_field) * (px, py).
+            # Its direction is always +/-(px, py), but the sign flips across
+            # the aberrated wavefront's phase structure, which a single static
+            # arrow cannot show.
             px, py = self.polarization
-            norm = float(np.hypot(px, py))
-            arrow = 0.35 * r_view
-            ax_xy.annotate(
-                "",
-                xy=(px / norm * arrow, py / norm * arrow),
-                xytext=(-px / norm * arrow, -py / norm * arrow),
-                arrowprops=dict(arrowstyle="<->", color="white", lw=1.5),
-            )
+            theta_grid_c, r_grid_c = np.meshgrid(angles, radius, indexing="ij")
+            field_real = peak_field.real
+            ex_grid = field_real * px
+            ey_grid = field_real * py
+
+            stride_theta = max(1, len(angles) // 24)
+            stride_r = max(1, len(radius) // 10)
+            in_view = r_grid_c <= (r_view * 1e-6)
+            sl = (slice(None, None, stride_theta), slice(None, None, stride_r))
+            xs = (r_grid_c * np.cos(theta_grid_c))[sl] * 1e6
+            ys = (r_grid_c * np.sin(theta_grid_c))[sl] * 1e6
+            us = ex_grid[sl]
+            vs = ey_grid[sl]
+            view_mask = in_view[sl]
+            mag = np.hypot(us, vs)
+            mask = view_mask & (mag > 0.05 * np.max(mag))
+            if mask.any():
+                ax_xy.quiver(
+                    xs[mask],
+                    ys[mask],
+                    us[mask] / mag[mask],
+                    vs[mask] / mag[mask],
+                    color="white",
+                    alpha=0.6,
+                    scale=25,
+                    width=0.004,
+                    headwidth=3,
+                )
             if self.out_a0 is not None:
                 ax_xy.text(
                     0.02,

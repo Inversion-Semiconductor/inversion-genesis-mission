@@ -186,7 +186,8 @@ class LasyLaserPulse(_LaserPulse):
             mode: (Literal["lineout", "lineout_and_2d"]) Panel layout.
                 ``"lineout"`` shows only the on-axis longitudinal envelope.
                 ``"lineout_and_2d"`` (default) adds a face-on field-amplitude
-                map at the start plane with the polarization direction marked.
+                map at the start plane with a quiver overlay of the
+                polarization field.
             ax: (matplotlib.axes.Axes|None) If provided, the longitudinal envelope
                 is also drawn on this external axes (for combined overlay figures).
             num: (int) Number of points for the resampled longitudinal lineout.
