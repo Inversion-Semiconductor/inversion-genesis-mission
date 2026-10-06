@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import copy
+import functools
 import json
 import os
 from collections.abc import Mapping
@@ -50,13 +51,18 @@ NULL_CONCRETE_STR = "null"
 _GIT_HASH_FILE = Path(__file__).resolve().parents[1] / "git_hash.txt"
 
 
+@functools.cache
 def _git_hash() -> str | None:
-    """Read the revision recorded by the repository's commit/checkout hooks."""
+    """Return the recorded revision captured when this module was imported."""
     try:
         revision = _GIT_HASH_FILE.read_text(encoding="utf-8").strip()
     except (OSError, UnicodeError):
         return None
     return revision or None
+
+
+# Prime the cache before a later commit/build can change the recorded revision.
+_git_hash()
 
 
 _EXAMPLE_SIMPLE_DEFAULTS: dict[type, Any] = {
@@ -463,8 +469,9 @@ class SerializableConfig(ABC):
         return value
 
     def to_dict(self, *, include_nones: bool = True) -> dict[str, Any]:
-        """Serialize this configuration to a JSON-friendly dictionary. Appends
-        a top-level ``git_hash`` key with the recorded revision, or None if unavailable.
+        """Serialize to a JSON-friendly dictionary with the import-time ``git_hash``.
+
+        The revision is None if unavailable at import, even with *include_nones=False*.
         """
         parameters: dict[str, Any] = {}
         for field in attrs.fields(type(self)):
@@ -494,8 +501,8 @@ class SerializableConfig(ABC):
         """
         Deserialize any registered configuration subclass from a dictionary.
 
-        The informational ``git_hash`` is ignored when loading. Legacy payloads
-        without it remain supported; reserialization reads the recorded revision.
+        Incoming ``git_hash`` is ignored; output uses the import-time revision.
+        Legacy payloads without this metadata remain supported.
 
         Args:
             payload: The dictionary to deserialize.
@@ -578,7 +585,7 @@ class SerializableConfig(ABC):
         0.0, str -> "", int -> 0, etc.). Optional (union with None) fields
         without an explicit default use null.
 
-        Like instance payloads, examples include the recorded ``git_hash``
+        Like instance payloads, examples include the import-time ``git_hash``
         (or None when unavailable), regardless of *include_nones*.
 
         Returns:

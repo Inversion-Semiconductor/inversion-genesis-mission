@@ -21,14 +21,26 @@ Run from Simulation_FBPIC::
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
+import runpy
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 import yaml
+
+
+@pytest.fixture(autouse=True)
+def isolated_git_hash_cache(monkeypatch) -> None:
+    """Use a fresh test cache without changing the real import-time snapshot."""
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(
+        module, "_git_hash", functools.cache(module._git_hash.__wrapped__)
+    )
 
 
 @pytest.fixture
@@ -46,6 +58,21 @@ def test_git_hash_file_is_package_relative() -> None:
     assert module._GIT_HASH_FILE == (
         Path(module.__file__).resolve().parents[1] / "git_hash.txt"
     )
+
+
+@pytest.mark.parametrize("revision", ["a" * 40, None])
+def test_git_hash_is_captured_during_import(monkeypatch, revision) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    read = Mock(return_value=revision or "")
+    monkeypatch.setattr(Path, "read_text", read)
+    # Execute in a separate namespace without re-registering the real domains.
+    imported = runpy.run_path(module.__file__)
+    read.assert_called_once_with(encoding="utf-8")
+    read.return_value = "b" * 40
+    assert imported["_git_hash"]() == revision
+    assert imported["_git_hash"]() == revision
+    assert read.call_count == 1
 
 
 def test_git_hash_reads_recorded_file_without_git(
@@ -123,8 +150,12 @@ def test_git_hash_in_all_serialization_formats(
 def test_git_hash_in_nested_configs_and_laser_override(
     git_hash_file: Path, minimal_simulation_elements
 ) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
     revision = "a" * 40
     git_hash_file.write_text(revision, encoding="utf-8")
+    # Discard fixture-construction logging's read of the not-yet-written test file.
+    module._git_hash.cache_clear()
     simulation = minimal_simulation_elements
     for payload in (
         simulation.to_dict(),
@@ -168,13 +199,18 @@ def test_loaded_git_hash_is_informational(
     assert json.dumps(payload) == original
 
 
-def test_git_hash_refreshes_on_serialization(
-    git_hash_file: Path, minimal_density
+@pytest.mark.parametrize("revision", ["a" * 40, None])
+def test_git_hash_stays_cached_during_serialization(
+    git_hash_file: Path, minimal_density, revision
 ) -> None:
-    git_hash_file.write_text("a" * 40, encoding="utf-8")
-    assert minimal_density.to_dict()["git_hash"] == "a" * 40
+    if revision is not None:
+        git_hash_file.write_text(revision, encoding="utf-8")
+    assert minimal_density.to_dict()["git_hash"] == revision
     git_hash_file.write_text("b" * 40, encoding="utf-8")
-    assert minimal_density.to_dict()["git_hash"] == "b" * 40
+    assert minimal_density.to_dict()["git_hash"] == revision
+    assert type(minimal_density).example_dict()["git_hash"] == revision
+    git_hash_file.unlink()
+    assert minimal_density.to_dict()["git_hash"] == revision
 
 
 def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -> None:
@@ -192,10 +228,16 @@ def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -
 def test_simulation_config_hash_includes_git_revision(
     git_hash_file: Path, minimal_simulation_elements
 ) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
     git_hash_file.write_text("a" * 40, encoding="utf-8")
+    module._git_hash.cache_clear()
     first = minimal_simulation_elements.config_hash()
     assert minimal_simulation_elements.config_hash() == first
     git_hash_file.write_text("b" * 40, encoding="utf-8")
+    assert minimal_simulation_elements.config_hash() == first
+    # A fresh import in a new process captures the new revision.
+    module._git_hash.cache_clear()
     assert minimal_simulation_elements.config_hash() != first
 
 
