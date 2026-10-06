@@ -97,7 +97,8 @@ def _write_hdf5_value(group: h5py.Group, name: str, value: Any) -> None:
             _write_hdf5_value(node, str(index), item)
         return
     if value is None:
-        node = group.create_group(name)
+        # The dtype is a placeholder; the tag, not the dtype, represents None.
+        node = group.create_dataset(name, data=h5py.Empty("f8"))
         kind = "none"
     elif isinstance(value, str):
         if "\0" in value:
@@ -159,8 +160,11 @@ def _read_hdf5_value(
                 _read_hdf5_value(node[str(i)], ancestors) for i in range(int(length))
             ]
         if kind == "none" and not len(node):
+            # Backward compatibility with the original empty-group encoding.
             return None
     else:
+        if kind == "none" and node.shape is None:
+            return None
         if kind == "array" and node.ndim == 1 and node.dtype.kind in "bif":
             return node[()].tolist()
         if kind == "utf8_bytes" and node.ndim == 1 and node.dtype == np.dtype("u1"):

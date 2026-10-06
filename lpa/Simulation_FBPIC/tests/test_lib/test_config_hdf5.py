@@ -98,6 +98,47 @@ def test_canonical_values(tmp_path: Path, value: Any) -> None:
     assert SerializableConfig.from_file(path).to_dict() == config.to_dict()
 
 
+def test_none_is_a_null_dataset(tmp_path: Path) -> None:
+    config = SimulationHyperparameters(
+        zmin=-1e-5,
+        zmax=0,
+        rmax=1e-5,
+        nz=8,
+        nr=8,
+        nm=1,
+        use_mpi=False,
+        number_dumps=2,
+    )
+    path = config.to_hdf5_file(tmp_path / "optional.h5")
+    with h5py.File(path, "r") as handle:
+        for name in ("right_buffer", "beta_window"):
+            node = handle[f"config/parameters/{name}"]
+            assert isinstance(node, h5py.Dataset)
+            assert node.shape is None
+            assert node.dtype == np.dtype("f8")
+            assert node.attrs["_config_kind"] == "none"
+    loaded = SerializableConfig.from_file(path)
+    assert loaded.to_dict() == config.to_dict()
+    attrs.evolve(config, right_buffer=1e-6, beta_window=0.99).to_hdf5_file(
+        path, overwrite=True
+    )
+    with h5py.File(path, "r") as handle:
+        assert handle["config/parameters/right_buffer"].shape == ()
+        assert handle["config/parameters/beta_window"][()] == 0.99
+
+
+def test_legacy_none_group(tmp_path: Path) -> None:
+    path = Hdf5TestConfig().to_hdf5_file(tmp_path / "legacy.h5")
+    with h5py.File(path, "r+") as handle:
+        parameters = handle["config/parameters"]
+        del parameters["value"]
+        parameters.create_group("value").attrs["_config_kind"] = "none"
+    assert SerializableConfig.from_file(path).value is None
+    Hdf5TestConfig().to_hdf5_file(path, overwrite=True)
+    with h5py.File(path, "r") as handle:
+        assert isinstance(handle["config/parameters/value"], h5py.Dataset)
+
+
 def test_none_omission(tmp_path: Path) -> None:
     config = Hdf5TestConfig(value={"preserved": None, "empty": []})
     path = config.to_hdf5_file(tmp_path / "none.h5", include_nones=False)
