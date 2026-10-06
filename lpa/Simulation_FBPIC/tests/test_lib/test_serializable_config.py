@@ -26,6 +26,7 @@ import json
 import logging
 import runpy
 import subprocess
+import warnings
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -60,18 +61,34 @@ def test_git_hash_file_is_package_relative() -> None:
     )
 
 
-@pytest.mark.parametrize("revision", ["a" * 40, None])
-def test_git_hash_is_captured_during_import(monkeypatch, revision) -> None:
+@pytest.mark.parametrize(
+    "content",
+    ["a" * 40, "", " \n", FileNotFoundError(), PermissionError(), UnicodeError()],
+)
+def test_git_hash_is_captured_during_import(monkeypatch, content) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
-    read = Mock(return_value=revision or "")
+    revision = (content.strip() or None) if isinstance(content, str) else None
+    read = (
+        Mock(return_value=content)
+        if isinstance(content, str)
+        else Mock(side_effect=content)
+    )
     monkeypatch.setattr(Path, "read_text", read)
     # Execute in a separate namespace without re-registering the real domains.
-    imported = runpy.run_path(module.__file__)
-    read.assert_called_once_with(encoding="utf-8")
-    read.return_value = "b" * 40
-    assert imported["_git_hash"]() == revision
-    assert imported["_git_hash"]() == revision
+    with warnings.catch_warnings(record=True) as emitted:
+        warnings.simplefilter("always")
+        imported = runpy.run_path(module.__file__)
+        read.assert_called_once_with(encoding="utf-8")
+        read.side_effect = None
+        read.return_value = "b" * 40
+        assert imported["_git_hash"]() == revision
+        assert imported["_git_hash"]() == revision
+    assert len(emitted) == (0 if revision is not None else 1)
+    if emitted:
+        assert emitted[0].category is RuntimeWarning
+        assert "git_hash: null for this process" in str(emitted[0].message)
+        assert "restart Python" in str(emitted[0].message)
     assert read.call_count == 1
 
 
@@ -225,12 +242,14 @@ def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -
     assert loaded.to_dict() == minimal_density.to_dict()
 
 
+@pytest.mark.parametrize("revision", ["a" * 40, None])
 def test_simulation_config_hash_includes_git_revision(
-    git_hash_file: Path, minimal_simulation_elements
+    git_hash_file: Path, minimal_simulation_elements, revision
 ) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
-    git_hash_file.write_text("a" * 40, encoding="utf-8")
+    if revision is not None:
+        git_hash_file.write_text(revision, encoding="utf-8")
     module._git_hash.cache_clear()
     first = minimal_simulation_elements.config_hash()
     assert minimal_simulation_elements.config_hash() == first

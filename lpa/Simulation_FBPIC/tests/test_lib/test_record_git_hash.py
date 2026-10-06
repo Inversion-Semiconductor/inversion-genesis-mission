@@ -91,13 +91,19 @@ def test_recording_hook_configuration() -> None:
     assert recorder_hook["entry"] == "python tools/record_git_hash.py"
     assert recorder_hook["always_run"] is True
     assert recorder_hook["pass_filenames"] is False
-    assert recorder_hook["stages"] == ["post-commit", "post-checkout", "post-merge"]
+    assert recorder_hook["stages"] == [
+        "post-commit",
+        "post-checkout",
+        "post-merge",
+        "post-rewrite",
+    ]
     assert config["default_stages"] == ["pre-commit"]
     assert set(config["default_install_hook_types"]) == {
         "pre-commit",
         "post-commit",
         "post-checkout",
         "post-merge",
+        "post-rewrite",
     }
 
 
@@ -149,3 +155,67 @@ def test_post_commit_records_new_head_in_linked_worktree(tmp_path: Path) -> None
     )
     assert destination.read_text().strip() == git("rev-parse", "HEAD")
     assert git("status", "--porcelain", cwd=worktree) == ""
+
+
+def test_post_rewrite_records_amend_and_rebase_but_reset_needs_refresh(
+    tmp_path: Path,
+) -> None:
+    """Exercise only post-rewrite so post-commit cannot mask a missing refresh."""
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=repository, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    git("init")
+    git("config", "user.name", "Provenance test")
+    git("config", "user.email", "provenance@example.invalid")
+    git("config", "commit.gpgsign", "false")
+    git("config", "core.hooksPath", str(repository / ".git" / "hooks"))
+    script = repository / "tools" / "record_git_hash.py"
+    script.parent.mkdir()
+    script.write_text(SCRIPT.read_text(), encoding="utf-8")
+    destination = repository / HASH_FILE
+    destination.parent.mkdir(parents=True)
+    (destination.parent.parent / "_build_provenance.py").write_text(
+        BUILD_HELPER.read_text(), encoding="utf-8"
+    )
+    (destination.parent / "__init__.py").write_text("", encoding="utf-8")
+    (repository / ".gitignore").write_text(HASH_FILE.as_posix() + "\n")
+    git("add", ".")
+    git("commit", "-m", "Initial test repository")
+    initial = git("rev-parse", "HEAD")
+    base_branch = git("branch", "--show-current")
+
+    hook = repository / ".git" / "hooks" / "post-rewrite"
+    hook.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" tools/record_git_hash.py\n',
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    git("switch", "-c", "topic")
+    (repository / "topic").write_text("topic\n", encoding="utf-8")
+    git("add", "topic")
+    git("commit", "-m", "Topic commit")
+    assert not destination.exists()
+    git("commit", "--amend", "-m", "Amended topic commit")
+    amended = git("rev-parse", "HEAD")
+    assert destination.read_text().strip() == amended
+
+    git("switch", base_branch)
+    (repository / "upstream").write_text("upstream\n", encoding="utf-8")
+    git("add", "upstream")
+    git("commit", "-m", "Advance upstream")
+    git("switch", "topic")
+    git("rebase", base_branch)
+    rebased = git("rev-parse", "HEAD")
+    assert rebased != amended
+    assert destination.read_text().strip() == rebased
+
+    git("reset", "--hard", initial)
+    assert destination.read_text().strip() == rebased
+    subprocess.run([sys.executable, str(script)], cwd=repository, check=True)
+    assert destination.read_text().strip() == initial
+    assert git("status", "--porcelain") == ""

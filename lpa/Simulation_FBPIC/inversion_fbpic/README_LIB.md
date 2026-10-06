@@ -135,7 +135,9 @@ The type tags and serialized parameter names are part of the persisted run inter
 
 All serialized configs and examples include `git_hash`, cached from [git_hash.txt](git_hash.txt) when `serializable_config` is imported. Later commits or builds do not change a running process's provenance; restart to capture a new revision. Serialization never calls Git or preserves an incoming config's hash.
 
-Builds/installs and Git hooks (`pre-commit install`) update the Git-ignored file, which is bundled in distributions. For uninstalled source use, run [tools/record_git_hash.py](../../../tools/record_git_hash.py) before importing. If unavailable at import, `git_hash` stays `null`, even with `include_nones=False`. It identifies committed code, not local edits; legacy configs remain supported.
+Builds/installs and Git hooks update the Git-ignored file, which is bundled in distributions. **Existing clones must re-run `pre-commit install`** to add the new stages. Amend/rebase are covered by `post-rewrite`; `git reset` is not. After resets or for uninstalled source use, run [tools/record_git_hash.py](../../../tools/record_git_hash.py) (or rebuild/reinstall) before importing. Runtime does not validate Git HEAD.
+
+Unavailable provenance warns once at import and stays `null`, even with `include_nones=False`. It identifies committed code, not local edits; legacy configs remain supported.
 
 The cached revision contributes to `Simulation.config_hash()`: a new process using a different revision invalidates completed-run skipping, while an existing process's hash stays stable.
 

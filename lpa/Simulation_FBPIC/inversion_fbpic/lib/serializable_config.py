@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 import types
 import typing
+import warnings
 from abc import ABC
 from pathlib import Path
 from typing import Any, ClassVar
@@ -62,7 +63,14 @@ def _git_hash() -> str | None:
 
 
 # Prime the cache before a later commit/build can change the recorded revision.
-_git_hash()
+if _git_hash() is None:
+    warnings.warn(
+        "Recorded Git revision is unavailable; configs will use git_hash: null "
+        "for this process. Build/install the FBPIC package or run "
+        "tools/record_git_hash.py, then restart Python to capture the revision.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
 
 
 _EXAMPLE_SIMPLE_DEFAULTS: dict[type, Any] = {
