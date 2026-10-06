@@ -122,9 +122,9 @@ if __name__ == "__main__":
     # save configs
     if not USE_MPI or MPI_RANK == 0:
         os.makedirs("cfgs", exist_ok=True)
+        hyparams.grid_parameters_yaml("cfgs/grid_parameters.yaml")
         if CONFIG_TYPE == "yaml":
             hyparams.to_yaml_file("cfgs/hyparams.yaml")
-            hyparams.grid_parameters_yaml("cfgs/grid_parameters.yaml")
             laser.to_yaml_file("cfgs/laser.yaml")
             background_profile.to_yaml_file("cfgs/flattop_profile.yaml")
             dopant_profile.to_yaml_file("cfgs/downramp_profile.yaml")
