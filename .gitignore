@@ -27,7 +27,6 @@ Thumbs.db
 *diags/
 
 # Data files that may be introduced externally
-*.txt
 *.gif
 *.tdms
 *.tdms_index
