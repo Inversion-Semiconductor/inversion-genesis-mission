@@ -165,9 +165,8 @@ datasets/groups, rather than an opaque JSON document. Mapping keys are escaped
 when necessary. Tags distinguish mappings, ordered sequences, empty containers,
 and `None`; homogeneous numeric lists use native array datasets. `None` is stored
 as a tagged null dataset (no shape or value), with a float64 placeholder dtype
-regardless of the optional parameter's type. Legacy empty-group representations
-of `None` remain readable. Values follow
-the existing `to_dict()` semantics: NumPy arrays and tuples become lists, complex
+regardless of the optional parameter's type. Values follow the existing
+`to_dict()` semantics: NumPy arrays and tuples become lists, complex
 values become real/imaginary pairs, and YAML comments and original NumPy dtypes
 are not preserved. `include_nones` and deserialization `overrides` behave as in
 the text serializers. Filesystem-backed group handles also supply `source_file`

@@ -127,18 +127,6 @@ def test_none_is_a_null_dataset(tmp_path: Path) -> None:
         assert handle["config/parameters/beta_window"][()] == 0.99
 
 
-def test_legacy_none_group(tmp_path: Path) -> None:
-    path = Hdf5TestConfig().to_hdf5_file(tmp_path / "legacy.h5")
-    with h5py.File(path, "r+") as handle:
-        parameters = handle["config/parameters"]
-        del parameters["value"]
-        parameters.create_group("value").attrs["_config_kind"] = "none"
-    assert SerializableConfig.from_file(path).value is None
-    Hdf5TestConfig().to_hdf5_file(path, overwrite=True)
-    with h5py.File(path, "r") as handle:
-        assert isinstance(handle["config/parameters/value"], h5py.Dataset)
-
-
 def test_none_omission(tmp_path: Path) -> None:
     config = Hdf5TestConfig(value={"preserved": None, "empty": []})
     path = config.to_hdf5_file(tmp_path / "none.h5", include_nones=False)
@@ -254,7 +242,8 @@ def test_failed_write_preserves_config_and_context(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "corruption", ["version", "kind", "sequence", "discriminator", "parameters"]
+    "corruption",
+    ["version", "kind", "sequence", "none_group", "discriminator", "parameters"],
 )
 def test_malformed_config(tmp_path: Path, corruption: str) -> None:
     from inversion_fbpic.lib.serializable_config import _config_load_source
@@ -268,6 +257,9 @@ def test_malformed_config(tmp_path: Path, corruption: str) -> None:
             del group["parameters/value"].attrs["_config_kind"]
         elif corruption == "sequence":
             del group["parameters/value/0"]
+        elif corruption == "none_group":
+            del group["parameters/value/0"]
+            group["parameters/value"].create_group("0").attrs["_config_kind"] = "none"
         elif corruption == "discriminator":
             group["subclass"][()] = "unknown"
         else:

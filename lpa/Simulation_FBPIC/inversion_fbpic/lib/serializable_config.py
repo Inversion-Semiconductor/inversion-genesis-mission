@@ -159,9 +159,6 @@ def _read_hdf5_value(
             return [
                 _read_hdf5_value(node[str(i)], ancestors) for i in range(int(length))
             ]
-        if kind == "none" and not len(node):
-            # Backward compatibility with the original empty-group encoding.
-            return None
     else:
         if kind == "none" and node.shape is None:
             return None
