@@ -346,6 +346,59 @@ def test_cyclic_link_is_rejected(tmp_path: Path) -> None:
             SerializableConfig.from_hdf5(handle["config"])
 
 
+@pytest.mark.parametrize("with_input_path", [False, True])
+@pytest.mark.parametrize("change_cwd", [False, True])
+@pytest.mark.parametrize("at_root", [False, True])
+def test_relative_open_handle_can_write_without_anchor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    density: ExampleDensityProfile,
+    with_input_path: bool,
+    change_cwd: bool,
+    at_root: bool,
+) -> None:
+    from inversion_fbpic.lib.serializable_config import _config_serialize_relative_to
+
+    input_path = tmp_path / "input.dat"
+    input_path.write_text("data")
+    config = Hdf5TestConfig(filename=input_path) if with_input_path else density
+    monkeypatch.chdir(tmp_path)
+    with h5py.File("run.h5", "w") as handle:
+        group = handle if at_root else handle.create_group("config")
+        if change_cwd:
+            other = tmp_path / "elsewhere"
+            other.mkdir()
+            monkeypatch.chdir(other)
+        assert config.to_hdf5(group) is group
+        config.to_hdf5(group, overwrite=True)
+        assert handle.id.valid
+        if with_input_path:
+            assert group["parameters/filename"].asstr()[()] == str(input_path)
+        assert _config_serialize_relative_to.get() is None
+
+    loaded = SerializableConfig.from_hdf5_file(
+        tmp_path / "run.h5", group_path="/" if at_root else "/config"
+    )
+    assert loaded.to_dict() == config.to_dict()
+
+
+def test_relative_open_handle_write_uses_explicit_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = tmp_path / "input.dat"
+    input_path.write_text("data")
+    config = Hdf5TestConfig(filename=input_path)
+    monkeypatch.chdir(tmp_path)
+    with h5py.File("run.h5", "w") as handle:
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        with SerializableConfig.resolving_paths_relative_to(tmp_path):
+            config.to_hdf5(handle.create_group("config"))
+        assert handle["config/parameters/filename"].asstr()[()] == "input.dat"
+    assert SerializableConfig.from_file(tmp_path / "run.h5").filename == input_path
+
+
 def test_relative_open_handle_requires_anchor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -92,7 +92,10 @@ class SerializableConfig:
         The destination must be empty unless ``overwrite=True`` and it contains
         only a previously written config. Other groups and caller-owned handles
         are left untouched. Values follow :meth:`to_dict` conversion semantics;
-        YAML comments and original NumPy dtypes are not persisted."""
+        YAML comments and original NumPy dtypes are not persisted.
+        Relative-open handles need no anchor for writes; without one, paths
+        retain their existing representation rather than becoming relative to
+        the file. Use :meth:`resolving_paths_relative_to` for portable paths."""
         ...
     @classmethod
     def from_hdf5(cls, group: h5py.Group, *, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':

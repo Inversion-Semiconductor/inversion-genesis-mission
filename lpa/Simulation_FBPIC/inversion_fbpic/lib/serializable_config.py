@@ -185,8 +185,12 @@ def _read_hdf5_value(
     raise ValueError(f"Invalid or missing HDF5 node kind at {node.name}: {kind!r}.")
 
 
-def _hdf5_source(group: h5py.Group) -> Path | None:
-    """Return a filesystem source when the handle has a real backing file."""
+def _hdf5_source(group: h5py.Group, *, require_anchor: bool = True) -> Path | None:
+    """Return a known filesystem source without guessing relative filenames.
+
+    Reads require an explicit anchor for relative-open handles. Writes can opt
+    out and leave path serialization unchanged when the source is unknown.
+    """
     handle = group.file
     if handle.driver == "fileobj" or not isinstance(handle.filename, (str, bytes)):
         return None
@@ -196,6 +200,8 @@ def _hdf5_source(group: h5py.Group) -> Path | None:
     if not path.is_absolute():
         anchor = _config_path_anchor.get()
         if anchor is None:
+            if not require_anchor:
+                return None
             raise ValueError(
                 "Open caller-owned HDF5 files with an absolute path, or use "
                 "resolving_paths_relative_to() with the original file directory."
@@ -866,6 +872,9 @@ class SerializableConfig(ABC):
         only a previously written config. Other groups and caller-owned handles
         are left untouched. Values follow :meth:`to_dict` conversion semantics;
         YAML comments and original NumPy dtypes are not persisted.
+        Relative-open handles need no anchor for writes; without one, paths
+        retain their existing representation rather than becoming relative to
+        the file. Use :meth:`resolving_paths_relative_to` for portable paths.
         """
         if not isinstance(group, h5py.Group):
             raise TypeError("HDF5 destination must be an h5py Group or File.")
@@ -880,7 +889,7 @@ class SerializableConfig(ABC):
         if occupied:
             # Reject untagged scientific data anywhere inside an existing config.
             _read_hdf5_value(group)
-        source = _hdf5_source(group)
+        source = _hdf5_source(group, require_anchor=False)
         token = _config_serialize_relative_to.set(
             source.parent if source is not None else _config_serialize_relative_to.get()
         )

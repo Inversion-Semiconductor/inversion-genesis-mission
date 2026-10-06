@@ -172,10 +172,14 @@ values become real/imaginary pairs, and YAML comments and original NumPy dtypes
 are not preserved. `include_nones` and deserialization `overrides` behave as in
 the text serializers. Filesystem-backed group handles also supply `source_file`
 and the anchor for portable relative input-file paths.
-Open caller-owned files using absolute filenames; for relative-open handles,
-wrap reads/writes in `SerializableConfig.resolving_paths_relative_to(directory)`
-with the original file directory, so later working-directory changes cannot
-silently select the wrong input files.
+Writes to relative-open handles also work without an anchor; paths retain their
+existing representation (absolute input paths stay absolute) instead of guessing
+the file's original directory. For portable relative paths, open the file with an
+absolute filename or wrap writes in
+`SerializableConfig.resolving_paths_relative_to(directory)`.
+Reads from relative-open handles still require that context with the original
+file directory, so later working-directory changes cannot silently select the
+wrong input files.
 
 ## Internal Maintenance Layers
 
