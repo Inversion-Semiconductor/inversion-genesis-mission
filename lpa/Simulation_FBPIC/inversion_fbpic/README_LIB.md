@@ -133,6 +133,10 @@ This wrapper incorporates simulation policy as well as object wiring, things tha
 
 The type tags and serialized parameter names are part of the persisted run interface. Unknown, missing, or duplicate tags fail early; changing them can make existing configurations unloadable. Derived `attrs` fields are excluded from serialization, while input fields are retained for reconstruction.
 
+Every serialized configuration, including nested components and example templates, also includes a top-level `git_hash` alongside `config_type`, `subclass`, and `parameters`. It records the full current `HEAD` commit of the checkout containing the library, independently of the process working directory. The hash is refreshed at serialization time, rather than preserved from a loaded file; older files without this entry remain loadable. If Git or repository metadata is unavailable, the entry is `null`, even with `include_nones=False`. This records committed code only, not uncommitted changes.
+
+`Simulation.config_hash()` includes this revision metadata, so changing the library checkout's `HEAD` invalidates completed-run skipping even when simulation parameters are unchanged.
+
 ## Internal Maintenance Layers
 
 `_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets (WIP) and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.

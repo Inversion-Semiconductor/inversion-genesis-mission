@@ -16,11 +16,18 @@ class SerializableConfig:
     yaml_description_map: dict[YamlPath, YamlDescriptions] | None
     source_file: Path | None
     def to_dict(self, *, include_nones: bool=True) -> dict[str, Any]:
-        """Serialize this configuration to a JSON-friendly dictionary."""
+        """Serialize this configuration to a JSON-friendly dictionary.
+
+        The top-level ``git_hash`` records the library checkout's current HEAD
+        at serialization time, or None when Git metadata is unavailable. It is
+        included regardless of *include_nones*, which controls parameters only."""
         ...
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':
         """Deserialize any registered configuration subclass from a dictionary.
+
+        The informational ``git_hash`` is ignored when loading. Legacy payloads
+        without it remain supported; reserialization records the current HEAD.
 
         Args:
             payload: The dictionary to deserialize.
@@ -39,6 +46,9 @@ class SerializableConfig:
         Otherwise each field type is mapped to a sensible zero-value (float ->
         0.0, str -> "", int -> 0, etc.). Optional (union with None) fields
         without an explicit default use null.
+
+        Like instance payloads, examples include the current library checkout's
+        ``git_hash`` (or None when unavailable), regardless of *include_nones*.
 
         Returns:
             The example payload dictionary."""

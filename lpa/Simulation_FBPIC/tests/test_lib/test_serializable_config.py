@@ -23,9 +23,184 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
+import yaml
+
+
+def test_git_hash_uses_library_checkout(monkeypatch, tmp_path: Path) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    revision = "a" * 40
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, revision + "\n"))
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.chdir(tmp_path)
+
+    assert module._git_hash() == revision
+    run.assert_called_once_with(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=Path(module.__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError("git is unavailable"),
+        subprocess.CalledProcessError(128, ["git"]),
+        subprocess.TimeoutExpired(["git"], 2),
+    ],
+)
+def test_git_hash_unavailable(monkeypatch, error: Exception) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(module.subprocess, "run", Mock(side_effect=error))
+    assert module._git_hash() is None
+
+
+def test_git_hash_empty_output(monkeypatch) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        Mock(return_value=subprocess.CompletedProcess([], 0, " \n")),
+    )
+    assert module._git_hash() is None
+
+
+@pytest.mark.parametrize("revision", ["a" * 40, None])
+@pytest.mark.parametrize("include_nones", [True, False])
+def test_git_hash_in_all_serialization_formats(
+    monkeypatch, minimal_density, tmp_path: Path, revision, include_nones: bool
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    config = minimal_density
+    config_cls = type(config)
+    json_path = tmp_path / "config.json"
+    yaml_path = tmp_path / "config.yaml"
+    example_json_path = tmp_path / "example.json"
+    example_yaml_path = tmp_path / "example.yaml"
+
+    config.to_json_file(json_path, include_nones=include_nones)
+    config.to_yaml_file(yaml_path, include_nones=include_nones)
+    config_cls.example_json(example_json_path, include_nones=include_nones)
+    config_cls.example_yaml(example_yaml_path, include_nones=include_nones)
+    payloads = [
+        config.to_dict(include_nones=include_nones),
+        json.loads(config.to_json(include_nones=include_nones)),
+        yaml.safe_load(config.to_yaml(include_nones=include_nones)),
+        json.loads(json_path.read_text()),
+        yaml.safe_load(yaml_path.read_text()),
+        config_cls.example_dict(include_nones=include_nones),
+        json.loads(config_cls.example_json(include_nones=include_nones)),
+        yaml.safe_load(config_cls.example_yaml(include_nones=include_nones)),
+        json.loads(example_json_path.read_text()),
+        yaml.safe_load(example_yaml_path.read_text()),
+    ]
+    for payload in payloads:
+        assert payload["git_hash"] == revision
+        assert "git_hash" not in payload["parameters"]
+    for path in (json_path, yaml_path):
+        assert config_cls.from_file(path).to_dict()["git_hash"] == revision
+
+
+def test_git_hash_in_nested_configs_and_laser_override(
+    monkeypatch, minimal_simulation_elements
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    revision = "a" * 40
+    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    simulation = minimal_simulation_elements
+    for payload in (
+        simulation.to_dict(),
+        json.loads(simulation.to_json()),
+        yaml.safe_load(simulation.to_yaml()),
+    ):
+        assert payload["git_hash"] == revision
+        assert "git_hash" not in payload["parameters"]
+        elements = payload["parameters"]["elements"]
+        assert len(elements) == 3
+        for element in elements:
+            assert element["git_hash"] == revision
+            assert "git_hash" not in element["parameters"]
+        laser = next(e for e in elements if e["config_type"] == "laser_pulse")
+        assert "out_a0" in laser["parameters"]
+        assert "a0" not in laser["parameters"]
+
+
+@pytest.mark.parametrize("incoming_hash", ["b" * 40, None, "missing"])
+def test_loaded_git_hash_is_informational(
+    monkeypatch, minimal_density, incoming_hash
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    revision = "a" * 40
+    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    payload = minimal_density.to_dict()
+    if incoming_hash == "missing":
+        payload.pop("git_hash")
+    else:
+        payload["git_hash"] = incoming_hash
+    original = json.dumps(payload)
+
+    for loaded in (
+        module.SerializableConfig.from_dict(payload),
+        module.SerializableConfig.from_json(json.dumps(payload)),
+        module.SerializableConfig.from_yaml(yaml.safe_dump(payload)),
+    ):
+        assert loaded.to_dict()["git_hash"] == revision
+        assert loaded.length == minimal_density.length
+    assert json.dumps(payload) == original
+
+
+def test_git_hash_refreshes_on_serialization(monkeypatch, minimal_density) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    run = Mock(
+        side_effect=[
+            subprocess.CompletedProcess([], 0, "a" * 40),
+            subprocess.CompletedProcess([], 0, "b" * 40),
+        ]
+    )
+    monkeypatch.setattr(module.subprocess, "run", run)
+    assert minimal_density.to_dict()["git_hash"] == "a" * 40
+    assert minimal_density.to_dict()["git_hash"] == "b" * 40
+
+
+def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -> None:
+    from inversion_fbpic.lib.serializable_config import SerializableConfig
+
+    monkeypatch.setattr(
+        SerializableConfig,
+        "from_file",
+        Mock(side_effect=OSError("File name too long")),
+    )
+    loaded = SerializableConfig.from_any(minimal_density.to_json())
+    assert loaded.to_dict() == minimal_density.to_dict()
+
+
+def test_simulation_config_hash_includes_git_revision(
+    monkeypatch, minimal_simulation_elements
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(module, "_git_hash", lambda: "a" * 40)
+    first = minimal_simulation_elements.config_hash()
+    assert minimal_simulation_elements.config_hash() == first
+    monkeypatch.setattr(module, "_git_hash", lambda: "b" * 40)
+    assert minimal_simulation_elements.config_hash() != first
+
 
 # Inline YAML fixtures (formerly under tests/test_lib/yaml_in/).
 EXAMPLE_DENSITY_MINIMAL_YAML = """\
