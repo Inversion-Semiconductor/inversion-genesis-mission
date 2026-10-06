@@ -130,9 +130,7 @@ if __name__ == "__main__":
         elif CONFIG_TYPE == "h5":
             sim.to_hdf5_file("cfgs/simulation.h5", include_nones=False, overwrite=True)
         elif CONFIG_TYPE == "json":
-            sim.to_json_file(
-                "cfgs/simulation.json", include_nones=False, overwrite=True
-            )
+            sim.to_json_file("cfgs/simulation.json", include_nones=False)
         else:
             raise ValueError(f"Unsupported config type: {CONFIG_TYPE!r}")
 
