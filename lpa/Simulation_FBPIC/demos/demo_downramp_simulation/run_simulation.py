@@ -18,7 +18,7 @@ from inversion_fbpic.utils import analysis
 MPI_SIZE = MPI.COMM_WORLD.Get_size()
 MPI_RANK = MPI.COMM_WORLD.Get_rank()
 
-CONFIG_TYPE: Literal["h5", "yaml"] = "h5"
+CONFIG_TYPE: Literal["h5", "yaml", "json"] = "h5"
 
 if MPI_SIZE <= 1:
     USE_MPI = False
