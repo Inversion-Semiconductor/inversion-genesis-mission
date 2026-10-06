@@ -31,59 +31,65 @@ import pytest
 import yaml
 
 
-def test_git_hash_uses_library_checkout(monkeypatch, tmp_path: Path) -> None:
+@pytest.fixture
+def git_hash_file(monkeypatch, tmp_path: Path) -> Path:
+    from inversion_fbpic.lib import serializable_config as module
+
+    path = tmp_path / "git_hash.txt"
+    monkeypatch.setattr(module, "_GIT_HASH_FILE", path)
+    return path
+
+
+def test_git_hash_file_is_package_relative() -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    assert module._GIT_HASH_FILE == (
+        Path(module.__file__).resolve().parents[1] / "git_hash.txt"
+    )
+
+
+def test_git_hash_reads_recorded_file_without_git(
+    monkeypatch, git_hash_file: Path, tmp_path: Path
+) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
     revision = "a" * 40
-    run = Mock(return_value=subprocess.CompletedProcess([], 0, revision + "\n"))
-    monkeypatch.setattr(module.subprocess, "run", run)
-    monkeypatch.chdir(tmp_path)
+    git_hash_file.write_text(revision + "\n", encoding="utf-8")
+    run = Mock(side_effect=AssertionError("Serialization must not run Git"))
+    monkeypatch.setattr(subprocess, "run", run)
+    other_directory = tmp_path / "unrelated"
+    other_directory.mkdir()
+    monkeypatch.chdir(other_directory)
 
     assert module._git_hash() == revision
-    run.assert_called_once_with(
-        ["git", "rev-parse", "--verify", "HEAD"],
-        cwd=Path(module.__file__).resolve().parent,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=2,
-    )
+    run.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        FileNotFoundError("git is unavailable"),
-        subprocess.CalledProcessError(128, ["git"]),
-        subprocess.TimeoutExpired(["git"], 2),
-    ],
-)
-def test_git_hash_unavailable(monkeypatch, error: Exception) -> None:
+@pytest.mark.parametrize("content", [None, b" \n", b"\xff"])
+def test_git_hash_missing_empty_or_invalid(git_hash_file: Path, content) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
-    monkeypatch.setattr(module.subprocess, "run", Mock(side_effect=error))
+    if content is not None:
+        git_hash_file.write_bytes(content)
     assert module._git_hash() is None
 
 
-def test_git_hash_empty_output(monkeypatch) -> None:
+def test_git_hash_unreadable(monkeypatch) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
-    monkeypatch.setattr(
-        module.subprocess,
-        "run",
-        Mock(return_value=subprocess.CompletedProcess([], 0, " \n")),
-    )
+    path = Mock()
+    path.read_text.side_effect = PermissionError("Revision file is unreadable")
+    monkeypatch.setattr(module, "_GIT_HASH_FILE", path)
     assert module._git_hash() is None
 
 
 @pytest.mark.parametrize("revision", ["a" * 40, None])
 @pytest.mark.parametrize("include_nones", [True, False])
 def test_git_hash_in_all_serialization_formats(
-    monkeypatch, minimal_density, tmp_path: Path, revision, include_nones: bool
+    git_hash_file: Path, minimal_density, tmp_path: Path, revision, include_nones: bool
 ) -> None:
-    from inversion_fbpic.lib import serializable_config as module
-
-    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    if revision is not None:
+        git_hash_file.write_text(revision, encoding="utf-8")
     config = minimal_density
     config_cls = type(config)
     json_path = tmp_path / "config.json"
@@ -115,12 +121,10 @@ def test_git_hash_in_all_serialization_formats(
 
 
 def test_git_hash_in_nested_configs_and_laser_override(
-    monkeypatch, minimal_simulation_elements
+    git_hash_file: Path, minimal_simulation_elements
 ) -> None:
-    from inversion_fbpic.lib import serializable_config as module
-
     revision = "a" * 40
-    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    git_hash_file.write_text(revision, encoding="utf-8")
     simulation = minimal_simulation_elements
     for payload in (
         simulation.to_dict(),
@@ -141,12 +145,12 @@ def test_git_hash_in_nested_configs_and_laser_override(
 
 @pytest.mark.parametrize("incoming_hash", ["b" * 40, None, "missing"])
 def test_loaded_git_hash_is_informational(
-    monkeypatch, minimal_density, incoming_hash
+    git_hash_file: Path, minimal_density, incoming_hash
 ) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
     revision = "a" * 40
-    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    git_hash_file.write_text(revision, encoding="utf-8")
     payload = minimal_density.to_dict()
     if incoming_hash == "missing":
         payload.pop("git_hash")
@@ -164,17 +168,12 @@ def test_loaded_git_hash_is_informational(
     assert json.dumps(payload) == original
 
 
-def test_git_hash_refreshes_on_serialization(monkeypatch, minimal_density) -> None:
-    from inversion_fbpic.lib import serializable_config as module
-
-    run = Mock(
-        side_effect=[
-            subprocess.CompletedProcess([], 0, "a" * 40),
-            subprocess.CompletedProcess([], 0, "b" * 40),
-        ]
-    )
-    monkeypatch.setattr(module.subprocess, "run", run)
+def test_git_hash_refreshes_on_serialization(
+    git_hash_file: Path, minimal_density
+) -> None:
+    git_hash_file.write_text("a" * 40, encoding="utf-8")
     assert minimal_density.to_dict()["git_hash"] == "a" * 40
+    git_hash_file.write_text("b" * 40, encoding="utf-8")
     assert minimal_density.to_dict()["git_hash"] == "b" * 40
 
 
@@ -191,14 +190,12 @@ def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -
 
 
 def test_simulation_config_hash_includes_git_revision(
-    monkeypatch, minimal_simulation_elements
+    git_hash_file: Path, minimal_simulation_elements
 ) -> None:
-    from inversion_fbpic.lib import serializable_config as module
-
-    monkeypatch.setattr(module, "_git_hash", lambda: "a" * 40)
+    git_hash_file.write_text("a" * 40, encoding="utf-8")
     first = minimal_simulation_elements.config_hash()
     assert minimal_simulation_elements.config_hash() == first
-    monkeypatch.setattr(module, "_git_hash", lambda: "b" * 40)
+    git_hash_file.write_text("b" * 40, encoding="utf-8")
     assert minimal_simulation_elements.config_hash() != first
 
 

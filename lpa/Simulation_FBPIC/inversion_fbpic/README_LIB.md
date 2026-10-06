@@ -133,9 +133,11 @@ This wrapper incorporates simulation policy as well as object wiring, things tha
 
 The type tags and serialized parameter names are part of the persisted run interface. Unknown, missing, or duplicate tags fail early; changing them can make existing configurations unloadable. Derived `attrs` fields are excluded from serialization, while input fields are retained for reconstruction.
 
-Every serialized configuration, including nested components and example templates, also includes a top-level `git_hash` alongside `config_type`, `subclass`, and `parameters`. It records the full current `HEAD` commit of the checkout containing the library, independently of the process working directory. The hash is refreshed at serialization time, rather than preserved from a loaded file; older files without this entry remain loadable. If Git or repository metadata is unavailable, the entry is `null`, even with `include_nones=False`. This records committed code only, not uncommitted changes.
+All serialized configs, including nested components and examples, include `git_hash`, read from the package's generated [git_hash.txt](git_hash.txt); serialization never calls Git. Pip/setuptools builds (including editable installs and conda recipes using them) record `HEAD` automatically. Git hooks installed with `pre-commit install` refresh it after commits, checkouts, and merges. For uninstalled source use, run [tools/record_git_hash.py](../../../tools/record_git_hash.py).
 
-`Simulation.config_hash()` includes this revision metadata, so changing the library checkout's `HEAD` invalidates completed-run skipping even when simulation parameters are unchanged.
+The file is Git-ignored but bundled in wheels and source distributions, preserving provenance when Git is unavailable. Serialization rereads it rather than retaining a loaded config's hash; legacy configs remain supported. Missing, unreadable, or empty files produce `git_hash: null`, even with `include_nones=False`. The hash identifies committed code, not uncommitted changes.
+
+The revision contributes to `Simulation.config_hash()`, so refreshing it invalidates completed-run skipping. Keep hooks installed or refresh manually to avoid stale provenance.
 
 ## Internal Maintenance Layers
 

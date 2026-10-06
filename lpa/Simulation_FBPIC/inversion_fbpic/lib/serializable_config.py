@@ -11,7 +11,6 @@ import contextvars
 import copy
 import json
 import os
-import subprocess
 from collections.abc import Mapping
 from contextlib import contextmanager
 import types
@@ -48,22 +47,16 @@ SUBCLASS_STR = "subclass"
 GIT_HASH_STR = "git_hash"
 PARAMETERS_STR = "parameters"
 NULL_CONCRETE_STR = "null"
+_GIT_HASH_FILE = Path(__file__).resolve().parents[1] / "git_hash.txt"
 
 
 def _git_hash() -> str | None:
-    """Return the library checkout's current HEAD, or None if Git is unavailable."""
+    """Read the revision recorded by the repository's commit/checkout hooks."""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
-            cwd=Path(__file__).resolve().parent,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
+        revision = _GIT_HASH_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
         return None
-    return result.stdout.strip() or None
+    return revision or None
 
 
 _EXAMPLE_SIMPLE_DEFAULTS: dict[type, Any] = {
@@ -470,11 +463,8 @@ class SerializableConfig(ABC):
         return value
 
     def to_dict(self, *, include_nones: bool = True) -> dict[str, Any]:
-        """Serialize this configuration to a JSON-friendly dictionary.
-
-        The top-level ``git_hash`` records the library checkout's current HEAD
-        at serialization time, or None when Git metadata is unavailable. It is
-        included regardless of *include_nones*, which controls parameters only.
+        """Serialize this configuration to a JSON-friendly dictionary. Appends
+        a top-level ``git_hash`` key with the recorded revision, or None if unavailable.
         """
         parameters: dict[str, Any] = {}
         for field in attrs.fields(type(self)):
@@ -505,7 +495,7 @@ class SerializableConfig(ABC):
         Deserialize any registered configuration subclass from a dictionary.
 
         The informational ``git_hash`` is ignored when loading. Legacy payloads
-        without it remain supported; reserialization records the current HEAD.
+        without it remain supported; reserialization reads the recorded revision.
 
         Args:
             payload: The dictionary to deserialize.
@@ -588,8 +578,8 @@ class SerializableConfig(ABC):
         0.0, str -> "", int -> 0, etc.). Optional (union with None) fields
         without an explicit default use null.
 
-        Like instance payloads, examples include the current library checkout's
-        ``git_hash`` (or None when unavailable), regardless of *include_nones*.
+        Like instance payloads, examples include the recorded ``git_hash``
+        (or None when unavailable), regardless of *include_nones*.
 
         Returns:
             The example payload dictionary.
