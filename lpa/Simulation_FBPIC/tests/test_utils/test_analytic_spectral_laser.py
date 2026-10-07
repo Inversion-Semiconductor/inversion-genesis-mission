@@ -51,6 +51,27 @@ def test_gdd_broadens_the_synthesized_temporal_pulse() -> None:
     assert chirped_width > transform_limited_width
 
 
+def test_positive_tod_uses_standard_spectral_phase_convention() -> None:
+    tod = 1.0e-42
+    profile = AnalyticSpectralLongitudinalProfile(
+        wavelength=800e-9,
+        bandwidth_fwhm=1.0e14,
+        time_half_width=200e-15,
+        npoints=1024,
+        tod=tod,
+    )
+    frequency_bin = 10
+    dt = float(profile.time_axis[1] - profile.time_axis[0])
+    angular_frequency_offset = 2.0 * np.pi * np.fft.fftfreq(
+        len(profile.time_axis), dt
+    )[frequency_bin]
+    expected_phase = tod * (-angular_frequency_offset) ** 3 / 6.0
+
+    assert np.angle(profile.spectral_field[frequency_bin]) == pytest.approx(
+        expected_phase
+    )
+
+
 def test_auto_bandwidth_matches_transform_limited_gaussian() -> None:
     laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
     laser.physical_parameters = {

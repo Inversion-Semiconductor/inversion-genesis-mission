@@ -168,6 +168,7 @@ class AnalyticSpectralLongitudinalProfile:
         )
         dt = float(self.time_axis[1] - self.time_axis[0])
         angular_frequency_offset = 2.0 * np.pi * np.fft.fftfreq(npoints, d=dt)
+        physical_angular_frequency_offset = -angular_frequency_offset
         spectral_amplitude = np.exp(
             -2.0
             * np.log(2.0)
@@ -175,9 +176,9 @@ class AnalyticSpectralLongitudinalProfile:
         )
         spectral_phase = (
             cep_phase
-            + 0.5 * gdd * angular_frequency_offset**2
-            + tod * angular_frequency_offset**3 / 6.0
-            + fod * angular_frequency_offset**4 / 24.0
+            + 0.5 * gdd * physical_angular_frequency_offset**2
+            + tod * physical_angular_frequency_offset**3 / 6.0
+            + fod * physical_angular_frequency_offset**4 / 24.0
         )
         self.spectral_field = spectral_amplitude * np.exp(1j * spectral_phase)
         self.temporal_field = np.fft.fftshift(np.fft.ifft(self.spectral_field))
