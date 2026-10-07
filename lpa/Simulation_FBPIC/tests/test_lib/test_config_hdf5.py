@@ -55,6 +55,53 @@ def test_file_dispatch(
     assert loaded.length == 2e-6
 
 
+@pytest.mark.parametrize("revision", ["a" * 40, None])
+@pytest.mark.parametrize("include_nones", [True, False])
+def test_git_hash_metadata_round_trip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    density: ExampleDensityProfile,
+    revision: str | None,
+    include_nones: bool,
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(module, "_git_hash", lambda: revision)
+    path = density.to_hdf5_file(tmp_path / "config.h5", include_nones=include_nones)
+    with h5py.File(path, "r") as handle:
+        node = handle["config/git_hash"]
+        assert isinstance(node, h5py.Dataset)
+        assert "git_hash" not in handle["config/parameters"]
+        if revision is None:
+            assert node.shape is None
+            assert node.attrs["_config_kind"] == "none"
+        else:
+            assert node.asstr()[()] == revision
+    assert SerializableConfig.from_file(path).to_dict() == density.to_dict()
+    density.to_hdf5_file(path, include_nones=include_nones, overwrite=True)
+    assert SerializableConfig.from_file(path).to_dict()["git_hash"] == revision
+
+
+@pytest.mark.parametrize("incoming_hash", ["b" * 40, None, "missing"])
+def test_loaded_git_hash_is_informational(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, incoming_hash: str | None
+) -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
+    monkeypatch.setattr(module, "_git_hash", lambda: incoming_hash)
+    path = Hdf5TestConfig(value="payload").to_hdf5_file(tmp_path / "config.h5")
+    if incoming_hash == "missing":
+        with h5py.File(path, "r+") as handle:
+            del handle["config/git_hash"]
+    monkeypatch.setattr(module, "_git_hash", lambda: "a" * 40)
+    loaded = SerializableConfig.from_file(path)
+    assert loaded.value == "payload"
+    assert loaded.to_dict()["git_hash"] == "a" * 40
+    loaded.to_hdf5_file(path, overwrite=True)
+    with h5py.File(path, "r") as handle:
+        assert handle["config/git_hash"].asstr()[()] == "a" * 40
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -304,6 +351,20 @@ def test_unrelated_nested_data_is_not_deleted(tmp_path: Path) -> None:
         np.testing.assert_array_equal(
             handle["config/parameters/scientific_data"][()], [1, 2]
         )
+
+
+def test_unrelated_root_data_is_not_deleted(tmp_path: Path) -> None:
+    path = Hdf5TestConfig().to_hdf5_file(tmp_path / "config.h5")
+    with h5py.File(path, "r+") as handle:
+        group = handle["config"]
+        # Even a valid codec node is not permitted as an arbitrary root member.
+        node = group.create_dataset("scientific_data", data=1)
+        node.attrs["_config_kind"] = "int"
+        with pytest.raises(ValueError, match="payload"):
+            SerializableConfig.from_hdf5(group)
+        with pytest.raises(ValueError, match="occupied"):
+            Hdf5TestConfig().to_hdf5(group, overwrite=True)
+        assert node[()] == 1
 
 
 @pytest.mark.parametrize("failed_move", [2, 5])
