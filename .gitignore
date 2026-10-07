@@ -27,7 +27,6 @@ Thumbs.db
 *diags/
 
 # Data files that may be introduced externally
-*.txt
 *.gif
 *.tdms
 *.tdms_index
@@ -85,3 +84,7 @@ inversion-radiasoft-plasma-injector/
 
 # fluid sim data files
 *.cgns
+
+# large document files
+*.pdf
+*.pptx
