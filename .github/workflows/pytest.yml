@@ -1,0 +1,39 @@
+name: pytest
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pytest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0} # login shell so the conda env is active
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # FBPIC build provenance records the git hash
+      # mpi4py and openpmd-api come from conda-forge (binary MPI builds)
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniforge-version: latest
+          python-version: "3.11"
+          channels: conda-forge
+          channel-priority: strict
+          activate-environment: inv-genesis
+      - name: Install conda dependencies
+        run: conda install -y mpi4py "openpmd-api>=0.16.1,<0.17" h5py
+      # Add a line here when a new package is added; tests are collected via
+      # the top-level pytest.ini.
+      - name: Install packages
+        run: |
+          pip install -e "lpa/Simulation_FBPIC[dev]"
+          pip install -e "lpa/Simulation_Fluid/postproc[dev]"
+      - name: Run pytest
+        run: pytest
