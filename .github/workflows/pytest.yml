@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: pytest-${{ github.ref }}
-  cancel-in-progress: true
+  # only supersede runs on PRs; every push to main should run to completion
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pytest:
