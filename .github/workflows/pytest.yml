@@ -22,7 +22,7 @@ jobs:
       # ffmpeg is needed by the movie-making tests
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      # mpi4py and openpmd-api come from conda-forge (binary MPI builds)
+      # mpi4py and openpmd-api come from conda-forge (binary MPI builds).
       - uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
@@ -30,8 +30,9 @@ jobs:
           channels: conda-forge
           channel-priority: strict
           activate-environment: inv-genesis
+      # fbpic imports pyfftw (or MKL) for its CPU FFTs; neither is a pip dependency
       - name: Install conda dependencies
-        run: conda install -y mpi4py "openpmd-api>=0.16.1,<0.17" h5py
+        run: conda install -y mpi4py "openpmd-api>=0.16.1,<0.17" h5py pyfftw
       # Add a line here when a new package is added; tests are collected via
       # the top-level pytest.ini.
       - name: Install packages
