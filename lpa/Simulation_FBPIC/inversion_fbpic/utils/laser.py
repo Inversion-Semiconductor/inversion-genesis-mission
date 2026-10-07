@@ -224,6 +224,7 @@ class HighOrderLasyLaser:
     _REFERENCE_PULSE_DURATION_FWHM_S = 30e-15
     _REFERENCE_GDD_S2 = 5e-28
     _REFERENCE_TOD_S3 = 1e-41
+    _LEADING_EDGE_CROP_INTENSITY_TOLERANCE = 1e-3
     _HYPERPARAMETER_DEFAULTS: dict[str, Any] = {
         "polarization": (1, 0),
         "n_azimuthal_modes": 5,
@@ -499,6 +500,17 @@ class HighOrderLasyLaser:
         time, intensity = self._on_axis_intensity()
         current_delay = float(time[int(np.argmax(intensity))] - time[0])
         shift = target_delay - current_delay
+        if shift < 0.0:
+            leading_edge_intensity = float(np.interp(time[0] - shift, time, intensity))
+            relative_intensity = leading_edge_intensity / float(np.max(intensity))
+            if relative_intensity > self._LEADING_EDGE_CROP_INTENSITY_TOLERANCE:
+                warnings.warn(
+                    "Laser peak delay crops the leading edge at relative on-axis "
+                    f"intensity {relative_intensity:.3e}, exceeding "
+                    f"{self._LEADING_EDGE_CROP_INTENSITY_TOLERANCE:.1e}.",
+                    UserWarning,
+                    stacklevel=2,
+                )
         field = self.laser.grid.get_temporal_field()
         shifted_field = np.empty_like(field)
         for mode_index in range(field.shape[0]):

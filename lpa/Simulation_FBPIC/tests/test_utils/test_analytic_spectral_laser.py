@@ -93,6 +93,32 @@ def test_peak_delay_expands_temporal_grid() -> None:
     assert time_half_width == pytest.approx(145e-15)
 
 
+def test_peak_delay_warns_when_it_crops_a_material_leading_edge() -> None:
+    laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
+    laser.hyperparameters = {"peak_delay_from_file_start_s": 0.0}
+    laser._LEADING_EDGE_CROP_INTENSITY_TOLERANCE = 1e-3
+    time = np.array([0.0, 1.0, 2.0])
+    intensity = np.array([0.0, 1.0, 0.0])
+
+    class Grid:
+        @staticmethod
+        def get_temporal_field() -> np.ndarray:
+            return np.ones((1, 1, 3), dtype=complex)
+
+        @staticmethod
+        def set_temporal_field(field: np.ndarray) -> None:
+            pass
+
+    class Laser:
+        grid = Grid()
+
+    laser.laser = Laser()
+    laser._on_axis_intensity = lambda: (time, intensity)
+
+    with pytest.warns(UserWarning, match="crops the leading edge"):
+        laser._set_peak_delay_from_file_start()
+
+
 @pytest.mark.parametrize(
     ("duration", "relative_gdd", "relative_tod", "expected_gdd", "expected_tod"),
     [
