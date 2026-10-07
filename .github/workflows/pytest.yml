@@ -19,6 +19,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # FBPIC build provenance records the git hash
+      # ffmpeg is needed by the movie-making tests
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       # mpi4py and openpmd-api come from conda-forge (binary MPI builds)
       - uses: conda-incubator/setup-miniconda@v3
         with:
