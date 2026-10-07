@@ -84,6 +84,32 @@ def test_auto_bandwidth_matches_transform_limited_gaussian() -> None:
     assert bandwidth == pytest.approx(4.0 * np.log(2.0) / 30e-15)
 
 
+def test_absolute_and_relative_spectral_phase_controls_are_mutually_exclusive() -> None:
+    with pytest.raises(
+        ValueError,
+        match="either laser_gdd_s2 or laser_gdd_relative",
+    ):
+        HighOrderLasyLaser._validate_phase_parameter_sources(
+            {"laser_gdd_s2": 1e-28, "laser_gdd_relative": 1.0}
+        )
+
+
+def test_zero_bandwidth_rejects_nonzero_spectral_phase() -> None:
+    laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
+    laser.physical_parameters = {
+        "laser_spectral_bandwidth_rad_s": 0.0,
+        "laser_gdd_s2": 1e-28,
+        "laser_tod_s3": 0.0,
+        "laser_fod_s4": 0.0,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="Nonzero GDD, TOD, or FOD requires a nonzero",
+    ):
+        laser._validate_spectral_phase_bandwidth()
+
+
 def test_peak_delay_expands_temporal_grid() -> None:
     laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
     laser.hyperparameters = {"peak_delay_from_file_start_s": 200e-15}
@@ -136,8 +162,8 @@ def test_relative_spectral_phase_scales_with_pulse_duration(
     laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
     laser.physical_parameters = {
         "laser_pulse_duration_fwhm_s": duration,
-        "laser_relative_gdd_s2": relative_gdd,
-        "laser_relative_tod_s3": relative_tod,
+        "laser_gdd_relative": relative_gdd,
+        "laser_tod_relative": relative_tod,
         "laser_gdd_s2": 0.0,
         "laser_tod_s3": 0.0,
     }

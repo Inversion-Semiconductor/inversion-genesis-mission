@@ -21,13 +21,13 @@ PHYSICAL_PARAMETERS = {
     "laser_energy_J": 2.5,
     "laser_pulse_duration_fwhm_s": 30e-15, # 30e-15,
     # ``"auto"`` derives the transform-limited Gaussian bandwidth from the
-    # pulse duration. Use a number to scan bandwidth independently.
+    # pulse duration. Use a fixed numeric value to scan duration independently.
     "laser_spectral_bandwidth_rad_s": "auto",
     "laser_cep_phase_rad": 0.0,
     # At 30 fs, +/-1 corresponds to +/-5e-28 s^2 GDD and +/-1e-41 s^3 TOD.
     # Coefficients scale with duration squared/cubed for other pulse widths.
-    "laser_relative_gdd_s2": 0.0,
-    "laser_relative_tod_s3": 0.0,
+    "laser_gdd_relative": 0.0,
+    "laser_tod_relative": 0.0,
     "laser_fod_s4": 0.0,
     "laser_spot_size_m": 24e-6,
     "laser_super_gaussian_order": 3,

@@ -217,8 +217,8 @@ class HighOrderLasyLaser:
         "laser_gdd_s2": 0.0,
         "laser_tod_s3": 0.0,
         "laser_fod_s4": 0.0,
-        "laser_relative_gdd_s2": None,
-        "laser_relative_tod_s3": None,
+        "laser_gdd_relative": None,
+        "laser_tod_relative": None,
     }
     OPTIONAL_PHYSICAL_PARAMETER_KEYS = frozenset(_PHYSICAL_PARAMETER_DEFAULTS)
     _REFERENCE_PULSE_DURATION_FWHM_S = 30e-15
@@ -242,6 +242,7 @@ class HighOrderLasyLaser:
         physical_parameters: Mapping[str, Any],
         hyperparameters: Optional[Mapping[str, Any]] = None,
     ) -> None:
+        self._validate_phase_parameter_sources(physical_parameters)
         self.physical_parameters = {
             **self._PHYSICAL_PARAMETER_DEFAULTS,
             **physical_parameters,
@@ -269,6 +270,21 @@ class HighOrderLasyLaser:
         self._validate_pulse_duration()
         self._validate_start_plane_grid()
 
+    @staticmethod
+    def _validate_phase_parameter_sources(physical_parameters: Mapping[str, Any]) -> None:
+        """Reject ambiguous absolute and duration-relative phase controls."""
+        for absolute_name, relative_name in (
+            ("laser_gdd_s2", "laser_gdd_relative"),
+            ("laser_tod_s3", "laser_tod_relative"),
+        ):
+            if (
+                absolute_name in physical_parameters
+                and physical_parameters.get(relative_name) is not None
+            ):
+                raise ValueError(
+                    f"Specify either {absolute_name} or {relative_name}, not both."
+                )
+
     def _resolve_spectral_bandwidth(self) -> float:
         """Resolve a numeric bandwidth or derive a transform-limited Gaussian value."""
         bandwidth = self.physical_parameters["laser_spectral_bandwidth_rad_s"]
@@ -292,11 +308,11 @@ class HighOrderLasyLaser:
         when an auto bandwidth is derived from pulse duration.
         """
         duration = self.physical_parameters["laser_pulse_duration_fwhm_s"]
-        relative_gdd = self.physical_parameters["laser_relative_gdd_s2"]
-        relative_tod = self.physical_parameters["laser_relative_tod_s3"]
+        relative_gdd = self.physical_parameters["laser_gdd_relative"]
+        relative_tod = self.physical_parameters["laser_tod_relative"]
         for name, value in (
-            ("laser_relative_gdd_s2", relative_gdd),
-            ("laser_relative_tod_s3", relative_tod),
+            ("laser_gdd_relative", relative_gdd),
+            ("laser_tod_relative", relative_tod),
         ):
             if value is not None and not -1.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be in the interval [-1, 1].")
@@ -339,6 +355,7 @@ class HighOrderLasyLaser:
             )
         if self.physical_parameters["laser_spectral_bandwidth_rad_s"] < 0.0:
             raise ValueError("laser_spectral_bandwidth_rad_s must be non-negative.")
+        self._validate_spectral_phase_bandwidth()
         if self.hyperparameters["spectral_time_window_factor"] <= 0.0:
             raise ValueError("spectral_time_window_factor must be positive.")
         peak_delay = self.hyperparameters["peak_delay_from_file_start_s"]
@@ -348,6 +365,19 @@ class HighOrderLasyLaser:
         if maximum_duration is not None and maximum_duration <= 0.0:
             raise ValueError(
                 "maximum_pulse_duration_fwhm_s must be positive when specified."
+            )
+
+    def _validate_spectral_phase_bandwidth(self) -> None:
+        """Reject phase terms that the zero-bandwidth profile cannot represent."""
+        if (
+            self.physical_parameters["laser_spectral_bandwidth_rad_s"] == 0.0
+            and any(
+                self.physical_parameters[name] != 0.0
+                for name in ("laser_gdd_s2", "laser_tod_s3", "laser_fod_s4")
+            )
+        ):
+            raise ValueError(
+                "Nonzero GDD, TOD, or FOD requires a nonzero laser_spectral_bandwidth_rad_s."
             )
 
     def _lasy_parameters(self) -> dict[str, Any]:
