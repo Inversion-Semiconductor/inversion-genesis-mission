@@ -917,7 +917,8 @@ class SerializableConfig(ABC):
             not overwrite
             or group.attrs.get(_HDF5_FORMAT_ATTR) != _HDF5_FORMAT
             or group.attrs.get(_HDF5_VERSION_ATTR) != _HDF5_VERSION
-            or set(group) != {CONFIG_TYPE_STR, SUBCLASS_STR, PARAMETERS_STR}
+            or set(group) - {GIT_HASH_STR}
+            != {CONFIG_TYPE_STR, SUBCLASS_STR, PARAMETERS_STR}
         ):
             raise ValueError(f"Refusing to replace occupied HDF5 group {group.name!r}.")
         if occupied:
@@ -968,7 +969,8 @@ class SerializableConfig(ABC):
             payload = _read_hdf5_value(group)
             if (
                 not isinstance(payload, dict)
-                or set(payload) != {CONFIG_TYPE_STR, SUBCLASS_STR, PARAMETERS_STR}
+                or set(payload) - {GIT_HASH_STR}
+                != {CONFIG_TYPE_STR, SUBCLASS_STR, PARAMETERS_STR}
                 or not isinstance(payload.get(PARAMETERS_STR), dict)
             ):
                 raise ValueError(
