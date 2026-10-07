@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import copy
+import functools
 import json
 import os
 from collections.abc import Mapping
@@ -16,6 +17,7 @@ from contextlib import contextmanager
 import types
 import typing
 import uuid
+import warnings
 from abc import ABC
 from pathlib import Path
 from typing import Any, ClassVar
@@ -47,8 +49,32 @@ _parameter_descriptions_from_doc = parameter_descriptions_from_doc
 
 CONFIG_TYPE_STR = "config_type"
 SUBCLASS_STR = "subclass"
+GIT_HASH_STR = "git_hash"
 PARAMETERS_STR = "parameters"
 NULL_CONCRETE_STR = "null"
+_GIT_HASH_FILE = Path(__file__).resolve().parents[1] / "git_hash.txt"
+
+
+@functools.cache
+def _git_hash() -> str | None:
+    """Return the recorded revision captured when this module was imported."""
+    try:
+        revision = _GIT_HASH_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    return revision or None
+
+
+# Prime the cache before a later commit/build can change the recorded revision.
+if _git_hash() is None:
+    warnings.warn(
+        "Recorded Git revision is unavailable; configs will use git_hash: null "
+        "for this process. Build/install the FBPIC package or run "
+        "tools/record_git_hash.py, then restart Python to capture the revision.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
 
 _HDF5_FORMAT = "serializable_config"
 _HDF5_FORMAT_ATTR = "_config_format"
@@ -642,7 +668,10 @@ class SerializableConfig(ABC):
         return value
 
     def to_dict(self, *, include_nones: bool = True) -> dict[str, Any]:
-        """Serialize this configuration to a JSON-friendly dictionary."""
+        """Serialize to a JSON-friendly dictionary with the import-time ``git_hash``.
+
+        The revision is None if unavailable at import, even with *include_nones=False*.
+        """
         parameters: dict[str, Any] = {}
         for field in attrs.fields(type(self)):
             if not field.init:
@@ -657,6 +686,7 @@ class SerializableConfig(ABC):
         return {
             CONFIG_TYPE_STR: self.CONFIG_TYPE,
             SUBCLASS_STR: self.SUBCLASS,
+            GIT_HASH_STR: _git_hash(),
             PARAMETERS_STR: parameters,
         }
 
@@ -669,6 +699,9 @@ class SerializableConfig(ABC):
     ) -> "SerializableConfig":
         """
         Deserialize any registered configuration subclass from a dictionary.
+
+        Incoming ``git_hash`` is ignored; output uses the import-time revision.
+        Legacy payloads without this metadata remain supported.
 
         Args:
             payload: The dictionary to deserialize.
@@ -751,6 +784,9 @@ class SerializableConfig(ABC):
         0.0, str -> "", int -> 0, etc.). Optional (union with None) fields
         without an explicit default use null.
 
+        Like instance payloads, examples include the import-time ``git_hash``
+        (or None when unavailable), regardless of *include_nones*.
+
         Returns:
             The example payload dictionary.
         """
@@ -769,6 +805,7 @@ class SerializableConfig(ABC):
         return {
             CONFIG_TYPE_STR: getattr(cls, "CONFIG_TYPE", ""),
             SUBCLASS_STR: getattr(cls, "SUBCLASS", ""),
+            GIT_HASH_STR: _git_hash(),
             PARAMETERS_STR: parameters,
         }
 
@@ -1354,7 +1391,7 @@ class SerializableConfig(ABC):
                 return cls.from_file(
                     value, relative_to=relative_to, overrides=overrides
                 )
-            except ValueError:
+            except (ValueError, OSError):
                 return cls.from_dict(
                     cls._resolve_string_as_dict(value), overrides=overrides
                 )
