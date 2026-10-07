@@ -1,0 +1,129 @@
+name: ionization_injection_exploration
+# Relative to this file. The source template and all numerical settings are
+# fingerprinted so staged data are comparable and reusable.
+template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
+run_root: ../../data/ionization_injection_exploration
+
+# Every physical parameter is persisted for every simulation. Bounds are
+# deliberately conservative starting ranges and should be reviewed before a
+# production allocation. Parameters without bounds are permanently fixed.
+parameters:
+  peak_plasma_density_cm3: {nominal: 4.0e18, lower: 2.0e18, upper: 6.0e18, unit: cm^-3, log_scale: true}
+  nitrogen_dopant_fraction: {nominal: 0.03, lower: 0.01, upper: 0.06, unit: fraction, log_scale: true}
+  density_peak: {nominal: 1.1, lower: 0.8, upper: 1.4}
+  density_alpha_m: {nominal: 1.1e-3, lower: 0.7e-3, upper: 1.5e-3, unit: m, log_scale: true}
+  density_beta: {nominal: 1.1, lower: 0.8, upper: 1.5}
+  density_center_location_m: {nominal: 2.3e-3, lower: 1.5e-3, upper: 3.2e-3, unit: m}
+  laser_wavelength_m: {nominal: 800e-9, unit: m, description: Fixed laser central wavelength.}
+  laser_energy_J: {nominal: 2.5, lower: 1.5, upper: 3.5, unit: J}
+  laser_pulse_duration_fwhm_s: {nominal: 30e-15, lower: 20e-15, upper: 45e-15, unit: s, log_scale: true}
+  laser_spectral_bandwidth_rad_s: {nominal: auto, description: Transform-limited bandwidth derived by LASY.}
+  laser_cep_phase_rad: {nominal: 0.0, lower: -3.141592653589793, upper: 3.141592653589793, unit: rad}
+  laser_gdd_relative: {nominal: 0.0, lower: -1.0, upper: 1.0, unit: normalized}
+  laser_tod_relative: {nominal: 0.0, lower: -1.0, upper: 1.0, unit: normalized}
+  laser_fod_s4: {nominal: 0.0, lower: -1.0e-55, upper: 1.0e-55, unit: s^4}
+  laser_spot_size_m: {nominal: 24e-6, lower: 16e-6, upper: 32e-6, unit: m, log_scale: true}
+  laser_super_gaussian_order: {nominal: 3, unit: dimensionless, description: Held fixed because it is discrete.}
+  laser_focal_position_m: {nominal: 3.5e-3, lower: 2.5e-3, upper: 4.5e-3, unit: m}
+  zernike_astigmatism_2: {nominal: 0.0, lower: -0.5, upper: 0.5}
+  zernike_astigmatism_4: {nominal: 0.0, lower: -0.5, upper: 0.5}
+  zernike_coma_y: {nominal: 0.0, lower: -0.25, upper: 0.25}
+  zernike_coma_x: {nominal: 0.0, lower: -0.25, upper: 0.25}
+  zernike_trefoil_y: {nominal: 0.0, lower: -0.75, upper: 0.75}
+  zernike_trefoil_x: {nominal: 0.0, lower: -0.75, upper: 0.75}
+  zernike_spherical_3: {nominal: 0.0, lower: -0.25, upper: 0.25}
+  zernike_astigmatism_6: {nominal: 0.0, description: Outside the initial physics study.}
+  zernike_coma_5_y: {nominal: 0.0, description: Outside the initial physics study.}
+  zernike_coma_5_x: {nominal: 0.0, description: Outside the initial physics study.}
+  zernike_secondary_trefoil_y: {nominal: 0.0, description: Outside the initial physics study.}
+  zernike_secondary_trefoil_x: {nominal: 0.0, description: Outside the initial physics study.}
+
+stages:
+  stage_1:
+    # 200 is the total Stage 1 budget, including the 24 initial points.
+    max_evaluations: 200
+    initial_design_size: 24
+    # Matches the existing single-case FBPIC submission: 8 MPI ranks/GPUs.
+    gpus_per_simulation: 8
+    total_gpus: 32
+    concurrent_simulations: 4
+    active_parameters:
+      - peak_plasma_density_cm3
+      - nitrogen_dopant_fraction
+      - density_alpha_m
+      - density_center_location_m
+      - laser_energy_J
+      - laser_pulse_duration_fwhm_s
+      - laser_spot_size_m
+      - laser_focal_position_m
+  stage_2:
+    # Includes all Stage 1 data reused at the nominal values of new inputs.
+    max_evaluations: 600
+    initial_design_size: 0
+    gpus_per_simulation: 8
+    total_gpus: 32
+    concurrent_simulations: 4
+    active_parameters:
+      - peak_plasma_density_cm3
+      - nitrogen_dopant_fraction
+      - density_peak
+      - density_alpha_m
+      - density_beta
+      - density_center_location_m
+      - laser_energy_J
+      - laser_pulse_duration_fwhm_s
+      - laser_gdd_relative
+      - laser_tod_relative
+      - laser_spot_size_m
+      - laser_focal_position_m
+      - zernike_astigmatism_2
+      - zernike_coma_y
+      - zernike_trefoil_y
+      - zernike_spherical_3
+
+analysis:
+  species: nitrogen_electrons
+  uz_min: 30.0
+  central_fraction: 0.95
+  longitudinal_mode: spline
+  longitudinal_bins: 4
+  include_higher_moments: true
+  keep_raw_diagnostics: true
+
+# All numerical choices remain fixed for every stage. Per-run paths are created
+# by the executor and are intentionally not listed here.
+execution:
+  hyperparameters:
+    use_cuda: true
+    n_order: 32
+    gamma_boost: 1.5
+    nz: 1500
+    nr: 300
+    zmax: 0.0
+    zmin: -70.0e-6
+    rmax: 200.0e-6
+    n_azimuthal_modes: 5
+    p_zmin: 0.0
+    p_rmax: 90e-6
+    p_nz: 2
+    p_nr: 2
+    p_nt: 15
+    number_dumps_lab: 50
+    write_period: 50
+    save_checkpoints: false
+    checkpoint_period: 100
+    use_restart: false
+    track_electrons: false
+    random_seed: 0
+    lasy_t_start: 0.0
+    lasy_antenna_position: 0.0
+    laser_polarization: [1, 0]
+    laser_n_azimuthal_modes: 5
+    laser_num_points: [600, 900]
+    laser_hi_range: 10.0
+    laser_center_and_remove_tilt: true
+    laser_centering_angles: 72
+  # Use [python] locally. In a NERSC allocation, a libEnsemble worker should
+  # supply the slot-aware srun command through this field or its executor.
+  launcher: [python]
+  timeout_s: 21600
