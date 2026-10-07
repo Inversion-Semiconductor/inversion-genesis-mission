@@ -133,6 +133,14 @@ This wrapper incorporates simulation policy as well as object wiring, things tha
 
 The type tags and serialized parameter names are part of the persisted run interface. Unknown, missing, or duplicate tags fail early; changing them can make existing configurations unloadable. Derived `attrs` fields are excluded from serialization, while input fields are retained for reconstruction.
 
+All serialized configs and examples include `git_hash`, cached from [git_hash.txt](git_hash.txt) when `serializable_config` is imported. Later commits or builds do not change a running process's provenance; restart to capture a new revision. Serialization never calls Git or preserves an incoming config's hash.
+
+Builds/installs and Git hooks update the Git-ignored file, which is bundled in distributions. **Existing clones must re-run `pre-commit install`** to add the new stages. Amend/rebase are covered by `post-rewrite`; `git reset` is not. After resets or for uninstalled source use, run [tools/record_git_hash.py](../../../tools/record_git_hash.py) (or rebuild/reinstall) before importing. Runtime does not validate Git HEAD.
+
+Unavailable provenance warns once at import and stays `null`, even with `include_nones=False`. It identifies committed code, not local edits; legacy configs remain supported.
+
+The cached revision contributes to `Simulation.config_hash()`: a new process using a different revision invalidates completed-run skipping, while an existing process's hash stays stable.
+
 ## Internal Maintenance Layers
 
 `_density_implementations/` isolates the numerical mechanics behind public profiles, including conical targets (WIP) and HDF5 interpolation. This keeps `density_profiles.py` a stable catalogue for simulation assembly while model-specific code handles interpolation, composition, and validation.
