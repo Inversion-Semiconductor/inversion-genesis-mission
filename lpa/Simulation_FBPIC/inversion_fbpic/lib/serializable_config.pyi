@@ -5,10 +5,11 @@ from __future__ import annotations
 from inversion_fbpic.lib.commented_yaml import YamlDescriptionMap, YamlDescriptions, YamlPath, dump_yaml_with_comments, extract_yaml_comments
 from pathlib import Path
 from typing import Any, ClassVar
+import h5py
 
 class SerializableConfig:
     """Base class for serializable configurations.
-    Supports serialization to and from JSON and YAML."""
+    Supports serialization to and from JSON, YAML, and native HDF5."""
     CONFIG_TYPE: ClassVar[str]
     SUBCLASS: ClassVar[str]
     yaml_class_description: str | None
@@ -93,6 +94,40 @@ class SerializableConfig:
         Returns:
             The path to the written JSON file."""
         ...
+    def to_hdf5(self, group: h5py.Group, *, include_nones: bool=True, overwrite: bool=False) -> h5py.Group:
+        """Write native datasets/groups into a caller-owned HDF5 group.
+
+        The destination must be empty unless ``overwrite=True`` and it contains
+        only a previously written config. Other groups and caller-owned handles
+        are left untouched. Values follow :meth:`to_dict` conversion semantics;
+        YAML comments and original NumPy dtypes are not persisted.
+        Relative-open handles need no anchor for writes; without one, paths
+        retain their existing representation rather than becoming relative to
+        the file. Use :meth:`resolving_paths_relative_to` for portable paths."""
+        ...
+    @classmethod
+    def from_hdf5(cls, group: h5py.Group, *, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':
+        """Read a native config from a caller-owned HDF5 group without closing it.
+
+        Filesystem-backed handles supply the source for relative input paths and
+        ``source_file``. Overrides have the same meaning as in :meth:`from_dict`.
+        Open caller-owned files with an absolute filename, or supply their
+        original directory via :meth:`resolving_paths_relative_to`."""
+        ...
+    def to_hdf5_file(self, path: str | Path, *, group_path: str='/config', include_nones: bool=True, overwrite: bool=False) -> Path:
+        """Write a config under *group_path* (default ``/config``) in an HDF5 file.
+
+        Creates parent directories and preserves unrelated file content. Existing
+        configs require explicit ``overwrite=True``; unrelated occupied groups
+        cannot be replaced. Returns the resolved output path."""
+        ...
+    @classmethod
+    def from_hdf5_file(cls, path: str | Path, *, group_path: str='/config', relative_to: Path | None=None, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':
+        """Load a config from *group_path* (default ``/config``) in an HDF5 file.
+
+        Relative file paths and overrides follow :meth:`from_file` semantics.
+        Only handles opened by this method are closed."""
+        ...
     @classmethod
     def example_yaml(cls, file_name: str | Path | None=None, *, indent: int=2, comments: bool=True, include_nones: bool=True, nested_flow_style: bool=True) -> str:
         """Return an example YAML serialization with default values for each field.
@@ -166,13 +201,14 @@ class SerializableConfig:
         references), and finally against the process working directory.
 
         Args:
-            path: Path to a ``.json``, ``.jsn``, ``.yaml``, or ``.yml`` config file.
+            path: Path to a ``.json``, ``.jsn``, ``.yaml``, ``.yml``, ``.h5``, or
+                ``.hdf5`` config file. HDF5 configs use the ``/config`` group.
             relative_to: Optional base directory for resolving a relative *path*.
             overrides: Optional values merged into the file payload before
                 deserialization. See :meth:`from_dict`."""
         ...
     @classmethod
-    def from_any(cls, value: 'SerializableConfig | str | Path | dict[str, Any]', *, relative_to: Path | None=None, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':
+    def from_any(cls, value: 'SerializableConfig | str | Path | dict[str, Any] | h5py.Group', *, relative_to: Path | None=None, overrides: dict[str, Any] | None=None) -> 'SerializableConfig':
         """Deserialize a configuration from any supported source.
 
         Resolution order:
@@ -182,10 +218,12 @@ class SerializableConfig:
         3. Deserialize from a mapping when *value* is a ``dict``.
         4. For a ``str``, try loading from a file path first; otherwise parse
            as YAML or JSON and deserialize the resulting mapping.
-        5. Raise :class:`TypeError` for unsupported types.
+        5. Read an open :class:`h5py.Group` without closing its handle.
+        6. Raise :class:`TypeError` for unsupported types.
 
         Args:
-            value: An existing config, file path, mapping, or serialized string.
+            value: An existing config, file path, mapping, serialized string,
+                or open HDF5 group containing a config.
             relative_to: Optional base directory for resolving a relative path.
             overrides: Optional values merged into the payload before
                 deserialization. See :meth:`from_dict`."""
