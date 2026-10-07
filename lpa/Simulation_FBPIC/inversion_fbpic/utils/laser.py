@@ -378,14 +378,17 @@ class HighOrderLasyLaser:
         parameters = self._lasy_parameters() | {
             "polarization": self.hyperparameters["polarization"]
         }
-        time_half_width = self._time_half_width(parameters)
+        intrinsic_time_half_width = self._time_half_width(parameters)
+        time_half_width = self._time_half_width_for_peak_delay(
+            intrinsic_time_half_width
+        )
         longitudinal_profile = self._build_longitudinal_profile(
             parameters,
-            time_half_width,
+            intrinsic_time_half_width,
         )
         pupil_radius = self._reference_focus_pupil_radius(
             parameters,
-            time_half_width,
+            intrinsic_time_half_width,
         )
         return Laser(
             dim="rt",
@@ -420,6 +423,16 @@ class HighOrderLasyLaser:
             * np.log(2.0)
             / bandwidth
             + dispersion_delay
+        )
+
+    def _time_half_width_for_peak_delay(self, intrinsic_time_half_width: float) -> float:
+        """Expand the grid to retain the requested post-peak temporal support."""
+        peak_delay = self.hyperparameters["peak_delay_from_file_start_s"]
+        if peak_delay is None:
+            return intrinsic_time_half_width
+        return max(
+            intrinsic_time_half_width,
+            (peak_delay + intrinsic_time_half_width) / 2.0,
         )
 
     def _build_longitudinal_profile(

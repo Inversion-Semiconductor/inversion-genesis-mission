@@ -63,6 +63,15 @@ def test_auto_bandwidth_matches_transform_limited_gaussian() -> None:
     assert bandwidth == pytest.approx(4.0 * np.log(2.0) / 30e-15)
 
 
+def test_peak_delay_expands_temporal_grid() -> None:
+    laser = HighOrderLasyLaser.__new__(HighOrderLasyLaser)
+    laser.hyperparameters = {"peak_delay_from_file_start_s": 200e-15}
+
+    time_half_width = laser._time_half_width_for_peak_delay(90e-15)
+
+    assert time_half_width == pytest.approx(145e-15)
+
+
 @pytest.mark.parametrize(
     ("duration", "relative_gdd", "relative_tod", "expected_gdd", "expected_tod"),
     [
