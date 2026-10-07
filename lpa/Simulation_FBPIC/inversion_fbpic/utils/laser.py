@@ -168,6 +168,7 @@ class AnalyticSpectralLongitudinalProfile:
         )
         dt = float(self.time_axis[1] - self.time_axis[0])
         angular_frequency_offset = 2.0 * np.pi * np.fft.fftfreq(npoints, d=dt)
+        physical_angular_frequency_offset = -angular_frequency_offset
         spectral_amplitude = np.exp(
             -2.0
             * np.log(2.0)
@@ -175,9 +176,9 @@ class AnalyticSpectralLongitudinalProfile:
         )
         spectral_phase = (
             cep_phase
-            + 0.5 * gdd * angular_frequency_offset**2
-            + tod * angular_frequency_offset**3 / 6.0
-            + fod * angular_frequency_offset**4 / 24.0
+            + 0.5 * gdd * physical_angular_frequency_offset**2
+            + tod * physical_angular_frequency_offset**3 / 6.0
+            + fod * physical_angular_frequency_offset**4 / 24.0
         )
         self.spectral_field = spectral_amplitude * np.exp(1j * spectral_phase)
         self.temporal_field = np.fft.fftshift(np.fft.ifft(self.spectral_field))
@@ -216,13 +217,14 @@ class HighOrderLasyLaser:
         "laser_gdd_s2": 0.0,
         "laser_tod_s3": 0.0,
         "laser_fod_s4": 0.0,
-        "laser_relative_gdd_s2": None,
-        "laser_relative_tod_s3": None,
+        "laser_gdd_relative": None,
+        "laser_tod_relative": None,
     }
     OPTIONAL_PHYSICAL_PARAMETER_KEYS = frozenset(_PHYSICAL_PARAMETER_DEFAULTS)
     _REFERENCE_PULSE_DURATION_FWHM_S = 30e-15
     _REFERENCE_GDD_S2 = 5e-28
     _REFERENCE_TOD_S3 = 1e-41
+    _LEADING_EDGE_CROP_INTENSITY_TOLERANCE = 1e-3
     _HYPERPARAMETER_DEFAULTS: dict[str, Any] = {
         "polarization": (1, 0),
         "n_azimuthal_modes": 5,
@@ -240,6 +242,7 @@ class HighOrderLasyLaser:
         physical_parameters: Mapping[str, Any],
         hyperparameters: Optional[Mapping[str, Any]] = None,
     ) -> None:
+        self._validate_phase_parameter_sources(physical_parameters)
         self.physical_parameters = {
             **self._PHYSICAL_PARAMETER_DEFAULTS,
             **physical_parameters,
@@ -267,6 +270,21 @@ class HighOrderLasyLaser:
         self._validate_pulse_duration()
         self._validate_start_plane_grid()
 
+    @staticmethod
+    def _validate_phase_parameter_sources(physical_parameters: Mapping[str, Any]) -> None:
+        """Reject ambiguous absolute and duration-relative phase controls."""
+        for absolute_name, relative_name in (
+            ("laser_gdd_s2", "laser_gdd_relative"),
+            ("laser_tod_s3", "laser_tod_relative"),
+        ):
+            if (
+                absolute_name in physical_parameters
+                and physical_parameters.get(relative_name) is not None
+            ):
+                raise ValueError(
+                    f"Specify either {absolute_name} or {relative_name}, not both."
+                )
+
     def _resolve_spectral_bandwidth(self) -> float:
         """Resolve a numeric bandwidth or derive a transform-limited Gaussian value."""
         bandwidth = self.physical_parameters["laser_spectral_bandwidth_rad_s"]
@@ -290,11 +308,11 @@ class HighOrderLasyLaser:
         when an auto bandwidth is derived from pulse duration.
         """
         duration = self.physical_parameters["laser_pulse_duration_fwhm_s"]
-        relative_gdd = self.physical_parameters["laser_relative_gdd_s2"]
-        relative_tod = self.physical_parameters["laser_relative_tod_s3"]
+        relative_gdd = self.physical_parameters["laser_gdd_relative"]
+        relative_tod = self.physical_parameters["laser_tod_relative"]
         for name, value in (
-            ("laser_relative_gdd_s2", relative_gdd),
-            ("laser_relative_tod_s3", relative_tod),
+            ("laser_gdd_relative", relative_gdd),
+            ("laser_tod_relative", relative_tod),
         ):
             if value is not None and not -1.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be in the interval [-1, 1].")
@@ -337,6 +355,7 @@ class HighOrderLasyLaser:
             )
         if self.physical_parameters["laser_spectral_bandwidth_rad_s"] < 0.0:
             raise ValueError("laser_spectral_bandwidth_rad_s must be non-negative.")
+        self._validate_spectral_phase_bandwidth()
         if self.hyperparameters["spectral_time_window_factor"] <= 0.0:
             raise ValueError("spectral_time_window_factor must be positive.")
         peak_delay = self.hyperparameters["peak_delay_from_file_start_s"]
@@ -346,6 +365,19 @@ class HighOrderLasyLaser:
         if maximum_duration is not None and maximum_duration <= 0.0:
             raise ValueError(
                 "maximum_pulse_duration_fwhm_s must be positive when specified."
+            )
+
+    def _validate_spectral_phase_bandwidth(self) -> None:
+        """Reject phase terms that the zero-bandwidth profile cannot represent."""
+        if (
+            self.physical_parameters["laser_spectral_bandwidth_rad_s"] == 0.0
+            and any(
+                self.physical_parameters[name] != 0.0
+                for name in ("laser_gdd_s2", "laser_tod_s3", "laser_fod_s4")
+            )
+        ):
+            raise ValueError(
+                "Nonzero GDD, TOD, or FOD requires a nonzero laser_spectral_bandwidth_rad_s."
             )
 
     def _lasy_parameters(self) -> dict[str, Any]:
@@ -378,14 +410,17 @@ class HighOrderLasyLaser:
         parameters = self._lasy_parameters() | {
             "polarization": self.hyperparameters["polarization"]
         }
-        time_half_width = self._time_half_width(parameters)
+        intrinsic_time_half_width = self._time_half_width(parameters)
+        time_half_width = self._time_half_width_for_peak_delay(
+            intrinsic_time_half_width
+        )
         longitudinal_profile = self._build_longitudinal_profile(
             parameters,
-            time_half_width,
+            intrinsic_time_half_width,
         )
         pupil_radius = self._reference_focus_pupil_radius(
             parameters,
-            time_half_width,
+            intrinsic_time_half_width,
         )
         return Laser(
             dim="rt",
@@ -420,6 +455,16 @@ class HighOrderLasyLaser:
             * np.log(2.0)
             / bandwidth
             + dispersion_delay
+        )
+
+    def _time_half_width_for_peak_delay(self, intrinsic_time_half_width: float) -> float:
+        """Expand the grid to retain the requested post-peak temporal support."""
+        peak_delay = self.hyperparameters["peak_delay_from_file_start_s"]
+        if peak_delay is None:
+            return intrinsic_time_half_width
+        return max(
+            intrinsic_time_half_width,
+            (peak_delay + intrinsic_time_half_width) / 2.0,
         )
 
     def _build_longitudinal_profile(
@@ -485,6 +530,17 @@ class HighOrderLasyLaser:
         time, intensity = self._on_axis_intensity()
         current_delay = float(time[int(np.argmax(intensity))] - time[0])
         shift = target_delay - current_delay
+        if shift < 0.0:
+            leading_edge_intensity = float(np.interp(time[0] - shift, time, intensity))
+            relative_intensity = leading_edge_intensity / float(np.max(intensity))
+            if relative_intensity > self._LEADING_EDGE_CROP_INTENSITY_TOLERANCE:
+                warnings.warn(
+                    "Laser peak delay crops the leading edge at relative on-axis "
+                    f"intensity {relative_intensity:.3e}, exceeding "
+                    f"{self._LEADING_EDGE_CROP_INTENSITY_TOLERANCE:.1e}.",
+                    UserWarning,
+                    stacklevel=2,
+                )
         field = self.laser.grid.get_temporal_field()
         shifted_field = np.empty_like(field)
         for mode_index in range(field.shape[0]):

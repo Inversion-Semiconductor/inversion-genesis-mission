@@ -212,10 +212,12 @@ def plot_longitudinal_diagnostics(laser: Laser, title: str) -> None:
     phase = np.unwrap(np.angle(field))
     dt = float(time[1] - time[0])
     angular_frequency = 2.0 * np.pi * np.fft.fftshift(np.fft.fftfreq(len(time), dt))
+    physical_angular_frequency_offset = -angular_frequency
     spectrum = np.abs(np.fft.fftshift(np.fft.fft(field))) ** 2
     spectrum /= spectrum.max()
     absolute_angular_frequency = (
-        2.0 * np.pi * c / laser.central_wavelength_m + angular_frequency
+        2.0 * np.pi * c / laser.central_wavelength_m
+        + physical_angular_frequency_offset
     )
     positive_frequency = absolute_angular_frequency > 0.0
     wavelength_m = 2.0 * np.pi * c / absolute_angular_frequency[positive_frequency]
@@ -233,7 +235,7 @@ def plot_longitudinal_diagnostics(laser: Laser, title: str) -> None:
     axes[1].plot(time * 1e15, phase)
     axes[1].set_xlabel("Time (fs)")
     axes[1].set_ylabel("Envelope phase (rad)")
-    axes[2].plot(angular_frequency * 1e-15, spectrum)
+    axes[2].plot(physical_angular_frequency_offset * 1e-15, spectrum)
     axes[2].set_xlabel("Frequency offset (rad/fs)")
     axes[2].set_ylabel("Normalized spectral intensity")
     axes[3].plot(
