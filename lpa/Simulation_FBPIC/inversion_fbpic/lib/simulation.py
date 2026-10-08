@@ -9,6 +9,9 @@ import time
 import attrs
 
 from inversion_fbpic.lib.serializable_config import SerializableConfig
+from inversion_fbpic.lib.config_container import ConfigContainer
+from inversion_fbpic.lib.datapoint import Parameters
+from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.lib.density_core import _DensityProfile
 from inversion_fbpic.lib.laser import _LaserPulse
 
@@ -268,7 +271,7 @@ class Simulation(SerializableConfig):
     Simulation class for FBPIC simulations.
 
     Args:
-        elements: (str | Path | SerializableConfig | List[str | Path | SerializableConfig]) The elements of the simulation. May be a path to a YAML or JSON file or objects of type SimulationHyperparameters, DensityProfile, or LaserPulse.
+        elements: (str | Path | dict[str, Any] | SerializableConfig | List[str | Path | dict[str, Any] | SerializableConfig]) Simulation components, attached _Diagnostic or Parameters, or nested ConfigContainers. May also be tagged payloads, individual YAML/JSON file paths, or a directory of component files. Containers are traversed depth-first; Parameters are retained as metadata without interpreting their data.
         verbosity: (int) |OPTIONAL| The verbosity of the logger. Defaults to 20 (INFO).
     """
 
@@ -289,6 +292,8 @@ class Simulation(SerializableConfig):
     hyparams: SimulationHyperparameters | None = attrs.field(default=None, init=False)
     densities: List[_DensityProfile] = attrs.field(factory=list, init=False)
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
+    diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
+    parameters: List[Parameters] = attrs.field(factory=list, init=False)
 
     _logger: logging.Logger = attrs.field(init=False)
     simulation: FBPICSimulation = attrs.field(init=False)
@@ -306,15 +311,22 @@ class Simulation(SerializableConfig):
         if isinstance(self.elements, str | Path):
             self._load_and_sort_from_path(self.elements)
         elif isinstance(self.elements, dict):
-            self._sort_component(SerializableConfig.from_dict(self.elements))
+            self.elements = SerializableConfig.from_dict(self.elements)
+            self._sort_component(self.elements)
         elif issubclass(type(self.elements), SerializableConfig):
             self._sort_component(self.elements)
         elif isinstance(self.elements, list):
+            self.elements = [
+                (
+                    SerializableConfig.from_dict(element)
+                    if isinstance(element, dict)
+                    else element
+                )
+                for element in self.elements
+            ]
             for input in self.elements:
                 if issubclass(type(input), SerializableConfig):
                     self._sort_component(input)
-                elif isinstance(input, dict):
-                    self._sort_component(SerializableConfig.from_dict(input))
                 elif isinstance(input, str | Path):
                     self._load_and_sort_from_path(input)
                 else:
@@ -407,7 +419,20 @@ class Simulation(SerializableConfig):
         Returns:
             None
         """
-        if isinstance(payload, SimulationHyperparameters):
+        if isinstance(payload, ConfigContainer):
+            relative_to = (
+                payload.source_file.parent
+                if payload.source_file is not None
+                else self._element_config_anchor()
+            )
+            for source in payload.configs:
+                component = SerializableConfig.from_any(source, relative_to=relative_to)
+                self._sort_component(
+                    component,
+                    path=component.source_file,
+                    skip_incompatible=skip_incompatible,
+                )
+        elif isinstance(payload, SimulationHyperparameters):
             if self.hyparams is None:
                 self.hyparams = payload
             else:
@@ -421,25 +446,40 @@ class Simulation(SerializableConfig):
             self.densities.append(payload)
         elif isinstance(payload, _LaserPulse):
             self.lasers.append(payload)
+        elif isinstance(payload, _Diagnostic):
+            if not isinstance(payload.RUN_BEFORE_SIMULATION, bool):
+                raise ValueError(
+                    f"{type(payload).__name__}.RUN_BEFORE_SIMULATION must be a bool."
+                )
+            self.diagnostics.append(payload)
+        elif isinstance(payload, Parameters):
+            self.parameters.append(payload)
         else:
             if skip_incompatible:
                 self._logger.warning(
-                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, or LaserPulse."
+                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 return
             else:
                 self._logger.critical(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, or LaserPulse."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 raise ValueError(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, or LaserPulse."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
                 )
 
         if path is not None:
             self._logger.info(f"Loaded {type(payload).__name__} from {str(path)}")
         else:
             self._logger.info(f"Loaded {type(payload).__name__}")
-        self._logger.debug(f"{type(payload).__name__}: {payload.to_dict()}")
+        self._logger.debug("%s: %r", type(payload).__name__, payload)
+
+    def _analyze_diagnostics(self, *, before_simulation: bool) -> None:
+        """Run attached analysis for this phase on the simulation's write rank."""
+        if self.do_write_to_disk:
+            for diagnostic in self.diagnostics:
+                if diagnostic.RUN_BEFORE_SIMULATION == before_simulation:
+                    diagnostic.analyze()
 
     def _element_config_anchor(self) -> Path | None:
         """Directory for resolving ``elements`` path strings."""
@@ -608,7 +648,11 @@ class Simulation(SerializableConfig):
         **kwargs,
     ) -> None:
         """
-        Setup the simulation.
+        Setup the simulation and run attached pre-simulation diagnostics.
+
+        Analysis runs on the write rank after FBPIC setup completes. Skipped
+        setup does not run analysis. Analysis errors propagate and leave
+        ``is_setup`` false.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -840,6 +884,7 @@ class Simulation(SerializableConfig):
         if self.hyparams.use_restart:
             restart_from_checkpoint(self.simulation)
 
+        self._analyze_diagnostics(before_simulation=True)
         self.is_setup = True
 
     # /setup_simulation
@@ -853,6 +898,10 @@ class Simulation(SerializableConfig):
     ) -> None:
         """
         Run the simulation. `setup_simulation()` must be called before this function.
+
+        Attached post-simulation diagnostics run on the write rank after all
+        stepping succeeds, before recording the completion hash. Skipped runs
+        do not run analysis. Analysis errors propagate without recording a hash.
 
         Args:
             show_progress: (bool) Whether to show the progress bar. Defaults to True.
@@ -910,6 +959,8 @@ class Simulation(SerializableConfig):
                 time0 = time1
 
             self._logger.info(f"Completed in {round((time0-time00)):d} seconds.")
+
+        self._analyze_diagnostics(before_simulation=False)
 
         # TODO: read simulation output to see if it actually was successful
         if record_hash and self.do_write_to_disk:

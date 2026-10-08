@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from .datapoint import Parameters
 from .density_core import _DensityProfile
+from .diagnostics import _Diagnostic
 from .laser import _LaserPulse
 from .serializable_config import SerializableConfig
 from fbpic.main import Simulation as FBPICSimulation, Particles
@@ -14,7 +16,7 @@ class Simulation(SerializableConfig):
     """Simulation class for FBPIC simulations.
 
     Args:
-        elements: (str | Path | SerializableConfig | List[str | Path | SerializableConfig]) The elements of the simulation. May be a path to a YAML or JSON file or objects of type SimulationHyperparameters, DensityProfile, or LaserPulse.
+        elements: (str | Path | dict[str, Any] | SerializableConfig | List[str | Path | dict[str, Any] | SerializableConfig]) Simulation components, attached _Diagnostic or Parameters, or nested ConfigContainers. May also be tagged payloads, individual YAML/JSON file paths, or a directory of component files. Containers are traversed depth-first; Parameters are retained as metadata without interpreting their data.
         verbosity: (int) |OPTIONAL| The verbosity of the logger. Defaults to 20 (INFO)."""
     CONFIG_TYPE: ClassVar[str]
     SUBCLASS: ClassVar[str]
@@ -23,6 +25,8 @@ class Simulation(SerializableConfig):
     hyparams: SimulationHyperparameters | None
     densities: List[_DensityProfile]
     lasers: List[_LaserPulse]
+    diagnostics: List[_Diagnostic]
+    parameters: List[Parameters]
     simulation: FBPICSimulation
     working_directory: Path
     is_setup: bool
@@ -36,7 +40,7 @@ class Simulation(SerializableConfig):
         """Simulation class for FBPIC simulations.
 
         Args:
-            elements: (str | Path | SerializableConfig | List[str | Path | SerializableConfig]) The elements of the simulation. May be a path to a YAML or JSON file or objects of type SimulationHyperparameters, DensityProfile, or LaserPulse.
+            elements: (str | Path | dict[str, Any] | SerializableConfig | List[str | Path | dict[str, Any] | SerializableConfig]) Simulation components, attached _Diagnostic or Parameters, or nested ConfigContainers. May also be tagged payloads, individual YAML/JSON file paths, or a directory of component files. Containers are traversed depth-first; Parameters are retained as metadata without interpreting their data.
             verbosity: (int) |OPTIONAL| The verbosity of the logger. Defaults to 20 (INFO)."""
     @property
     def z_extent(self) -> tuple[float, float]:
@@ -77,7 +81,11 @@ class Simulation(SerializableConfig):
         """Number of FBPIC iterations required for the interaction."""
         ...
     def setup_simulation(self, working_directory: Path | str | None=None, skip_if_hashed: bool=True, **kwargs) -> None:
-        """Setup the simulation.
+        """Setup the simulation and run attached pre-simulation diagnostics.
+
+        Analysis runs on the write rank after FBPIC setup completes. Skipped
+        setup does not run analysis. Analysis errors propagate and leave
+        ``is_setup`` false.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -89,6 +97,10 @@ class Simulation(SerializableConfig):
         ...
     def run_simulation(self, show_progress: bool=True, logger_friendly_progress: bool=False, record_hash: bool=True, skip_if_hashed: bool=True) -> None:
         """Run the simulation. `setup_simulation()` must be called before this function.
+
+        Attached post-simulation diagnostics run on the write rank after all
+        stepping succeeds, before recording the completion hash. Skipped runs
+        do not run analysis. Analysis errors propagate without recording a hash.
 
         Args:
             show_progress: (bool) Whether to show the progress bar. Defaults to True.
