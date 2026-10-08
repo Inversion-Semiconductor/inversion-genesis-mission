@@ -61,6 +61,8 @@ def _round_trip(config: SerializableConfig, method: str, tmp_path: Path):
 
 
 def test_parameters_retain_live_dictionary() -> None:
+    from inversion_fbpic.lib import serializable_config as module
+
     data = {"energy": 5.0, "nested": {"selection": [10.0, None]}}
     parameters = Parameters(data=data)
     assert parameters.data is data
@@ -71,6 +73,7 @@ def test_parameters_retain_live_dictionary() -> None:
     assert parameters.to_dict() == {
         "config_type": "datapoint",
         "subclass": "parameters",
+        "git_hash": module._git_hash(),
         "parameters": {"data": data},
     }
 
