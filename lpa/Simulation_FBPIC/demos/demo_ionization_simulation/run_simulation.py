@@ -113,13 +113,13 @@ def main() -> None:
 
     physical_parameters = Parameters(
         data={
-            "target_energy_ev": TARGET_ENERGY,
-            "laser_energy_j": LASER_ENERGY,
+            "target_energy_eV": TARGET_ENERGY,
+            "laser_energy_J": LASER_ENERGY,
             "wavelength_m": WAVELENGTH,
             "laser_waist_m": LASER_WAIST,
             "tau_fwhm_s": TAU_FWHM,
-            "flattop_plasma_density_m_minus3": FLATTOP_PLASMA_DENSITY,
-            "dopant_plasma_density_m_minus3": dopant_profile.nominal_density,
+            "flattop_plasma_density_m3": FLATTOP_PLASMA_DENSITY,
+            "dopant_plasma_density_m3": dopant_profile.nominal_density,
             "neutral_dopant_fraction": NEUTRAL_DOPANT_FRACTION,
             "electron_diagnostic_selection": background_profile.elec_select,
             "background_species": background_profile.species,
@@ -134,7 +134,7 @@ def main() -> None:
             "window_size_m": WINDOW_SIZE,
             "laser_centroid_m": LASER_CENTROID,
             "laser_a0": laser.a0,
-            "acceleration_gradient_ev_per_m": accel_gradient,
+            "acceleration_gradient_eV_per_m": accel_gradient,
             "flattop_length_m": flattop_length,
         }
     )

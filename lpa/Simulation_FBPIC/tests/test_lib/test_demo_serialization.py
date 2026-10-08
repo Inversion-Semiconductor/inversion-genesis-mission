@@ -127,9 +127,9 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         parameters, moments = loaded.configs
         assert isinstance(parameters, Parameters)
         assert isinstance(moments, MomentDescriptorDiagnostic)
-        assert parameters.data["target_energy_ev"] == 430e6
-        assert parameters.data["laser_energy_j"] == 4.5
-        assert parameters.data["flattop_plasma_density_m_minus3"] == 1e24
+        assert parameters.data["target_energy_eV"] == 430e6
+        assert parameters.data["laser_energy_J"] == 4.5
+        assert parameters.data["flattop_plasma_density_m3"] == 1e24
         assert parameters.data["neutral_dopant_fraction"] == 0.03
         assert parameters.data["electron_diagnostic_selection"] == {"uz": [10.0, None]}
         assert parameters.data["laser_a0"] > 0.0
