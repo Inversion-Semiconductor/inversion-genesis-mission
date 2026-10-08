@@ -231,6 +231,16 @@ class LasyLaserPulse(_LaserPulse):
     def build_laser_profile(self) -> LaserProfile | list[LaserProfile]:
         ...
     def get_r_extent(self, simulation_extent: tuple[float, float], num_sigma: float=3.0) -> float:
+        """Get the radial extent of the laser pulse in meters.
+        This uses a Gaussian approximation, and higher order modes can
+        extend the radial extent of the pulse beyond this value. Use with caution.
+
+        Args:
+            simulation_extent: (tuple[float, float]) The extent of the full simulation in meters.
+            num_sigma: (float) Number of sigmas to account for in the radial extent.
+
+        Returns:
+            float: The radial extent of the laser pulse in meters."""
         ...
     def plot(self, *, mode: Literal['lineout', 'lineout_and_2d']='lineout_and_2d', ax: 'plt.Axes | None'=None, num: int=600, output_path: Path | str | None=None, show: bool=False, label: str | None=None) -> 'plt.Figure':
         """Plot the start-plane LASY envelope and (optionally) a face-on |E| map.

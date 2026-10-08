@@ -403,6 +403,18 @@ class LasyLaserPulse(_LaserPulse):
     def get_r_extent(
         self, simulation_extent: tuple[float, float], num_sigma: float = 3.0
     ) -> float:
+        """
+        Get the radial extent of the laser pulse in meters.
+        This uses a Gaussian approximation, and higher order modes can
+        extend the radial extent of the pulse beyond this value. Use with caution.
+
+        Args:
+            simulation_extent: (tuple[float, float]) The extent of the full simulation in meters.
+            num_sigma: (float) Number of sigmas to account for in the radial extent.
+
+        Returns:
+            float: The radial extent of the laser pulse in meters.
+        """
         return _gaussian_r_extent(
             self.waist,
             self.wavelength,
