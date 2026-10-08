@@ -585,6 +585,41 @@ class TestSupportingElements:
 
 
 class TestAttachedAnalysis:
+    def test_moment_descriptor_runs_after_stepping(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import diagnostics as module
+        from inversion_fbpic.lib import simulation as simulation_module
+        from inversion_fbpic.lib.diagnostics import MomentDescriptorDiagnostic
+        from inversion_fbpic.utils.distributions import compute_moment_descriptor
+
+        simulation, _, _, events = analysis_simulation
+        diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+        monkeypatch.setattr(simulation_module, "ParticleDiagnostic", MagicMock())
+        simulation._sort_component(diagnostic)
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert not diagnostic.analysis_complete
+        particles = np.random.default_rng(9).normal(size=(128, 6))
+        weights = np.ones(len(particles))
+        directory = simulation._save_directory / "hdf5"
+        directory.mkdir(parents=True)
+        latest = directory / "data00000010.h5"
+
+        def finish_step(*args, **kwargs):
+            events.append("step")
+            latest.touch()
+
+        loader = MagicMock(return_value=(particles, weights))
+        monkeypatch.setattr(module, "load_openpmd_particles", loader)
+        simulation.simulation.step.side_effect = finish_step
+        simulation.run_simulation(record_hash=False)
+        loader.assert_called_once_with(latest, "electrons")
+        assert diagnostic.data == compute_moment_descriptor(particles, weights)
+        assert diagnostic.analysis_complete
+
     @pytest.mark.parametrize("logger_friendly", [False, True])
     def test_phase_order_and_hash_recording(
         self, analysis_simulation, tmp_path: Path, monkeypatch, logger_friendly: bool

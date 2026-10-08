@@ -1164,6 +1164,7 @@ parameters:
 
 _EXPECTED_REGISTRY_ENTRIES: list[tuple[str, str]] = [
     ("datapoint", "parameters"),
+    ("datapoint", "moment_descriptor"),
     ("config_container", "config_container"),
     ("density_profile", "sine_squared_bump"),
     ("density_profile", "asymmetric_sine"),

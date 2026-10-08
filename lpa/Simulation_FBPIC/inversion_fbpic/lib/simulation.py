@@ -451,6 +451,7 @@ class Simulation(SerializableConfig):
                 raise ValueError(
                     f"{type(payload).__name__}.RUN_BEFORE_SIMULATION must be a bool."
                 )
+            payload.attach(self)
             self.diagnostics.append(payload)
         elif isinstance(payload, Parameters):
             self.parameters.append(payload)

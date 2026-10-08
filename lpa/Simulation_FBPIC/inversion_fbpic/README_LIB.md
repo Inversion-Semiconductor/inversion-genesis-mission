@@ -193,6 +193,15 @@ failure leaves `is_setup` false; a post-analysis failure prevents recording the
 completion hash. Errors propagate to the caller. Analysis implementations use
 their own declared inputs; no simulation argument is passed to `_analyze()`.
 
+Diagnostic elements are attached automatically when the simulation is assembled.
+Implementations access their simulation through `attached_simulation`; callers
+may also use `attach(simulation)` explicitly. Attachments are runtime-only and
+excluded from JSON, YAML, and HDF5 configurations, avoiding circular serialized
+references. A saved diagnostic reloads unattached, while loading a simulation
+automatically attaches its diagnostic elements to the new simulation. An instance
+cannot be attached to two different simulations; create a separate instance for
+each simulation.
+
 - `_analyze()` returns the desired result dictionary; `analyze()` assigns it to
   `data` without copying and marks the read-only `analysis_complete` property
   true only after success.
@@ -208,7 +217,71 @@ their own declared inputs; no simulation argument is passed to `_analyze()`.
   again until `analyze()` succeeds in that instance. Example templates do not
   warn because they do not serialize an instance.
 
-No concrete beam-charge or field-analysis diagnostic is supplied yet.
+## Compute The Final Beam Moment Descriptor
+
+`_ParticleDiagnostic` extends `_Diagnostic` with the shared `selection` field,
+recording-name resolution, latest-output discovery, and particle/weight
+concatenation. Its `load_particles()` method returns an `(N, 6)` particle array
+and matching `(N,)` macro-weights without changing `data` or completion state.
+Subclass it and implement `_analyze()` to reuse this input pipeline for another
+particle analysis. The base remains abstract and has no concrete registry tag.
+
+`MomentDescriptorDiagnostic` inherits this gathering behavior and stores the result of
+`compute_moment_descriptor()` in `data`. It runs after stepping, produces 33
+features with the default spline settings, and includes `total_beam_charge_pc`.
+
+```python
+import attrs
+
+from inversion_fbpic.lib.diagnostics import MomentDescriptorDiagnostic
+
+density = attrs.evolve(density, elec_name="electrons")
+moments = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+simulation = Simulation(elements=[hyperparameters, density, laser, moments])
+simulation.setup_simulation(working_directory=Path("runs/example"))
+simulation.run_simulation()
+features = moments.data
+```
+
+The required `selection` is a Literal-tagged tuple with these supported forms:
+
+```python
+("elec_name", ["elec_name_1", "elec_name_2"])
+("elec_name", "elec_name_1")
+("ion_name", ["ion_name_1", "ion_name_2"])
+("ion_name", "ion_name_1")
+("all_of_species", "e")
+("all_of_species", "He")
+```
+
+Explicit names must match the corresponding `elec_name` or `ion_name` fields
+on the attached simulation's density profiles. `("all_of_species", "e")`
+includes all recorded electrons, including bare-electron profiles.
+`("all_of_species", "He")` includes recorded ions from all helium profiles;
+use another atomic symbol to select another ion species. Profiles without a
+recording name are excluded. Unknown names or no matching recordings raise
+an error.
+
+The selected particle arrays and macro-weights are concatenated before computing
+one descriptor. Duplicate recording names are loaded only once, so they do not
+double-count particles or charge. Outer tuples reload correctly from the list
+representation used in JSON, YAML, and HDF5. This replaces the previous
+single-string `species` constructor argument.
+
+At each
+analysis call, the diagnostic searches the resolved `save_directory/hdf5` and
+selects the highest numerical iteration in a `data########.h5` filename, not the
+newest modification time or lexical filename order. Output files need not exist
+at construction time. Missing output or invalid beam data raises an error without
+replacing prior results or marking analysis complete.
+
+The constructor exposes `longitudinal_mode` (OFF=0, MOMENTS=1, SPLINE=2),
+`longitudinal_bins`, `include_total_weight`, and `include_higher_moments` using
+the function's defaults. All particles of the selected recordings are analyzed without
+additional momentum selection or central cropping. `config_type` remains
+`datapoint` and its concrete `subclass` tag is `moment_descriptor`. Call
+`moments.analyze()` explicitly to recompute results from existing output if the
+simulation run was skipped because its configuration was already hashed.
 
 ## Demos
 

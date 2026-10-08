@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from .datapoint import _Datapoint
 
+from .simulation import Simulation
 from abc import abstractmethod
-from typing import Any, ClassVar
+from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS, MOMENTS, OFF, ParticleArray, SPLINE, WeightArray, compute_moment_descriptor, load_openpmd_particles
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 class _Diagnostic(_Datapoint):
     """Abstract datapoint populated by explicit or scheduled analysis.
@@ -24,6 +26,11 @@ class _Diagnostic(_Datapoint):
     the end of simulation setup (True) or after simulation stepping (False,
     the default). This class-level policy is not an instance input or serialized
     parameter.
+
+    Simulations attach their diagnostic elements automatically. The attachment
+    is runtime-only, excluded from serialization, and available through
+    ``attached_simulation``. A diagnostic instance may belong to only one
+    simulation; use a separate instance for another simulation.
 
     Args:
         data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
@@ -52,10 +59,22 @@ class _Diagnostic(_Datapoint):
         the default). This class-level policy is not an instance input or serialized
         parameter.
 
+        Simulations attach their diagnostic elements automatically. The attachment
+        is runtime-only, excluded from serialization, and available through
+        ``attached_simulation``. A diagnostic instance may belong to only one
+        simulation; use a separate instance for another simulation.
+
         Args:
             data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs."""
+    def attach(self, simulation: Simulation) -> None:
+        """Attach to a simulation, rejecting reuse by a different simulation."""
+        ...
+    @property
+    def attached_simulation(self) -> Simulation:
+        """Return the attached simulation, or raise if no simulation is attached."""
+        ...
     @property
     def analysis_complete(self) -> bool:
         """Whether the most recent explicit analysis completed successfully."""
@@ -77,4 +96,138 @@ class _Diagnostic(_Datapoint):
         ...
     def to_dict(self, *, include_nones: bool=True) -> dict[str, Any]:
         """Serialize current inputs and results, warning if analysis is incomplete."""
+        ...
+
+class _ParticleDiagnostic(_Diagnostic):
+    """Abstract diagnostic for selected particles from the simulation's last dump.
+
+    At analysis time, select the highest-numbered ``data########.h5`` file in
+    the attached simulation's resolved save directory under ``hdf5``. The file
+    need not exist at construction or attachment time. ``load_particles()``
+    resolves the selector against attached density profiles and concatenates
+    the selected particle arrays and macro-weights. Repeated recording names
+    are loaded only once; no extra selection or cropping is applied.
+
+    Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
+    to obtain the input for their calculation. This base has no concrete tag.
+
+    Args:
+        data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+            dictionary. Values use the standard configuration serialization
+            conversions; arbitrary dictionaries are not interpreted as configs.
+        selection: (tuple) Select recorded particles using ("elec_name", name
+            or list of names), ("ion_name", name or list of names), or
+            ("all_of_species", species). The species "e" selects all recorded
+            electrons; an atomic symbol such as "He" selects recorded ions
+            of that species. Names must be configured on the attached
+            simulation's densities."""
+    selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
+    def __init__(
+        self,
+        *,
+        data: dict[str, Any] = ...,
+        selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+    ) -> None:
+        """Abstract diagnostic for selected particles from the simulation's last dump.
+
+        At analysis time, select the highest-numbered ``data########.h5`` file in
+        the attached simulation's resolved save directory under ``hdf5``. The file
+        need not exist at construction or attachment time. ``load_particles()``
+        resolves the selector against attached density profiles and concatenates
+        the selected particle arrays and macro-weights. Repeated recording names
+        are loaded only once; no extra selection or cropping is applied.
+
+        Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
+        to obtain the input for their calculation. This base has no concrete tag.
+
+        Args:
+            data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+                dictionary. Values use the standard configuration serialization
+                conversions; arbitrary dictionaries are not interpreted as configs.
+            selection: (tuple) Select recorded particles using ("elec_name", name
+                or list of names), ("ion_name", name or list of names), or
+                ("all_of_species", species). The species "e" selects all recorded
+                electrons; an atomic symbol such as "He" selects recorded ions
+                of that species. Names must be configured on the attached
+                simulation's densities."""
+    def load_particles(self) -> tuple[ParticleArray, WeightArray]:
+        """Load and concatenate selected particles and weights from the latest dump.
+
+        Returns:
+            A float64 particle array of shape (N, 6), ordered x, ux, y, uy, z,
+            uz, and its corresponding macro-weights of shape (N,).
+
+        Raises:
+            ValueError: If unattached, no recordings match, or no output exists.
+            Exception: Errors from the openPMD loader propagate unchanged."""
+        ...
+
+class MomentDescriptorDiagnostic(_ParticleDiagnostic):
+    """Compute a moment descriptor for the selected particle recordings.
+
+    Particles and weights are gathered by ``_ParticleDiagnostic`` from the
+    attached simulation's latest dump. Their ``compute_moment_descriptor``
+    result becomes ``data``. This diagnostic runs after the simulation and
+    defaults to the shared 33-feature spline descriptor, including charge in pC.
+
+    Args:
+        data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+            dictionary. Values use the standard configuration serialization
+            conversions; arbitrary dictionaries are not interpreted as configs.
+        selection: (tuple) Select recorded particles using ("elec_name", name
+            or list of names), ("ion_name", name or list of names), or
+            ("all_of_species", species). The species "e" selects all recorded
+            electrons; an atomic symbol such as "He" selects recorded ions
+            of that species. Names must be configured on the attached
+            simulation's densities.
+        longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
+            to SPLINE (2).
+        longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,
+            at least four. Defaults to 4.
+        include_total_weight: (bool) |OPTIONAL| Include log_total_weight.
+            Defaults to False.
+        include_higher_moments: (bool) |OPTIONAL| Include coordinate skewness
+            and excess kurtosis. Defaults to False."""
+    SUBCLASS: ClassVar[str]
+    RUN_BEFORE_SIMULATION: ClassVar[bool]
+    longitudinal_mode: int
+    longitudinal_bins: int
+    include_total_weight: bool
+    include_higher_moments: bool
+    def __init__(
+        self,
+        *,
+        data: dict[str, Any] = ...,
+        selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        longitudinal_mode: int = SPLINE,
+        longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
+        include_total_weight: bool = False,
+        include_higher_moments: bool = False,
+    ) -> None:
+        """Compute a moment descriptor for the selected particle recordings.
+
+        Particles and weights are gathered by ``_ParticleDiagnostic`` from the
+        attached simulation's latest dump. Their ``compute_moment_descriptor``
+        result becomes ``data``. This diagnostic runs after the simulation and
+        defaults to the shared 33-feature spline descriptor, including charge in pC.
+
+        Args:
+            data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+                dictionary. Values use the standard configuration serialization
+                conversions; arbitrary dictionaries are not interpreted as configs.
+            selection: (tuple) Select recorded particles using ("elec_name", name
+                or list of names), ("ion_name", name or list of names), or
+                ("all_of_species", species). The species "e" selects all recorded
+                electrons; an atomic symbol such as "He" selects recorded ions
+                of that species. Names must be configured on the attached
+                simulation's densities.
+            longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
+                to SPLINE (2).
+            longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,
+                at least four. Defaults to 4.
+            include_total_weight: (bool) |OPTIONAL| Include log_total_weight.
+                Defaults to False.
+            include_higher_moments: (bool) |OPTIONAL| Include coordinate skewness
+                and excess kurtosis. Defaults to False."""
+    def _analyze(self) -> dict[str, Any]:
         ...

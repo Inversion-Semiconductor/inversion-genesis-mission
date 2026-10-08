@@ -537,7 +537,7 @@ def test_diagnostics_stub_includes_analysis_contract_and_inherited_data() -> Non
     ast.parse(pyi)
     assert "from .datapoint import _Datapoint" in pyi
     assert "from abc import abstractmethod" in pyi
-    assert "from typing import Any" in pyi
+    assert "from typing import TYPE_CHECKING, Any, ClassVar, Literal" in pyi
     diagnostics = pyi.split("class _Diagnostic(_Datapoint):")[1].split("\n\nclass ")[0]
     assert "RUN_BEFORE_SIMULATION: ClassVar[bool]" in diagnostics
     assert "        data: dict[str, Any] = ...," in diagnostics
@@ -551,6 +551,43 @@ def test_diagnostics_stub_includes_analysis_contract_and_inherited_data() -> Non
         in diagnostics
     )
     assert "_analysis_complete:" not in diagnostics
+    assert "from .simulation import Simulation" in pyi
+    assert "def attach(self, simulation: Simulation) -> None:" in diagnostics
+    assert "def attached_simulation(self) -> Simulation:" in diagnostics
+
+
+def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    descriptor = pyi.split("class MomentDescriptorDiagnostic(_ParticleDiagnostic):")[1]
+    assert (
+        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in descriptor
+    )
+    assert "        species: str," not in descriptor
+    assert "        data: dict[str, Any] = ...," in descriptor
+    assert "longitudinal_mode: int = SPLINE" in descriptor
+    assert "longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS" in descriptor
+    assert "include_higher_moments: bool = False" in descriptor
+    assert "def _analyze(self) -> dict[str, Any]:" in descriptor
+    assert "@abstractmethod" not in descriptor
+    assert "_simulation:" not in pyi
+
+
+def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    particle = pyi.split("class _ParticleDiagnostic(_Diagnostic):")[1].split(
+        "\n\nclass "
+    )[0]
+    assert (
+        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in particle
+    )
+    assert "def load_particles(self) -> tuple[ParticleArray, WeightArray]:" in particle
+    assert "SUBCLASS:" not in particle
+    assert "longitudinal_mode:" not in particle
+    assert "load_openpmd_particles" in pyi
 
 
 def test_generated_protected_abstract_contracts_have_concrete_overrides() -> None:
