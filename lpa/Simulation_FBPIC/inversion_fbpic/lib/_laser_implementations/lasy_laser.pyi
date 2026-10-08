@@ -37,12 +37,12 @@ class LasyLaserPulse(_LaserPulse):
     consistent picture set ``z0 = z0_antenna - c * (t_start + peak_delay)``.
 
     Args:
-        energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
-        z0: (float) [m] Position of the laser pulse within the simulation window in meters.
-        method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
-        z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
-        v_antenna: (float|None) [m/s] |OPTIONAL| Velocity of the antenna in meters per second. Required if method is "antenna".
+        energy: (float) [J] Energy of the laser pulse in Joules. Required: the LASY field is normalized to this energy and `a0` is measured from it.
+        a0: (None) Not accepted. The normalized amplitude is measured numerically at focus during `prepare()` and reported as `out_a0` (`null` before the build).
+        z0: (float) [m] Nominal centroid position at t = 0 in meters, used only for plotting extents. Emission timing is set by `z0_antenna`, `t_start`, and `peak_delay_from_file_start`; for a consistent picture use `z0 = z0_antenna - c * (t_start + peak_delay)`.
+        method: (Literal["antenna"]|None) |OPTIONAL| Fixed to "antenna": LASY files can only be emitted by FBPIC's laser antenna. None means "antenna"; "direct" is rejected.
+        z0_antenna: (float) [m] Position of the stationary antenna that emits the pulse, in meters. Required.
+        v_antenna: (float|None) [m/s] |OPTIONAL| Must be 0 or None (stored as 0.0): a LASY pulse cannot be emitted from a moving antenna.
         wavelength: (float) [m] Central wavelength of the laser pulse in meters.
         tau_fwhm: (float) [s] Full-width at half-maximum intensity duration of the transform-limited pulse in seconds.
         waist: (float) [m] Super-Gaussian spot size (1/e^2 radius for order 2) at focus in meters.
@@ -154,12 +154,12 @@ class LasyLaserPulse(_LaserPulse):
         consistent picture set ``z0 = z0_antenna - c * (t_start + peak_delay)``.
 
         Args:
-            energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
-            z0: (float) [m] Position of the laser pulse within the simulation window in meters.
-            method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
-            z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
-            v_antenna: (float|None) [m/s] |OPTIONAL| Velocity of the antenna in meters per second. Required if method is "antenna".
+            energy: (float) [J] Energy of the laser pulse in Joules. Required: the LASY field is normalized to this energy and `a0` is measured from it.
+            a0: (None) Not accepted. The normalized amplitude is measured numerically at focus during `prepare()` and reported as `out_a0` (`null` before the build).
+            z0: (float) [m] Nominal centroid position at t = 0 in meters, used only for plotting extents. Emission timing is set by `z0_antenna`, `t_start`, and `peak_delay_from_file_start`; for a consistent picture use `z0 = z0_antenna - c * (t_start + peak_delay)`.
+            method: (Literal["antenna"]|None) |OPTIONAL| Fixed to "antenna": LASY files can only be emitted by FBPIC's laser antenna. None means "antenna"; "direct" is rejected.
+            z0_antenna: (float) [m] Position of the stationary antenna that emits the pulse, in meters. Required.
+            v_antenna: (float|None) [m/s] |OPTIONAL| Must be 0 or None (stored as 0.0): a LASY pulse cannot be emitted from a moving antenna.
             wavelength: (float) [m] Central wavelength of the laser pulse in meters.
             tau_fwhm: (float) [s] Full-width at half-maximum intensity duration of the transform-limited pulse in seconds.
             waist: (float) [m] Super-Gaussian spot size (1/e^2 radius for order 2) at focus in meters.
