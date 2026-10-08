@@ -37,7 +37,9 @@ Two things differ from the Gaussian demos:
   in the laser profile necessitates using more orders to resolve.
 
 The LASY build takes roughly 20 s on the default (600, 900) grid with five
-azimuthal modes and runs on MPI rank 0 only; other ranks wait at a barrier.
+azimuthal modes and runs on MPI rank 0 only; the other ranks block until rank 0
+broadcasts the file path, or its error, so a bad configuration fails everywhere
+rather than hanging the allocation.
 
 ## File
 

@@ -18,8 +18,9 @@ class LasyLaserPulse(_LaserPulse):
     to the simulation start plane, optionally re-centred, normalized to
     ``energy``, and written to a LASY HDF5 file that FBPIC reads through
     ``FromLasyFileLaser``. The build is expensive and happens once, in
-    ``prepare()``, on MPI rank 0 only; other ranks wait at a barrier and receive
-    the file path. Physical validation (grid/mode consistency, spectral-phase
+    ``prepare()``, on MPI rank 0 only; the other ranks block in a broadcast and
+    receive either the file path or rank 0's error, so a bad configuration
+    fails on every rank instead of hanging. Physical validation (grid/mode consistency, spectral-phase
     requirements, pulse-duration limits) is performed by ``HighOrderLasyLaser``
     at build time.
 
@@ -135,8 +136,9 @@ class LasyLaserPulse(_LaserPulse):
         to the simulation start plane, optionally re-centred, normalized to
         ``energy``, and written to a LASY HDF5 file that FBPIC reads through
         ``FromLasyFileLaser``. The build is expensive and happens once, in
-        ``prepare()``, on MPI rank 0 only; other ranks wait at a barrier and receive
-        the file path. Physical validation (grid/mode consistency, spectral-phase
+        ``prepare()``, on MPI rank 0 only; the other ranks block in a broadcast and
+        receive either the file path or rank 0's error, so a bad configuration
+        fails on every rank instead of hanging. Physical validation (grid/mode consistency, spectral-phase
         requirements, pulse-duration limits) is performed by ``HighOrderLasyLaser``
         at build time.
 
@@ -205,13 +207,15 @@ class LasyLaserPulse(_LaserPulse):
     def prepare(self, comm: Any | None=None, *, relative_to: Path | str | None=None) -> None:
         """Build the LASY pulse, write its HDF5 file, and measure a0 at focus.
 
-        Runs the expensive build on rank 0 only. With MPI, the other ranks wait
-        at a barrier and then receive the written path and a0 by broadcast.
-        Calling this again after a successful build is a no-op.
+        Runs the expensive build on rank 0 only. With MPI, the other ranks block
+        in a broadcast until rank 0 has either written the file (they receive
+        its path and a0) or failed (they receive the error and raise a
+        ``RuntimeError`` naming it, while rank 0 re-raises the original
+        exception). Calling this again after a successful build is a no-op.
 
         Args:
             comm: (BoundaryCommunicator|mpi4py.MPI.Comm|None) Communicator for the
-                rank-0 build and barrier. Accepts FBPIC's ``sim.comm``, an mpi4py
+                rank-0 build and result broadcast. Accepts FBPIC's ``sim.comm``, an mpi4py
                 communicator such as ``MPI.COMM_WORLD``, or ``None`` when running
                 without MPI (the calling process builds the file itself).
             relative_to: (Path|str|None) Directory a relative ``lasy_file`` is written

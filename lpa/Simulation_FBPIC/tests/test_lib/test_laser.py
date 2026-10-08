@@ -537,6 +537,25 @@ class TestLasyLaserPulse:
         assert pulse.build_laser_profile() is not None
 
 
+class _FakeComm:
+    """mpi4py-shaped stand-in: records broadcasts; non-root ranks get ``incoming``."""
+
+    def __init__(self, rank: int = 0, incoming=None) -> None:
+        self.rank = rank
+        self.incoming = incoming
+        self.broadcasts: list = []
+
+    def Get_rank(self) -> int:
+        return self.rank
+
+    def Get_size(self) -> int:
+        return 2
+
+    def bcast(self, obj, root=0):
+        self.broadcasts.append((obj, root))
+        return obj if self.rank == root else self.incoming
+
+
 @pytest.mark.integration
 class TestLasyLaserPulseBuild:
     def test_prepare_writes_file_and_measures_a0(self, tmp_path) -> None:
@@ -605,32 +624,53 @@ class TestLasyLaserPulseBuild:
         assert pulse.resolve_lasy_file(tmp_path / "elsewhere") == tmp_path / "abs_laser"
 
     def test_prepare_with_mpi4py_like_comm(self, tmp_path) -> None:
-        """A raw mpi4py-style communicator drives the barrier and broadcast."""
-
-        class FakeComm:
-            def __init__(self) -> None:
-                self.barriers = 0
-                self.broadcasts: list = []
-
-            def Get_rank(self) -> int:
-                return 0
-
-            def Get_size(self) -> int:
-                return 1
-
-            def barrier(self) -> None:
-                self.barriers += 1
-
-            def bcast(self, obj, root=0):
-                self.broadcasts.append((obj, root))
-                return obj
-
-        comm = FakeComm()
+        """A raw mpi4py-style communicator receives (payload, error) by broadcast."""
+        comm = _FakeComm(rank=0)
         pulse = _make_lasy(lasy_file=tmp_path / "mpi", **LASY_TINY_GRID)
         pulse.prepare(comm)
         assert pulse.is_prepared and pulse.out_a0 > 0
-        assert comm.barriers == 1
-        assert comm.broadcasts == [((str(pulse.lasy_file_path), pulse.out_a0), 0)]
+        assert comm.broadcasts == [
+            (((str(pulse.lasy_file_path), pulse.out_a0), None), 0)
+        ]
+
+    def test_rank0_build_failure_is_broadcast_and_reraised(self, tmp_path) -> None:
+        """Rank 0 re-raises the original error after telling the other ranks."""
+        comm = _FakeComm(rank=0)
+        # GDD without a spectral bandwidth is rejected by HighOrderLasyLaser.
+        pulse = _make_lasy(lasy_file=tmp_path / "bad", gdd=1e-28, **LASY_TINY_GRID)
+        with pytest.raises(
+            ValueError, match="requires a nonzero laser_spectral_bandwidth"
+        ):
+            pulse.prepare(comm)
+        assert not pulse.is_prepared
+        assert len(comm.broadcasts) == 1
+        (payload, message), root = comm.broadcasts[0]
+        assert payload is None and root == 0
+        assert message.startswith("ValueError: ")
+        assert "laser_spectral_bandwidth" in message
+
+    def test_non_root_rank_raises_instead_of_hanging_on_rank0_failure(self) -> None:
+        """A non-root rank that receives an error payload raises immediately."""
+        comm = _FakeComm(rank=1, incoming=(None, "ValueError: bad grid"))
+        pulse = _make_lasy()
+        with pytest.raises(
+            RuntimeError, match="LASY build failed on rank 0: ValueError: bad grid"
+        ):
+            pulse.prepare(comm)
+        assert not pulse.is_prepared
+        assert comm.broadcasts == [((None, None), 0)]
+
+    def test_non_root_rank_adopts_broadcast_result(self, tmp_path) -> None:
+        """A non-root rank never builds; it takes the path and a0 from rank 0."""
+        existing = tmp_path / "from_rank0_00000.h5"
+        existing.write_bytes(b"")
+        comm = _FakeComm(rank=1, incoming=((str(existing), 1.23), None))
+        pulse = _make_lasy()
+        pulse.prepare(comm)
+        assert pulse.is_prepared
+        assert pulse.lasy_file_path == existing
+        assert pulse.a0 == pulse.out_a0 == 1.23
+        assert pulse._high_order_laser is None
 
     def test_peak_delay_and_spectral_phase_reach_the_lasy_build(self, tmp_path) -> None:
         pulse = _make_lasy(

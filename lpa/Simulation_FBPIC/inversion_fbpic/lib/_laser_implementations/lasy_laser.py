@@ -84,8 +84,9 @@ class LasyLaserPulse(_LaserPulse):
     to the simulation start plane, optionally re-centred, normalized to
     ``energy``, and written to a LASY HDF5 file that FBPIC reads through
     ``FromLasyFileLaser``. The build is expensive and happens once, in
-    ``prepare()``, on MPI rank 0 only; other ranks wait at a barrier and receive
-    the file path. Physical validation (grid/mode consistency, spectral-phase
+    ``prepare()``, on MPI rank 0 only; the other ranks block in a broadcast and
+    receive either the file path or rank 0's error, so a bad configuration
+    fails on every rank instead of hanging. Physical validation (grid/mode consistency, spectral-phase
     requirements, pulse-duration limits) is performed by ``HighOrderLasyLaser``
     at build time.
 
@@ -309,13 +310,15 @@ class LasyLaserPulse(_LaserPulse):
         """
         Build the LASY pulse, write its HDF5 file, and measure a0 at focus.
 
-        Runs the expensive build on rank 0 only. With MPI, the other ranks wait
-        at a barrier and then receive the written path and a0 by broadcast.
-        Calling this again after a successful build is a no-op.
+        Runs the expensive build on rank 0 only. With MPI, the other ranks block
+        in a broadcast until rank 0 has either written the file (they receive
+        its path and a0) or failed (they receive the error and raise a
+        ``RuntimeError`` naming it, while rank 0 re-raises the original
+        exception). Calling this again after a successful build is a no-op.
 
         Args:
             comm: (BoundaryCommunicator|mpi4py.MPI.Comm|None) Communicator for the
-                rank-0 build and barrier. Accepts FBPIC's ``sim.comm``, an mpi4py
+                rank-0 build and result broadcast. Accepts FBPIC's ``sim.comm``, an mpi4py
                 communicator such as ``MPI.COMM_WORLD``, or ``None`` when running
                 without MPI (the calling process builds the file itself).
             relative_to: (Path|str|None) Directory a relative ``lasy_file`` is written
@@ -328,20 +331,33 @@ class LasyLaserPulse(_LaserPulse):
         rank, mpi_comm = _resolve_comm(comm)
 
         payload: tuple[str, float] | None = None
+        error: Exception | None = None
         if rank == 0:
-            from inversion_fbpic.utils.laser import HighOrderLasyLaser
+            try:
+                from inversion_fbpic.utils.laser import HighOrderLasyLaser
 
-            high_order_laser = HighOrderLasyLaser(
-                self.physical_parameters, self.hyperparameters
-            )
-            written_path = high_order_laser.save(self.resolve_lasy_file(relative_to))
-            focus_a0 = high_order_laser.compute_focus_a0()
-            object.__setattr__(self, "_high_order_laser", high_order_laser)
-            payload = (str(written_path.resolve()), float(focus_a0))
+                high_order_laser = HighOrderLasyLaser(
+                    self.physical_parameters, self.hyperparameters
+                )
+                written_path = high_order_laser.save(
+                    self.resolve_lasy_file(relative_to)
+                )
+                focus_a0 = high_order_laser.compute_focus_a0()
+            except Exception as exc:  # forwarded to the other ranks below
+                error = exc
+            else:
+                object.__setattr__(self, "_high_order_laser", high_order_laser)
+                payload = (str(written_path.resolve()), float(focus_a0))
 
+        # The broadcast synchronizes the ranks, so no separate barrier is needed.
+        # Sending the failure too keeps a bad config from hanging ranks 1..N.
+        message = None if error is None else f"{type(error).__name__}: {error}"
         if mpi_comm is not None:
-            mpi_comm.barrier()
-            payload = mpi_comm.bcast(payload, root=0)
+            payload, message = mpi_comm.bcast((payload, message), root=0)
+        if error is not None:
+            raise error  # rank 0 keeps the original exception and traceback
+        if message is not None:
+            raise RuntimeError(f"LASY build failed on rank 0: {message}")
         if payload is None:
             raise RuntimeError("Rank 0 did not produce the LASY laser file.")
 
