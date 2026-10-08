@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from functools import partialmethod
 from pathlib import Path
 
 import matplotlib
@@ -16,6 +17,34 @@ matplotlib.use("Agg")
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 
 DEMOS = Path(__file__).resolve().parents[2] / "demos"
+
+
+@pytest.fixture(autouse=True)
+def small_demo_plots(monkeypatch: pytest.MonkeyPatch):
+    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+    from inversion_fbpic.lib.density_core import _DensityProfile
+    from inversion_fbpic.lib.laser import _GaussianTemporalLaserPulse
+
+    monkeypatch.setattr(
+        _DensityProfile, "plot", partialmethod(_DensityProfile.plot, num=40)
+    )
+    monkeypatch.setattr(
+        _GaussianTemporalLaserPulse,
+        "plot",
+        partialmethod(_GaussianTemporalLaserPulse.plot, num=40),
+    )
+    savefig = Figure.savefig
+
+    def save_small_figure(figure, filename, *args, **kwargs):
+        kwargs["dpi"] = 40
+        kwargs.pop("bbox_inches", None)
+        return savefig(figure, filename, *args, **kwargs)
+
+    monkeypatch.setattr(Figure, "savefig", save_small_figure)
+    monkeypatch.setattr(Figure, "tight_layout", lambda *args, **kwargs: None)
+    yield
+    plt.close("all")
 
 
 def _load_demo(directory: str, script: str):
