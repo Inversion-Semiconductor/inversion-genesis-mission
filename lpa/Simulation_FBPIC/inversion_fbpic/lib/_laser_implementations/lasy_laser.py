@@ -1,14 +1,12 @@
-"""LASY laser pulse implementation."""
+"""LASY laser pulse: a thin ``SerializableConfig`` wrapper around ``HighOrderLasyLaser``."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 import attrs
-import numpy as np
-from scipy.constants import c
 
 from inversion_fbpic.lib.laser import _gaussian_r_extent, _LaserPulse
 
@@ -18,60 +16,42 @@ if TYPE_CHECKING:
 
 
 def _zernike_names() -> tuple[str, ...]:
-    """Canonical Zernike coefficient names accepted by ``HighOrderLasyLaser``."""
-    # Lazy import: ``inversion_fbpic.utils.laser`` pulls in lasy.
+    """Zernike names accepted by ``HighOrderLasyLaser`` (lazy: utils.laser imports lasy)."""
     from inversion_fbpic.utils.laser import ZERNIKE_OSA_INDICES
 
     return tuple(ZERNIKE_OSA_INDICES)
 
 
-def _default_zernike_coefficients() -> dict[str, float]:
-    return {name: 0.0 for name in _zernike_names()}
-
-
 def _normalize_zernike_coefficients(value: Any) -> dict[str, float]:
-    """Validate Zernike names and return a complete, canonically ordered dict."""
-    if value is None:
-        return _default_zernike_coefficients()
+    """Return all Zernike names in canonical order, missing ones as 0.0."""
+    names = _zernike_names()
+    value = {} if value is None else value
     if not isinstance(value, Mapping):
         raise ValueError("zernike_coefficients must be a mapping of name -> amplitude.")
-    names = _zernike_names()
-    unknown = set(value) - set(names)
-    if unknown:
+    if unknown := set(value) - set(names):
         raise ValueError(
-            f"Unknown zernike_coefficients keys: {sorted(unknown)}. "
-            f"Allowed: {list(names)}"
+            f"Unknown zernike_coefficients keys: {sorted(unknown)}. Allowed: {list(names)}"
         )
     return {name: float(value.get(name, 0.0)) for name in names}
 
 
-def _as_pair(value: Any, name: str) -> tuple[Any, Any]:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
-        raise ValueError(f"{name} must be a sequence of two numbers.")
-    seq = list(value)
-    if len(seq) != 2:
-        raise ValueError(f"{name} must have exactly two entries, got {len(seq)}.")
-    return seq[0], seq[1]
+def _pair_of(cast: Any) -> Any:
+    """Converter turning any two-element sequence into a tuple of ``cast`` values."""
+    return lambda value: tuple(cast(item) for item in value)
 
 
-def _to_float_pair(value: Any) -> tuple[float, float]:
-    """Convert a two-element sequence to a tuple of floats (real Jones vector)."""
-    first, second = _as_pair(value, "polarization")
-    return (float(first), float(second))
+def _has_two_entries(instance: Any, attribute: Any, value: tuple) -> None:
+    if len(value) != 2:
+        raise ValueError(
+            f"{attribute.name} must have exactly two entries, got {len(value)}."
+        )
 
 
-def _to_int_pair(value: Any) -> tuple[int, int]:
-    """Convert a two-element sequence to a tuple of ints, each at least 2."""
-    first, second = _as_pair(value, "num_points")
-    pair = (int(first), int(second))
-    if min(pair) < 2:
-        raise ValueError("num_points entries must be at least 2.")
-    return pair
-
-
-def _format_jones(pol: tuple[float, float]) -> str:
-    """Return a human-readable label for a real Jones vector."""
-    return f"Jones ({pol[0]:g}, {pol[1]:g})"
+def _optional_bandwidth(value: Any) -> float | str | None:
+    """``None`` (use the utils default), ``"auto"`` (transform-limited), or a float."""
+    if value is None or value == "auto":
+        return value
+    return float(value)
 
 
 def _resolve_comm(comm: Any | None) -> tuple[int, Any | None]:
@@ -96,14 +76,18 @@ def _resolve_comm(comm: Any | None) -> tuple[int, Any | None]:
 @attrs.define(kw_only=True, slots=False, frozen=True)
 class LasyLaserPulse(_LaserPulse):
     """
-    Super-Gaussian laser pulse with Zernike aberrations, built with LASY.
+    Super-Gaussian laser pulse with Zernike and spectral-phase aberrations, built with LASY.
 
-    Wraps ``inversion_fbpic.utils.laser.HighOrderLasyLaser``: the pulse is
-    constructed at focus, back-propagated to the simulation start plane,
-    optionally re-centred, normalized to ``energy``, and written to a LASY HDF5
-    file that FBPIC reads through ``FromLasyFileLaser``. The build is expensive
-    and happens once, in ``prepare()``, on MPI rank 0 only; other ranks wait at
-    a barrier and receive the file path.
+    Thin wrapper around ``inversion_fbpic.utils.laser.HighOrderLasyLaser``: every
+    field below maps onto one of its physical parameters or hyperparameters and
+    carries the same default. The pulse is constructed at focus, back-propagated
+    to the simulation start plane, optionally re-centred, normalized to
+    ``energy``, and written to a LASY HDF5 file that FBPIC reads through
+    ``FromLasyFileLaser``. The build is expensive and happens once, in
+    ``prepare()``, on MPI rank 0 only; other ranks wait at a barrier and receive
+    the file path. Physical validation (grid/mode consistency, spectral-phase
+    requirements, pulse-duration limits) is performed by ``HighOrderLasyLaser``
+    at build time.
 
     Only ``energy`` may be provided. ``a0`` is measured numerically from the
     field at focus during ``prepare()`` and is reported as ``out_a0``
@@ -112,29 +96,43 @@ class LasyLaserPulse(_LaserPulse):
     LASY pulses can only be emitted through an antenna, so ``method`` is fixed
     to ``"antenna"``, ``v_antenna`` to ``0.0``, and ``z0_antenna`` is required.
     FBPIC resets the LASY time axis to zero, so the peak intensity leaves the
-    antenna at ``t = t_start + 3 * tau_fwhm``. ``z0`` is informational only
-    (nominal centroid at ``t = 0``, used for plotting extents); for a
-    consistent picture set ``z0 = z0_antenna - c * (t_start + 3 * tau_fwhm)``.
+    antenna at ``t_start`` plus the peak's delay from the start of the LASY time
+    window: ``3 * tau_fwhm`` for the default transform-limited pulse, or exactly
+    ``peak_delay_from_file_start`` when that is set. ``z0`` is informational
+    only (nominal centroid at ``t = 0``, used for plotting extents); for a
+    consistent picture set ``z0 = z0_antenna - c * (t_start + peak_delay)``.
 
     Args:
         wavelength: (float) [m] Central wavelength of the laser pulse in meters.
-        tau_fwhm: (float) [s] Full-width at half-maximum intensity duration of the laser pulse in seconds.
+        tau_fwhm: (float) [s] Full-width at half-maximum intensity duration of the transform-limited pulse in seconds.
         waist: (float) [m] Super-Gaussian spot size (1/e^2 radius for order 2) at focus in meters.
         focal_position: (float) [m] Focal position of the laser pulse in meters, relative to the simulation start plane.
         super_gaussian_order: (float) Super-Gaussian order of the transverse profile. 2.0 is Gaussian.
-        zernike_coefficients: (dict[str, float]) [wavelengths] |OPTIONAL| Zernike phase amplitudes at focus keyed by name (astigmatism_2, astigmatism_4, coma_y, coma_x, trefoil_y, trefoil_x, spherical_3, astigmatism_6, coma_5_y, coma_5_x, secondary_trefoil_y, secondary_trefoil_x). Missing names default to 0.0; unknown names are rejected.
+        zernike_coefficients: (dict[str, float]) [rad] |OPTIONAL| Zernike phase amplitudes at focus keyed by name (astigmatism_2, astigmatism_4, coma_y, coma_x, trefoil_y, trefoil_x, spherical_3, astigmatism_6, coma_5_y, coma_5_x, secondary_trefoil_y, secondary_trefoil_x). Missing names default to 0.0; unknown names are rejected.
+        spectral_bandwidth: (float|Literal["auto"]|None) [rad/s] |OPTIONAL| Gaussian spectral-intensity FWHM in angular frequency. `"auto"` derives the transform-limited value from `tau_fwhm`; None (default) keeps `HighOrderLasyLaser`'s default of 0, i.e. an analytic Gaussian envelope without spectral phase.
+        cep: (float|None) [rad] |OPTIONAL| Carrier-envelope phase. None (default) keeps `HighOrderLasyLaser`'s default of 0.
+        gdd: (float|None) [s^2] |OPTIONAL| Group-delay dispersion about the central frequency. Requires a nonzero `spectral_bandwidth`. None (default) applies none; mutually exclusive with `gdd_relative`.
+        tod: (float|None) [s^3] |OPTIONAL| Third-order spectral phase. Requires a nonzero `spectral_bandwidth`. None (default) applies none; mutually exclusive with `tod_relative`.
+        fod: (float|None) [s^4] |OPTIONAL| Fourth-order spectral phase. Requires a nonzero `spectral_bandwidth`. None (default) applies none.
+        gdd_relative: (float|None) |OPTIONAL| Duration-normalized GDD in [-1, 1]; +1 corresponds to 5e-28 s^2 at 30 fs FWHM and scales with duration squared. None (default) applies none.
+        tod_relative: (float|None) |OPTIONAL| Duration-normalized TOD in [-1, 1]; +1 corresponds to 1e-41 s^3 at 30 fs FWHM and scales with duration cubed. None (default) applies none.
         polarization: (tuple[float, float]) |OPTIONAL| Real Jones vector (Ex, Ey) passed to LASY. Defaults to (1, 0), linear along x.
         n_azimuthal_modes: (int) |OPTIONAL| Number of azimuthal modes in the LASY r-t grid. Defaults to 5.
         num_points: (tuple[int, int]) |OPTIONAL| LASY grid points (radial, temporal). Defaults to (600, 900).
         hi_range: (float) [waists] |OPTIONAL| Radial extent of the LASY grid in units of `waist`. Defaults to 8.0.
         center_and_remove_tilt: (bool) |OPTIONAL| Re-centre the fluence and remove the mean transverse phase gradient at the start plane. Defaults to True.
         centering_angles: (int) |OPTIONAL| Number of polar angles used for centering; must be at least 2 * n_azimuthal_modes - 1. Defaults to 72.
+        spectral_time_window_factor: (float) |OPTIONAL| Temporal half-width of the LASY grid in units of the transform-limited half-duration when `spectral_bandwidth` is nonzero. Defaults to 6.0.
+        peak_delay_from_file_start: (float|None) [s] |OPTIONAL| Place the on-axis intensity peak at this delay after the start of the LASY time window (the delay FBPIC uses for emission). None (default) leaves the peak at the window centre.
+        maximum_pulse_duration_fwhm: (float|None) [s] |OPTIONAL| Reject the build if the start-plane on-axis FWHM exceeds this duration. None (default) disables the check.
         lasy_file: (Path|str) |OPTIONAL| Output prefix for the LASY HDF5 file; the written file is `<parent>/<stem>_00000.h5`. If not absolute, this is relative to the `working_directory` passed to `Simulation.setup_simulation()` (or to `prepare(relative_to=...)`), falling back to the current working directory. Defaults to `diags/lasy_laser`.
         t_start: (float) [s] |OPTIONAL| Delay before the antenna starts emitting the LASY file, as in FBPIC's `FromLasyFileLaser`. Defaults to 0.0.
     """
 
     SUBCLASS: ClassVar[str] = "lasy"
 
+    # Physical parameters (required ones first, then optional pass-throughs that
+    # keep HighOrderLasyLaser's own default while None).
     wavelength: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
     tau_fwhm: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
     waist: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
@@ -143,26 +141,50 @@ class LasyLaserPulse(_LaserPulse):
         converter=float, validator=attrs.validators.gt(0.0)
     )
     zernike_coefficients: dict[str, float] = attrs.field(
-        factory=_default_zernike_coefficients,
-        converter=_normalize_zernike_coefficients,
-        hash=False,
+        default=None, converter=_normalize_zernike_coefficients, hash=False
     )
+    spectral_bandwidth: float | Literal["auto"] | None = attrs.field(
+        default=None, converter=_optional_bandwidth
+    )
+    cep: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+    gdd: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+    tod: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+    fod: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+    gdd_relative: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+    tod_relative: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+
+    # Hyperparameters, with HighOrderLasyLaser's defaults.
     polarization: tuple[float, float] = attrs.field(
-        default=(1.0, 0.0), converter=_to_float_pair
+        default=(1.0, 0.0), converter=_pair_of(float), validator=_has_two_entries
     )
-    n_azimuthal_modes: int = attrs.field(
-        default=5, converter=int, validator=attrs.validators.ge(1)
-    )
+    n_azimuthal_modes: int = attrs.field(default=5, converter=int)
     num_points: tuple[int, int] = attrs.field(
-        default=(600, 900), converter=_to_int_pair
+        default=(600, 900), converter=_pair_of(int), validator=_has_two_entries
     )
-    hi_range: float = attrs.field(
-        default=8.0, converter=float, validator=attrs.validators.gt(0.0)
-    )
+    hi_range: float = attrs.field(default=8.0, converter=float)
     center_and_remove_tilt: bool = attrs.field(default=True, converter=bool)
-    centering_angles: int = attrs.field(
-        default=72, converter=int, validator=attrs.validators.ge(1)
+    centering_angles: int = attrs.field(default=72, converter=int)
+    spectral_time_window_factor: float = attrs.field(default=6.0, converter=float)
+    peak_delay_from_file_start: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
     )
+    maximum_pulse_duration_fwhm: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+
+    # FBPIC-side settings.
     lasy_file: Path = attrs.field(default=Path("diags/lasy_laser"), converter=Path)
     t_start: float = attrs.field(default=0.0, converter=float)
 
@@ -172,6 +194,34 @@ class LasyLaserPulse(_LaserPulse):
     lasy_file_path: Path | None = attrs.field(
         init=False, default=None, repr=False, eq=False
     )
+
+    # Field name -> HighOrderLasyLaser key. None-valued fields are not forwarded.
+    _PHYSICAL_KEYS: ClassVar[dict[str, str]] = {
+        "wavelength": "laser_wavelength_m",
+        "energy": "laser_energy_J",
+        "tau_fwhm": "laser_pulse_duration_fwhm_s",
+        "waist": "laser_spot_size_m",
+        "super_gaussian_order": "laser_super_gaussian_order",
+        "focal_position": "laser_focal_position_m",
+        "spectral_bandwidth": "laser_spectral_bandwidth_rad_s",
+        "cep": "laser_cep_phase_rad",
+        "gdd": "laser_gdd_s2",
+        "tod": "laser_tod_s3",
+        "fod": "laser_fod_s4",
+        "gdd_relative": "laser_gdd_relative",
+        "tod_relative": "laser_tod_relative",
+    }
+    _HYPERPARAMETER_KEYS: ClassVar[dict[str, str]] = {
+        "polarization": "polarization",
+        "n_azimuthal_modes": "n_azimuthal_modes",
+        "num_points": "num_points",
+        "hi_range": "hi_range",
+        "center_and_remove_tilt": "center_and_remove_tilt",
+        "centering_angles": "centering_angles",
+        "spectral_time_window_factor": "spectral_time_window_factor",
+        "peak_delay_from_file_start": "peak_delay_from_file_start_s",
+        "maximum_pulse_duration_fwhm": "maximum_pulse_duration_fwhm_s",
+    }
 
     def __attrs_post_init__(self) -> None:
         # Deliberately does not call the base implementation: a0 is derived
@@ -200,34 +250,22 @@ class LasyLaserPulse(_LaserPulse):
                 "z0_antenna is required: LASY pulses are emitted by an antenna."
             )
 
-        minimum_angles = 2 * self.n_azimuthal_modes - 1
-        if self.centering_angles < minimum_angles:
-            raise ValueError(
-                "centering_angles must be at least "
-                f"{minimum_angles} for the configured azimuthal modes."
-            )
-        if np.hypot(*self.polarization) == 0.0:
-            raise ValueError("polarization must be a non-zero Jones vector.")
-
     # ------------------------------------------------------------------
     # Mapping onto HighOrderLasyLaser
     # ------------------------------------------------------------------
 
     @property
     def physical_parameters(self) -> dict[str, Any]:
-        """``HighOrderLasyLaser`` physical parameters built from this config."""
-        parameters: dict[str, Any] = {
-            "laser_wavelength_m": self.wavelength,
-            "laser_energy_J": self.energy,
-            "laser_pulse_duration_fwhm_s": self.tau_fwhm,
-            "laser_spot_size_m": self.waist,
-            "laser_super_gaussian_order": self.super_gaussian_order,
-            "laser_focal_position_m": self.focal_position,
+        """``HighOrderLasyLaser`` physical parameters; unset optional fields are omitted."""
+        parameters = {
+            key: getattr(self, name)
+            for name, key in self._PHYSICAL_KEYS.items()
+            if getattr(self, name) is not None
         }
         parameters.update(
             {
-                f"zernike_{name}": amplitude
-                for name, amplitude in self.zernike_coefficients.items()
+                f"zernike_{name}": value
+                for name, value in self.zernike_coefficients.items()
             }
         )
         return parameters
@@ -236,12 +274,7 @@ class LasyLaserPulse(_LaserPulse):
     def hyperparameters(self) -> dict[str, Any]:
         """``HighOrderLasyLaser`` hyperparameters built from this config."""
         return {
-            "polarization": self.polarization,
-            "n_azimuthal_modes": self.n_azimuthal_modes,
-            "num_points": self.num_points,
-            "hi_range": self.hi_range,
-            "center_and_remove_tilt": self.center_and_remove_tilt,
-            "centering_angles": self.centering_angles,
+            key: getattr(self, name) for name, key in self._HYPERPARAMETER_KEYS.items()
         }
 
     @property
@@ -368,8 +401,9 @@ class LasyLaserPulse(_LaserPulse):
     ) -> "plt.Figure":
         """Plot the start-plane LASY envelope and (optionally) a face-on |E| map.
 
-        Requires the LASY ``Laser`` object, so this only works on the rank that
-        ran ``prepare()`` (it runs ``prepare()`` itself if needed).
+        Delegates to ``utils.laser.plot_start_plane``. Needs the LASY ``Laser``
+        object, so this only works on the rank that ran ``prepare()`` (it runs
+        ``prepare()`` itself if needed).
 
         Args:
             mode: (Literal["lineout", "lineout_and_2d"]) Panel layout.
@@ -388,10 +422,7 @@ class LasyLaserPulse(_LaserPulse):
         Returns:
             The created matplotlib Figure.
         """
-        import matplotlib.pyplot as plt
-        from scipy.constants import e as q_e, m_e as m_electron
-
-        from inversion_fbpic.utils.laser import polar_fields, transverse_fluence
+        from inversion_fbpic.utils.laser import plot_start_plane
 
         if not self.is_prepared:
             self.prepare(None)
@@ -400,125 +431,16 @@ class LasyLaserPulse(_LaserPulse):
                 "plot() needs the LASY Laser object, which only exists on the rank "
                 "that ran prepare()."
             )
-        laser = self._high_order_laser.laser
-        _, time = laser.grid.axes
-        e_to_a0 = q_e / (m_electron * c * laser.profile.omega0)
-        pol_label = _format_jones(self.polarization)
-
-        # On-axis envelope vs. time, mapped to z about the nominal centroid z0.
-        on_axis = np.abs(polar_fields(laser, np.array([0.0]))[0, 0, :]) * e_to_a0
-        t_peak = time[int(np.argmax(on_axis))]
-        z_of_t = self.z0 - c * (time - t_peak)
-        order = np.argsort(z_of_t)
-        z_arr = np.linspace(z_of_t.min(), z_of_t.max(), num)
-        envelope = np.interp(z_arr, z_of_t[order], on_axis[order])
-
-        if ax is not None:
-            default_label = f"{self.SUBCLASS} ({pol_label})"
-            ax.plot(
-                z_arr * 1e3,
-                envelope,
-                lw=1.5,
-                label=label if label is not None else default_label,
-            )
-
-        if mode == "lineout":
-            fig, ax_z = plt.subplots(1, 1, figsize=(8, 4.5))
-        else:
-            fig, (ax_z, ax_xy) = plt.subplots(1, 2, figsize=(12, 4.5))
-
-        ax_z.plot(z_arr * 1e6, envelope, color="C0", lw=1.5)
-        ax_z.set_xlabel("z (um)")
-        ax_z.set_ylabel("On-axis envelope amplitude (a\u2080)")
-        ax_z.set_title(f"Longitudinal envelope at start plane\n{pol_label}")
-        ax_z.grid(True, alpha=0.3)
-
-        if mode == "lineout_and_2d":
-            radius, angles, fluence, peak_field = transverse_fluence(laser, 361)
-            amplitude = np.abs(peak_field)
-            # Explicit polar cell edges: the Cartesian mesh is not monotonic, so
-            # pcolormesh cannot infer them from cell centres.
-            d_theta = angles[1] - angles[0]
-            theta_edges = np.append(angles - d_theta / 2.0, angles[-1] + d_theta / 2.0)
-            r_edges = np.concatenate(
-                ([0.0], 0.5 * (radius[1:] + radius[:-1]), [radius[-1]])
-            )
-            theta_grid, r_grid = np.meshgrid(theta_edges, r_edges, indexing="ij")
-            x_um = r_grid * np.cos(theta_grid) * 1e6
-            y_um = r_grid * np.sin(theta_grid) * 1e6
-            im = ax_xy.pcolormesh(x_um, y_um, amplitude, cmap="inferno", shading="flat")
-            ax_xy.set_aspect("equal")
-
-            # Zoom to where the azimuthally averaged fluence is above 1e-3 of peak.
-            radial_fluence = fluence.mean(axis=0)
-            above = np.flatnonzero(radial_fluence > 1e-3 * radial_fluence.max())
-            r_view = radius[int(above[-1])] * 1e6 if above.size else radius[-1] * 1e6
-            ax_xy.set_xlim(-r_view, r_view)
-            ax_xy.set_ylim(-r_view, r_view)
-
-            ax_xy.set_xlabel(r"x ($\mu$m)")
-            ax_xy.set_ylabel(r"y ($\mu$m)")
-            ax_xy.set_title(f"Face-on |E| at start plane\n{pol_label}")
-            cbar = fig.colorbar(im, ax=ax_xy, fraction=0.046, pad=0.04)
-            cbar.set_label("|E| (V/m)")
-
-            # Quiver the polarization field: LASY stores a scalar envelope and
-            # applies the real Jones vector (px, py) as a fixed spatial
-            # scaling, so the local field vector is Re(peak_field) * (px, py).
-            # Its direction is always +/-(px, py), but the sign flips across
-            # the aberrated wavefront's phase structure, which a single static
-            # arrow cannot show.
-            px, py = self.polarization
-            theta_grid_c, r_grid_c = np.meshgrid(angles, radius, indexing="ij")
-            field_real = peak_field.real
-            ex_grid = field_real * px
-            ey_grid = field_real * py
-
-            stride_theta = max(1, len(angles) // 24)
-            stride_r = max(1, len(radius) // 10)
-            in_view = r_grid_c <= (r_view * 1e-6)
-            sl = (slice(None, None, stride_theta), slice(None, None, stride_r))
-            xs = (r_grid_c * np.cos(theta_grid_c))[sl] * 1e6
-            ys = (r_grid_c * np.sin(theta_grid_c))[sl] * 1e6
-            us = ex_grid[sl]
-            vs = ey_grid[sl]
-            view_mask = in_view[sl]
-            mag = np.hypot(us, vs)
-            mask = view_mask & (mag > 0.05 * np.max(mag))
-            if mask.any():
-                ax_xy.quiver(
-                    xs[mask],
-                    ys[mask],
-                    us[mask] / mag[mask],
-                    vs[mask] / mag[mask],
-                    color="white",
-                    alpha=0.6,
-                    scale=25,
-                    width=0.004,
-                    headwidth=3,
-                )
-            if self.out_a0 is not None:
-                ax_xy.text(
-                    0.02,
-                    0.98,
-                    f"a\u2080 at focus = {self.out_a0:.3g}",
-                    transform=ax_xy.transAxes,
-                    color="white",
-                    va="top",
-                    fontsize=9,
-                )
-
-        fig.suptitle(f"{self.SUBCLASS}  \u2014  {pol_label}", fontsize=11)
-        fig.tight_layout()
-
-        if output_path is not None:
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(output_path, dpi=150, bbox_inches="tight")
-
-        if show:
-            plt.show()
-        else:
-            plt.close(fig)
-
-        return fig
+        return plot_start_plane(
+            self._high_order_laser.laser,
+            z0=self.z0,
+            polarization=self.polarization,
+            mode=mode,
+            ax=ax,
+            num=num,
+            output_path=output_path,
+            show=show,
+            label=label,
+            title=self.SUBCLASS,
+            a0_annotation=self.out_a0,
+        )
