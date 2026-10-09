@@ -1,1 +1,3 @@
 /geecs-lume-twin/htu/data/**/*.txt filter=lfs diff=lfs merge=lfs -text
+/lpa/Simulation_Fluid/**/*.h5 filter=lfs diff=lfs merge=lfs -text
+/lpa/Simulation_Fluid/**/*.cgns filter=lfs diff=lfs merge=lfs -text
