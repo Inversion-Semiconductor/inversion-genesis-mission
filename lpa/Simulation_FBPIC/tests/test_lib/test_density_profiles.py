@@ -62,6 +62,15 @@ GENERALIZED_GAUSSIAN_PLUS_TRIANGLE_KWARGS = {
     "tri_height": 1.0,
 }
 
+BILATERAL_SUPERGAUSSIAN_KWARGS = {
+    **_COMMON,
+    "center": 0.0,
+    "fwhm_left": 4.0e-6,
+    "beta_left": 2.0,
+    "fwhm_right": 8.0e-6,
+    "beta_right": 6.0,
+}
+
 H5_DENSITY_KWARGS = {
     "p_nz": 1,
     "p_nr": 1,
@@ -128,6 +137,12 @@ def _build_generalized_gaussian_plus_triangle():
     from inversion_fbpic.lib.density_profiles import GeneralizedGaussianPlusTriangle
 
     return GeneralizedGaussianPlusTriangle(**GENERALIZED_GAUSSIAN_PLUS_TRIANGLE_KWARGS)
+
+
+def _build_bilateral_supergaussian():
+    from inversion_fbpic.lib.density_profiles import BilateralSuperGaussian
+
+    return BilateralSuperGaussian(**BILATERAL_SUPERGAUSSIAN_KWARGS)
 
 
 def _build_generic_conical_target():
@@ -212,6 +227,7 @@ _PROFILE_BUILDERS = {
     "smooth_sine_flattop": _build_smooth_sine_flattop,
     "gaussian_plus_triangle": _build_gaussian_plus_triangle,
     "generalized_gaussian_plus_triangle": _build_generalized_gaussian_plus_triangle,
+    "bilateral_supergaussian": _build_bilateral_supergaussian,
     "generic_conical_target": _build_generic_conical_target,
     "power_law_flattop": _build_power_law_flattop,
     "generalized_lorentzian_sum": _build_generalized_lorentzian_sum,
@@ -266,6 +282,84 @@ class TestExampleDensityProfile:
         assert isinstance(result, np.ndarray)
         assert result.shape == z.shape
         assert np.all(result >= 0.0)
+
+
+# ===================================================================
+# Unit tests — BilateralSuperGaussian
+# ===================================================================
+
+
+class TestBilateralSuperGaussian:
+    def test_peak_is_exactly_one_at_center(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        assert dens(profile.center, 0.0) == pytest.approx(1.0, abs=1e-12)
+
+    def test_left_side_matches_a_supergaussian_with_only_the_left_params(self) -> None:
+        """At center - fwhm_left/2 the density must hit the FWHM half-max point,
+        using beta_left, regardless of what beta_right/fwhm_right are set to."""
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_half_left = profile.center - profile.fwhm_left / 2.0
+        assert dens(z_half_left, 0.0) == pytest.approx(0.5, rel=1e-10)
+
+    def test_right_side_matches_a_supergaussian_with_only_the_right_params(
+        self,
+    ) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_half_right = profile.center + profile.fwhm_right / 2.0
+        assert dens(z_half_right, 0.0) == pytest.approx(0.5, rel=1e-10)
+
+    def test_asymmetric_parameters_give_asymmetric_extent(self) -> None:
+        """BILATERAL_SUPERGAUSSIAN_KWARGS deliberately has fwhm_right = 2*fwhm_left
+        and a different beta per side, so the two half-spans must differ."""
+        profile = _build_bilateral_supergaussian()
+        z_min, z_max = profile.get_z_extent()
+        left_half = profile.center - z_min
+        right_half = z_max - profile.center
+        assert left_half != pytest.approx(right_half)
+
+    def test_symmetric_parameters_give_a_symmetric_extent(self) -> None:
+        from inversion_fbpic.lib.density_profiles import BilateralSuperGaussian
+
+        profile = BilateralSuperGaussian(
+            **{
+                **BILATERAL_SUPERGAUSSIAN_KWARGS,
+                "fwhm_right": BILATERAL_SUPERGAUSSIAN_KWARGS["fwhm_left"],
+                "beta_right": BILATERAL_SUPERGAUSSIAN_KWARGS["beta_left"],
+            }
+        )
+        z_min, z_max = profile.get_z_extent()
+        assert (profile.center - z_min) == pytest.approx(z_max - profile.center)
+
+    def test_density_is_continuous_across_the_center(self) -> None:
+        """Both sides equal 1.0 at the center by construction, so evaluating just
+        left and just right of it should agree closely even though the two
+        sides use different beta (and would otherwise diverge away from the
+        center)."""
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        eps = 1e-9
+        just_left = dens(profile.center - eps, 0.0)
+        just_right = dens(profile.center + eps, 0.0)
+        assert just_left == pytest.approx(1.0, abs=1e-6)
+        assert just_right == pytest.approx(1.0, abs=1e-6)
+
+    def test_radially_uniform(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        assert dens(profile.center, 0.0) == pytest.approx(dens(profile.center, 1e-3))
+
+    def test_array_input(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_min, z_max = profile.get_z_extent()
+        z = np.linspace(z_min, z_max, 50)
+        result = dens(z, np.zeros_like(z))
+        assert isinstance(result, np.ndarray)
+        assert result.shape == z.shape
+        assert np.all(result >= 0.0) and np.all(np.isfinite(result))
 
 
 # ===================================================================
@@ -404,6 +498,54 @@ class TestGeneralizedLorentzianSum:
 
         np.testing.assert_allclose(density(z, np.zeros_like(z)), [0.85, 0.0])
         assert density(0.0, 0.0) == pytest.approx(density(0.0, 1.0))
+
+
+# ===================================================================
+# Unit tests — _skew_corrected_half_span
+# ===================================================================
+
+
+class TestSkewCorrectedHalfSpan:
+    def _helper(self):
+        from inversion_fbpic.lib._density_implementations.generic_conical_target import (
+            _skew_corrected_half_span,
+        )
+
+        return _skew_corrected_half_span
+
+    def test_bypasses_the_search_for_exact_or_near_zero_targets(self) -> None:
+        helper = self._helper()
+        calls: list[float] = []
+
+        def evaluate(s: float) -> float:
+            calls.append(s)
+            return 0.0
+
+        assert helper(evaluate, nominal_span=3.0, target=0.0) == pytest.approx(3.0)
+        assert helper(evaluate, nominal_span=3.0, target=1.0e-13) == pytest.approx(3.0)
+        assert helper(evaluate, nominal_span=0.0, target=0.5) == pytest.approx(0.0)
+        assert calls == []  # never evaluated: both guards short-circuit
+
+    def test_bisects_inward_when_skew_has_already_suppressed_the_nominal_edge(
+        self,
+    ) -> None:
+        helper = self._helper()
+        # A synthetic, exactly-known decreasing function: evaluate(s) = exp(-s).
+        target = np.exp(-1.0)  # true crossing at s = 1.0
+        result = helper(lambda s: np.exp(-s), nominal_span=5.0, target=target)
+        assert result == pytest.approx(1.0, abs=1.0e-9)
+
+    def test_expands_outward_when_skew_has_stretched_the_nominal_edge(self) -> None:
+        helper = self._helper()
+        target = np.exp(-10.0)  # true crossing at s = 10, well past nominal_span
+        result = helper(lambda s: np.exp(-s), nominal_span=0.1, target=target)
+        assert result == pytest.approx(10.0, rel=1.0e-8)
+
+    def test_gives_up_gracefully_if_the_target_is_never_reached(self) -> None:
+        helper = self._helper()
+        # A function that never drops below an unreachable target.
+        result = helper(lambda s: 1.0, nominal_span=1.0, target=0.5)
+        assert np.isfinite(result) and result > 1.0
 
 
 # ===================================================================
@@ -825,6 +967,125 @@ class TestGenericConicalTarget:
         assert np.all(np.isfinite(density(np.linspace(z_min, z_max, 101), 0.0)))
         assert density(z_max + 1.0e-9, 0.0) == pytest.approx(0.0)
 
+    def test_z_extent_of_an_infinite_tail_shape_accounts_for_skew(self) -> None:
+        """A skewed supergaussian's reported edges must reach its own cutoff density.
+
+        Before this was corrected, ``get_z_extent`` used the *unskewed* shape's
+        half-span on both sides regardless of skew, so a strongly skewed profile
+        could report an edge where the true (skewed) density was still far above
+        (or already far below) the density the unskewed shape's own convention
+        intends as "the edge of support".
+        """
+        num_sigma_extent = 3.0
+        reference_ratio = np.exp(-(num_sigma_extent**2) / 2.0)
+        profile = self._build(
+            main_profile_type="supergaussian",
+            main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=600.0,
+            skew_mode="finite_supergaussian",
+        )
+        z_min, z_max = profile.get_z_extent()
+        density = profile.build_density_function()
+        peak = density(profile.centroid, 0.0)
+
+        assert peak == pytest.approx(1.0)
+        # Strong skew must make the two sides genuinely asymmetric ...
+        assert (profile.centroid - z_min) != pytest.approx(
+            z_max - profile.centroid, rel=1.0e-2
+        )
+        # ... yet both edges reach the *same* reference density, unlike the old
+        # unskewed-only calculation (which this reference ratio would only match
+        # for skew_rate == 0).
+        assert density(z_min, 0.0) / peak == pytest.approx(reference_ratio, rel=1.0e-6)
+        assert density(z_max, 0.0) / peak == pytest.approx(reference_ratio, rel=1.0e-6)
+
+    def test_z_extent_of_a_lorentzian_shape_accounts_for_skew(self) -> None:
+        cutoff = 2.0e-3
+        profile = self._build(
+            main_profile_type="lorentzian_flattop",
+            main_profile_parameters={
+                "flattop_width": 1.0e-4,
+                "transition_length": 5.0e-4,
+                "coordinate_exponent": 2.5,
+                "profile_exponent": 1.5,
+                "density_cutoff_ratio": cutoff,
+            },
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=500.0,
+            skew_mode="saturated",
+        )
+        z_min, z_max = profile.get_z_extent()
+        density = profile.build_density_function()
+        peak = density(profile.centroid, 0.0)
+
+        assert (profile.centroid - z_min) != pytest.approx(
+            z_max - profile.centroid, rel=1.0e-2
+        )
+        assert density(z_min, 0.0) / peak == pytest.approx(cutoff, rel=1.0e-6)
+        assert density(z_max, 0.0) / peak == pytest.approx(cutoff, rel=1.0e-6)
+
+    @pytest.mark.parametrize("skew_rate", [0.0, 3.0, -3.0])
+    def test_z_extent_of_a_compact_support_shape_is_unaffected_by_skew(
+        self, skew_rate
+    ) -> None:
+        """Compact-support shapes are already exactly zero at their nominal edge;
+        skew only rescales an already-zero density, so it cannot move that edge."""
+        unskewed = self._build(
+            main_profile_parameters={"fwhm": 4.0, "ramp_length": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=0.0,
+        )
+        skewed = self._build(
+            main_profile_parameters={"fwhm": 4.0, "ramp_length": 2.0},
+            fringe_profile_type=None,
+            fringe_profile_parameters={},
+            fringe_center_offset=None,
+            fringe_relative_height=1.0,
+            skew_rate=skew_rate,
+            skew_mode="finite_supergaussian",
+        )
+
+        assert skewed.get_z_extent() == pytest.approx(unskewed.get_z_extent())
+
+    def test_z_extent_is_continuous_at_zero_finite_supergaussian_skew(self) -> None:
+        def build_profile(skew_rate: float):
+            return self._build(
+                main_profile_type="supergaussian",
+                main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
+                fringe_profile_type=None,
+                fringe_profile_parameters={},
+                fringe_center_offset=None,
+                fringe_relative_height=1.0,
+                skew_rate=skew_rate,
+                skew_mode="finite_supergaussian",
+            )
+
+        zero_skew_profile = build_profile(0.0)
+        z_min, z_max = zero_skew_profile.get_z_extent()
+        density = zero_skew_profile.build_density_function()
+        left_span, right_span = zero_skew_profile._profile_support_spans()
+        target_left = zero_skew_profile._unskewed_density(np.array([-left_span]))[0]
+        target_right = zero_skew_profile._unskewed_density(np.array([right_span]))[0]
+
+        assert density(z_min, 0.0) == pytest.approx(target_left, rel=1.0e-6)
+        assert density(z_max, 0.0) == pytest.approx(target_right, rel=1.0e-6)
+
+        zero_skew_extent = (z_min, z_max)
+        for nearby_skew_rate in (-1.0e-8, 1.0e-8):
+            assert build_profile(nearby_skew_rate).get_z_extent() == pytest.approx(
+                zero_skew_extent, rel=1.0e-8, abs=1.0e-12
+            )
+
     @pytest.mark.parametrize(
         "overrides",
         [
@@ -926,6 +1187,16 @@ class TestPowerLawFlattop:
     def test_requires_exponent_greater_than_two(self) -> None:
         with pytest.raises(ValueError, match="transition_exponent"):
             self._build(transition_exponent=2.0)
+
+    @pytest.mark.parametrize("skew_rate", [0.0, 5.0, -5.0])
+    def test_z_extent_is_unaffected_by_skew(self, skew_rate) -> None:
+        """This shape is always compact-support (density_cutoff_ratio is not
+        even one of its parameters), so its edges are already exactly zero and
+        the skew correction in the shared base class must be a no-op here."""
+        unskewed = self._build(skew_rate=0.0)
+        skewed = self._build(skew_rate=skew_rate, skew_mode="finite_supergaussian")
+
+        assert skewed.get_z_extent() == pytest.approx(unskewed.get_z_extent())
 
 
 # ===================================================================

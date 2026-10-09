@@ -15,6 +15,8 @@ from ._density_implementations.interpolate_from_h5_profile import (
 from ._density_implementations.generic_conical_target import (
     GenericConicalTarget as GenericConicalTarget,
     PowerLawFlattop as PowerLawFlattop,
+    _supergaussian,
+    _supergaussian_half_span,
 )
 
 
@@ -346,6 +348,57 @@ class GeneralizedGaussianPlusTriangle(_DensityProfile):
             ramp_right_width=self.tri_right_width,
             ramp_height=self.tri_height,
         )
+
+
+@attrs.define(kw_only=True, slots=False, frozen=True)
+class BilateralSuperGaussian(_DensityProfile):
+    """Supergaussian density profile with an independent width and shape exponent
+    on each side of its center (``z < center`` uses the left parameters,
+    ``z >= center`` the right ones), continuous at the center (both sides equal
+    1.0 there) but generally discontinuous in slope/curvature.
+
+    Args:
+        center: (float) [m] z position of the peak.
+        fwhm_left: (float) [m] Full width at half maximum of the left side (z < center).
+        beta_left: (float) Shape exponent of the left side; 2 is a Gaussian, larger values are flatter-topped with steeper walls.
+        fwhm_right: (float) [m] Full width at half maximum of the right side (z >= center).
+        beta_right: (float) Shape exponent of the right side.
+        num_sigma_extent: (float) |OPTIONAL| Number of sigma-equivalent widths on each side that define the longitudinal extent. Defaults to 3.0.
+    """
+
+    # Keep this string stable once used in stored JSON payloads.
+    SUBCLASS: ClassVar[str] = "bilateral_supergaussian"
+
+    center: float = attrs.field(converter=float)
+    fwhm_left: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    beta_left: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    fwhm_right: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    beta_right: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    num_sigma_extent: float = attrs.field(
+        default=3.0, converter=float, validator=attrs.validators.gt(0.0)
+    )
+
+    def get_z_extent(self) -> tuple[float, float]:
+        left_half = _supergaussian_half_span(
+            self.fwhm_left, self.beta_left, self.num_sigma_extent
+        )
+        right_half = _supergaussian_half_span(
+            self.fwhm_right, self.beta_right, self.num_sigma_extent
+        )
+        return (self.center - left_half, self.center + right_half)
+
+    def get_r_extent(self) -> float | None:
+        return None
+
+    def build_density_function(self) -> DensityCallable:
+        def dens_func(z: npt.ArrayLike, r: npt.ArrayLike) -> npt.ArrayLike:
+            del r
+            z_arr = np.asarray(z, dtype=float)
+            left = _supergaussian(z_arr, self.center, self.fwhm_left, self.beta_left)
+            right = _supergaussian(z_arr, self.center, self.fwhm_right, self.beta_right)
+            return np.where(z_arr < self.center, left, right)
+
+        return dens_func
 
 
 @attrs.define(slots=False, frozen=True)

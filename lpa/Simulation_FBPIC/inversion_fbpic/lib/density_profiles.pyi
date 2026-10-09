@@ -149,6 +149,112 @@ class AsymmetricSine(_DensityProfile):
     def build_density_function(self) -> DensityCallable:
         ...
 
+class BilateralSuperGaussian(_DensityProfile):
+    """Supergaussian density profile with an independent width and shape exponent
+    on each side of its center (``z < center`` uses the left parameters,
+    ``z >= center`` the right ones), continuous at the center (both sides equal
+    1.0 there) but generally discontinuous in slope/curvature.
+
+    Args:
+        nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
+            the relative profile returned by `build_density_function` (which is normalized to 1).
+        p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
+        p_nr: (int) Number of macroparticles per gridcell along the radial direction.
+        p_nt: (int) Number of macroparticles per gridcell along the angular direction.
+        species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
+            If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+            ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
+            Defaults to Hydrogen.
+        ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
+            Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
+        elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
+            The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+            Example Python: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+            Example YAML: elec_select: {uz: [10.0, null], z: [-1.0e-6, 1.0e-6]}
+            Defaults to None.
+        ion_name: (str|None) [str] |OPTIONAL| Name of the ion species when writing diagnostics. If None, the ion particles will not be written to diagnostics.
+        ion_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the ion species when writing diagnostics.
+            The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+            Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+            Defaults to None.
+        center: (float) [m] z position of the peak.
+        fwhm_left: (float) [m] Full width at half maximum of the left side (z < center).
+        beta_left: (float) Shape exponent of the left side; 2 is a Gaussian, larger values are flatter-topped with steeper walls.
+        fwhm_right: (float) [m] Full width at half maximum of the right side (z >= center).
+        beta_right: (float) Shape exponent of the right side.
+        num_sigma_extent: (float) |OPTIONAL| Number of sigma-equivalent widths on each side that define the longitudinal extent. Defaults to 3.0."""
+    SUBCLASS: ClassVar[str]
+    center: float
+    fwhm_left: float
+    beta_left: float
+    fwhm_right: float
+    beta_right: float
+    num_sigma_extent: float
+    def __init__(
+        self,
+        *,
+        nominal_density: float,
+        p_nz: int,
+        p_nr: int,
+        p_nt: int,
+        species: str | None = 'H',
+        ionization: int | None = 0,
+        p_rmax: float | None = None,
+        elec_name: str | None = None,
+        elec_select: dict[str, list[float | None]] | None = None,
+        ion_name: str | None = None,
+        ion_select: dict[str, list[float | None]] | None = None,
+        center: float,
+        fwhm_left: float,
+        beta_left: float,
+        fwhm_right: float,
+        beta_right: float,
+        num_sigma_extent: float = 3.0,
+    ) -> None:
+        """Supergaussian density profile with an independent width and shape exponent
+        on each side of its center (``z < center`` uses the left parameters,
+        ``z >= center`` the right ones), continuous at the center (both sides equal
+        1.0 there) but generally discontinuous in slope/curvature.
+
+        Args:
+            nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
+                the relative profile returned by `build_density_function` (which is normalized to 1).
+            p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
+            p_nr: (int) Number of macroparticles per gridcell along the radial direction.
+            p_nt: (int) Number of macroparticles per gridcell along the angular direction.
+            species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
+                If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+                ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
+                Defaults to Hydrogen.
+            ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
+                Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+            elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
+            elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
+                The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+                Example Python: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+                Example YAML: elec_select: {uz: [10.0, null], z: [-1.0e-6, 1.0e-6]}
+                Defaults to None.
+            ion_name: (str|None) [str] |OPTIONAL| Name of the ion species when writing diagnostics. If None, the ion particles will not be written to diagnostics.
+            ion_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the ion species when writing diagnostics.
+                The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+                Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+                Defaults to None.
+            center: (float) [m] z position of the peak.
+            fwhm_left: (float) [m] Full width at half maximum of the left side (z < center).
+            beta_left: (float) Shape exponent of the left side; 2 is a Gaussian, larger values are flatter-topped with steeper walls.
+            fwhm_right: (float) [m] Full width at half maximum of the right side (z >= center).
+            beta_right: (float) Shape exponent of the right side.
+            num_sigma_extent: (float) |OPTIONAL| Number of sigma-equivalent widths on each side that define the longitudinal extent. Defaults to 3.0."""
+    def get_z_extent(self) -> tuple[float, float]:
+        ...
+    def get_r_extent(self) -> float | None:
+        ...
+    def build_density_function(self) -> DensityCallable:
+        ...
+
 class ExampleDensityProfile(_DensityProfile):
     """Finite sine-squared density bump profile.
 
