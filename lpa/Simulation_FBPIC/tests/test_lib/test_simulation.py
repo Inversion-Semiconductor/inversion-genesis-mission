@@ -424,6 +424,55 @@ class TestSupportingElements:
         assert simulation.parameters[0].data["label"] == "changed"
         assert simulation.config_hash() == _make_simulation().config_hash()
 
+    def test_container_paths_are_resolved_once_at_construction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.serializable_config import SerializableConfig
+        from inversion_fbpic.lib.simulation import Simulation
+
+        cfg = tmp_path / "cfg"
+        child_file = Parameters(data={"label": "anchored"}).to_yaml_file(
+            cfg / "parameters.yaml"
+        )
+        hyperparameters, density, laser = _make_simulation_elements()
+        with SerializableConfig.resolving_paths_relative_to(cfg):
+            nested = ConfigContainer(configs=["parameters.yaml", density, laser])
+            container = ConfigContainer(configs=[hyperparameters, nested])
+        child = nested.configs[0]
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        resolve = MagicMock(
+            side_effect=AssertionError("Container entries must not be resolved twice")
+        )
+        anchor = MagicMock(
+            side_effect=AssertionError("Sorting must not compute a new path anchor")
+        )
+        monkeypatch.setattr(SerializableConfig, "from_any", resolve)
+        monkeypatch.setattr(Simulation, "_element_config_anchor", anchor)
+        simulation = Simulation(elements=container)
+        assert simulation.parameters[0] is child
+        assert simulation.parameters[0].source_file == child_file
+        assert simulation.parameters[0].data == {"label": "anchored"}
+        assert simulation.hyparams is hyperparameters
+        assert simulation.densities == [density]
+        assert simulation.lasers == [laser]
+        resolve.assert_not_called()
+        anchor.assert_not_called()
+
+    def test_container_rejects_unresolved_entries_added_after_construction(
+        self,
+    ) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.simulation import Simulation
+
+        container = ConfigContainer(configs=list(_make_simulation_elements()))
+        container.configs.append("unresolved.yaml")
+        with pytest.raises(TypeError, match="resolved configuration objects"):
+            Simulation(elements=container)
+
     @pytest.mark.parametrize("method", ["from_dict", "from_json", "from_yaml"])
     def test_nested_elements_round_trip(self, analysis_classes, method: str) -> None:
         from inversion_fbpic.lib.config_container import ConfigContainer

@@ -422,13 +422,11 @@ class Simulation(SerializableConfig):
             None
         """
         if isinstance(payload, ConfigContainer):
-            relative_to = (
-                payload.source_file.parent
-                if payload.source_file is not None
-                else self._element_config_anchor()
-            )
-            for source in payload.configs:
-                component = SerializableConfig.from_any(source, relative_to=relative_to)
+            for component in payload.configs:
+                if not isinstance(component, SerializableConfig):
+                    raise TypeError(
+                        "ConfigContainer.configs must contain resolved configuration objects."
+                    )
                 self._sort_component(
                     component,
                     path=component.source_file,

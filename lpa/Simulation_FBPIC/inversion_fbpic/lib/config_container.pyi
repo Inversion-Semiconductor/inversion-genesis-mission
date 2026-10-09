@@ -13,6 +13,9 @@ class ConfigContainer(SerializableConfig):
     Existing objects are retained by identity; payloads, serialized strings,
     and file references are loaded into objects. Relative file references use
     the containing config file or the active path-resolution context.
+    Without either anchor, paths resolve against the construction-time working
+    directory. Passing the container to a Simulation does not re-resolve them;
+    use ``resolving_paths_relative_to()`` around construction to choose a base.
 
     Serialization embeds the resolved configurations inline, not as external
     references. Order and repeated entries are retained, but shared identity
@@ -23,7 +26,7 @@ class ConfigContainer(SerializableConfig):
         configs: (list[SerializableConfig | str | Path | dict[str, Any]])
             |OPTIONAL| Config objects, tagged payloads, YAML/JSON strings, or
             individual config file references. Defaults to a new empty list.
-            After construction, manage live configuration objects in this list."""
+            After construction, add only live configuration objects to this list."""
     CONFIG_TYPE: ClassVar[str]
     SUBCLASS: ClassVar[str]
     configs: list[SerializableConfig | str | Path | dict[str, Any]]
@@ -38,6 +41,9 @@ class ConfigContainer(SerializableConfig):
         Existing objects are retained by identity; payloads, serialized strings,
         and file references are loaded into objects. Relative file references use
         the containing config file or the active path-resolution context.
+        Without either anchor, paths resolve against the construction-time working
+        directory. Passing the container to a Simulation does not re-resolve them;
+        use ``resolving_paths_relative_to()`` around construction to choose a base.
 
         Serialization embeds the resolved configurations inline, not as external
         references. Order and repeated entries are retained, but shared identity
@@ -48,4 +54,4 @@ class ConfigContainer(SerializableConfig):
             configs: (list[SerializableConfig | str | Path | dict[str, Any]])
                 |OPTIONAL| Config objects, tagged payloads, YAML/JSON strings, or
                 individual config file references. Defaults to a new empty list.
-                After construction, manage live configuration objects in this list."""
+                After construction, add only live configuration objects to this list."""

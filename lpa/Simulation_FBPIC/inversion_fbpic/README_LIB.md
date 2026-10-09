@@ -139,6 +139,20 @@ Entries are resolved using `SerializableConfig.from_any()`, including relative
 paths in a containing file or a `resolving_paths_relative_to()` context. After
 construction, manage live configuration objects through `configs`.
 
+Resolution is eager: without a containing file or explicit context, relative
+paths use the current working directory at container construction time.
+`Simulation` consumes the resolved objects and does not rebase their paths.
+For programmatic construction against an existing config directory, use:
+
+```python
+with SerializableConfig.resolving_paths_relative_to("cfg"):
+  components = ConfigContainer(configs=["density.yaml", "laser.yaml"])
+simulation = Simulation(elements=[hyperparameters, components])
+```
+
+If editing `configs` after construction, add live configuration objects rather
+than unresolved path strings or payloads.
+
 Containers retain object references, order, and duplicates, and may hold nested
 containers without flattening. Saving embeds all resolved configs inline, even
 those originally loaded from files. Reloading reconstructs separate objects;
