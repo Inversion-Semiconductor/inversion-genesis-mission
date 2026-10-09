@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import json
 
 import pytest
@@ -130,6 +131,40 @@ def test_reported_center_matches_the_rebased_profiles_own_notion_of_center(
             assert reported == pytest.approx(profile.centroid), name
         else:
             assert reported == pytest.approx(profile.parameters[0].c), name
+
+
+def test_fill_template_warns_when_a_fit_fails(small_cube_path, monkeypatch):
+    conditions = LineoutConditions(1.0, 10.0, 0.0)
+    template = {
+        "profiles": {
+            "conical": copy.deepcopy(
+                TEMPLATE["profiles"]["conical_supergaussian_no_fringes"]
+            )
+        }
+    }
+    dataset = NozzleDataset.load(small_cube_path)
+    scheme = MultiStartLocalFit(n_starts=1, seed=0)
+    fit = scheme.fit
+
+    def failed_fit(lineout, family):
+        return replace(
+            fit(lineout, family),
+            success=False,
+            message="forced fit failure",
+        )
+
+    monkeypatch.setattr(scheme, "fit", failed_fit)
+    with pytest.warns(RuntimeWarning, match=r"conical.*forced fit failure"):
+        config = fill_template(
+            template,
+            dataset,
+            conditions,
+            window=FitWindow(max_points=150),
+            scheme=scheme,
+            density_file="does_not_matter.h5",
+        )
+
+    assert config["profiles"]["conical"]["kwargs"]["nominal_density"] > 0.0
 
 
 def test_oblique_lineout_profiles_are_each_rebased_to_their_own_left_edge(

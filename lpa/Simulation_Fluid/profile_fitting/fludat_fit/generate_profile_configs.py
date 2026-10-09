@@ -69,6 +69,7 @@ import copy
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -272,6 +273,13 @@ def fill_template(
             continue
         family = _family_for(name, spec, target_centroid)
         result = scheme.fit(lineout, family)
+        if not result.success:
+            warnings.warn(
+                f"{conditions.label()}: fit for {name!r} did not succeed: "
+                f"{result.message or 'no optimizer message'}; writing its result anyway",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         filled_spec = fill_profile(name, spec, result, target_centroid)
         if progress:
             reported = center_of(filled_spec)
