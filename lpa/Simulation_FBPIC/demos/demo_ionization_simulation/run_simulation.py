@@ -183,6 +183,10 @@ def main() -> None:
     if not USE_MPI or MPI_RANK == 0:
         if beam_moments.analysis_complete:
             results.to_hdf5_file(RESULTS_FILE, overwrite=True)
+        else:
+            print(
+                "Beam analysis was not completed. This could be due to the simulation skipping its run. Please check the simulation logs for errors."
+            )
 
         # plot some movies
         for field in ["rho", "eme"]:

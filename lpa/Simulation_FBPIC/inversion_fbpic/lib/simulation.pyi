@@ -53,7 +53,9 @@ class Simulation(SerializableConfig):
     def config_hash(self) -> str:
         """Return a stable SHA-256 hex digest of this simulation's configuration.
 
-        The hash is independent of the order in which elements were provided."""
+        The hash is independent of the order in which elements were provided.
+        It covers physics configuration and its recorded Git revision, not
+        attached diagnostic inputs/results or supporting Parameters metadata."""
         ...
     @staticmethod
     def calculate_group_beta(wavelength: float, plasma_density: float) -> float:
@@ -83,9 +85,9 @@ class Simulation(SerializableConfig):
     def setup_simulation(self, working_directory: Path | str | None=None, skip_if_hashed: bool=True, **kwargs) -> None:
         """Setup the simulation and run attached pre-simulation diagnostics.
 
-        Analysis runs on the write rank after FBPIC setup completes. Skipped
-        setup does not run analysis. Analysis errors propagate and leave
-        ``is_setup`` false.
+        Analysis runs on the write rank after FBPIC setup completes. A matching
+        completion hash skips FBPIC setup but still runs pre-simulation analysis.
+        Analysis errors propagate and leave ``is_setup`` false for a new setup.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -99,13 +101,15 @@ class Simulation(SerializableConfig):
         """Run the simulation. `setup_simulation()` must be called before this function.
 
         Attached post-simulation diagnostics run on the write rank after all
-        stepping succeeds, before recording the completion hash. Skipped runs
-        do not run analysis. Analysis errors propagate without recording a hash.
+        stepping succeeds and the requested completion hash is saved. A matching
+        hash skips stepping but still reruns analysis, without requiring FBPIC
+        setup. Analysis errors propagate while preserving the completion hash,
+        so retries can analyze existing output without repeating the simulation.
 
         Args:
             show_progress: (bool) Whether to show the progress bar. Defaults to True.
             logger_friendly_progress: (bool) Whether to use logger-friendly output for indicating progress. Defaults to False.
-            record_hash: (bool) Whether to record the hash of the simulation configuration upon successful completion. Defaults to True.
+            record_hash: (bool) Whether to record the hash after successful stepping, before analysis. Defaults to True.
             skip_if_hashed: (bool) Whether to skip the simulation if the configuration hash is the same as a previous run. Defaults to True.
 
         Returns:

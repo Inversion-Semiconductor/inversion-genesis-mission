@@ -632,7 +632,7 @@ class TestAttachedAnalysis:
         simulation.run_simulation(
             show_progress=False, logger_friendly_progress=logger_friendly
         )
-        assert events == ["setup", "before", "step", "after", "hash"]
+        assert events == ["setup", "before", "step", "hash", "after"]
         assert before.calls == after.calls == 1
         assert after.analysis_complete
 
@@ -665,7 +665,7 @@ class TestAttachedAnalysis:
         assert after.calls == 2
 
     @pytest.mark.parametrize("phase", ["setup", "run"])
-    def test_hashed_phase_does_not_analyze(
+    def test_hashed_phase_reruns_analysis_without_simulation_work(
         self, analysis_simulation, tmp_path, monkeypatch, phase
     ) -> None:
         simulation, before, after, events = analysis_simulation
@@ -674,8 +674,10 @@ class TestAttachedAnalysis:
             simulation.setup_simulation(working_directory=tmp_path)
         else:
             simulation.run_simulation()
-        assert events == []
-        assert before.calls == after.calls == 0
+        assert events == ["before" if phase == "setup" else "after"]
+        assert before.calls == (1 if phase == "setup" else 0)
+        assert after.calls == (1 if phase == "run" else 0)
+        assert not simulation.is_setup
 
     def test_disabled_skip_runs_analysis(
         self, analysis_simulation, tmp_path, monkeypatch
@@ -687,20 +689,23 @@ class TestAttachedAnalysis:
         assert before.calls == after.calls == 1
 
     @pytest.mark.parametrize("rank", [0, 1])
+    @pytest.mark.parametrize("cached", [False, True])
     def test_only_mpi_write_rank_analyzes(
-        self, analysis_simulation, tmp_path, monkeypatch, rank
+        self, analysis_simulation, tmp_path, monkeypatch, rank, cached
     ) -> None:
         from inversion_fbpic.lib import simulation as simulation_module
 
         simulation, before, after, _ = analysis_simulation
         simulation.hyparams = _make_hyparams(use_mpi=True)
         monkeypatch.setattr(simulation_module, "MPI_RANK", rank)
+        if cached:
+            monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
         simulation.setup_simulation(working_directory=tmp_path)
         simulation.run_simulation(record_hash=False)
         assert before.calls == after.calls == (1 if rank == 0 else 0)
 
     @pytest.mark.parametrize("phase", ["before", "after"])
-    def test_analysis_failure_stops_completion(
+    def test_analysis_failure_preserves_successful_stepping_hash(
         self, analysis_simulation, tmp_path, monkeypatch, phase
     ) -> None:
         simulation, before, after, _ = analysis_simulation
@@ -721,7 +726,74 @@ class TestAttachedAnalysis:
             with pytest.raises(RuntimeError, match="analysis failed"):
                 simulation.run_simulation()
         assert not diagnostic.analysis_complete
-        save_hash.assert_not_called()
+        if phase == "before":
+            save_hash.assert_not_called()
+        else:
+            save_hash.assert_called_once_with()
+
+    def test_failed_post_analysis_retry_does_not_repeat_simulation(
+        self, analysis_simulation, analysis_classes, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        simulation, _, after, events = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        def fail():
+            assert simulation._is_hashed()
+            raise RuntimeError("post-analysis failed")
+
+        monkeypatch.setattr(after, "_analyze", fail)
+        with pytest.raises(RuntimeError, match="post-analysis failed"):
+            simulation.run_simulation()
+        assert simulation._hash_path.is_file()
+        assert simulation._is_hashed()
+        assert events.count("step") == 1
+        backend = simulation.simulation
+        backend.step.reset_mock()
+        before_class, after_class = analysis_classes
+        before_retry, after_retry = before_class(), after_class()
+        retry = Simulation(
+            elements=[
+                simulation.hyparams,
+                *simulation.densities,
+                *simulation.lasers,
+                before_retry,
+                after_retry,
+            ]
+        )
+        retry.setup_simulation(working_directory=tmp_path)
+        assert not retry.is_setup
+        assert before_retry.analysis_complete
+        assert not hasattr(retry, "simulation")
+        retry.run_simulation()
+        backend.step.assert_not_called()
+        assert after_retry.analysis_complete
+        assert after_retry.calls == 1
+
+    def test_disabling_hash_recording_does_not_create_hash_on_analysis_failure(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, _, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        monkeypatch.setattr(
+            after, "_analyze", MagicMock(side_effect=RuntimeError("analysis failed"))
+        )
+        with pytest.raises(RuntimeError, match="analysis failed"):
+            simulation.run_simulation(record_hash=False)
+        assert not simulation._hash_path.exists()
+
+    def test_hash_save_failure_does_not_start_analysis(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, _, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        monkeypatch.setattr(
+            simulation, "_save_hash", MagicMock(side_effect=OSError("write failed"))
+        )
+        with pytest.raises(OSError, match="write failed"):
+            simulation.run_simulation()
+        assert after.calls == 0
 
     def test_failed_stepping_does_not_analyze(
         self, analysis_simulation, tmp_path
@@ -800,6 +872,18 @@ class TestDirectoryLoading:
 
 
 class TestConfigHash:
+    def test_analysis_results_do_not_change_simulation_hash(
+        self, analysis_simulation
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        original = simulation.config_hash()
+        before.analyze()
+        after.analyze()
+        assert simulation.config_hash() == original
+        before.data["arbitrary_result"] = 123.0
+        after.data = {"different_result": -1.0}
+        assert simulation.config_hash() == original
+
     def test_same_config_same_hash(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 

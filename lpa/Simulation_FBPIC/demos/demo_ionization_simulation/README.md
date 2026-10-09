@@ -91,6 +91,8 @@ flattop length whenever the target energy, laser, or flattop density changes.
 
 The simulation saves a hash representation of itself; if it has already run successfully, it will not attempt to re-run if only non-simulation-related items are altered (e.g., if post-processing is modified within the same script).
 
-When stepping is skipped, automatic analysis is skipped as well. The demo leaves
-an existing `results.h5` unchanged rather than replacing it with empty beam
-results. A new results file is written only after the diagnostic has completed.
+When stepping is skipped because a matching hash exists, automatic analysis
+still reruns against the last recorded particle dump and refreshes `results.h5`.
+The simulation hash is saved before post-analysis. If analysis fails, retrying
+the demo skips the completed simulation and retries analysis rather than stepping
+again. The results file is replaced only after successful analysis.

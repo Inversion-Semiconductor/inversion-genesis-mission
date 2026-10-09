@@ -387,6 +387,8 @@ class Simulation(SerializableConfig):
         """Return a stable SHA-256 hex digest of this simulation's configuration.
 
         The hash is independent of the order in which elements were provided.
+        It covers physics configuration and its recorded Git revision, not
+        attached diagnostic inputs/results or supporting Parameters metadata.
         """
         payload = {
             "simulation_hyperparameters": self.hyparams.to_dict(),
@@ -651,9 +653,9 @@ class Simulation(SerializableConfig):
         """
         Setup the simulation and run attached pre-simulation diagnostics.
 
-        Analysis runs on the write rank after FBPIC setup completes. Skipped
-        setup does not run analysis. Analysis errors propagate and leave
-        ``is_setup`` false.
+        Analysis runs on the write rank after FBPIC setup completes. A matching
+        completion hash skips FBPIC setup but still runs pre-simulation analysis.
+        Analysis errors propagate and leave ``is_setup`` false for a new setup.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -670,8 +672,9 @@ class Simulation(SerializableConfig):
 
         if self._is_hashed() and skip_if_hashed:
             self._logger.warning(
-                "Simulation already run and hashed with this configuration. Skipping setup."
+                "Simulation already run and hashed with this configuration. Skipping setup and rerunning pre-simulation analysis."
             )
+            self._analyze_diagnostics(before_simulation=True)
             return
 
         if self.is_setup:
@@ -901,13 +904,15 @@ class Simulation(SerializableConfig):
         Run the simulation. `setup_simulation()` must be called before this function.
 
         Attached post-simulation diagnostics run on the write rank after all
-        stepping succeeds, before recording the completion hash. Skipped runs
-        do not run analysis. Analysis errors propagate without recording a hash.
+        stepping succeeds and the requested completion hash is saved. A matching
+        hash skips stepping but still reruns analysis, without requiring FBPIC
+        setup. Analysis errors propagate while preserving the completion hash,
+        so retries can analyze existing output without repeating the simulation.
 
         Args:
             show_progress: (bool) Whether to show the progress bar. Defaults to True.
             logger_friendly_progress: (bool) Whether to use logger-friendly output for indicating progress. Defaults to False.
-            record_hash: (bool) Whether to record the hash of the simulation configuration upon successful completion. Defaults to True.
+            record_hash: (bool) Whether to record the hash after successful stepping, before analysis. Defaults to True.
             skip_if_hashed: (bool) Whether to skip the simulation if the configuration hash is the same as a previous run. Defaults to True.
 
         Returns:
@@ -916,8 +921,9 @@ class Simulation(SerializableConfig):
 
         if self._is_hashed() and skip_if_hashed:
             self._logger.warning(
-                "Simulation already run and hashed with this configuration. Skipping run."
+                "Simulation already run and hashed with this configuration. Skipping stepping and rerunning post-simulation analysis."
             )
+            self._analyze_diagnostics(before_simulation=False)
             return
 
         if not self.is_setup:
@@ -961,11 +967,11 @@ class Simulation(SerializableConfig):
 
             self._logger.info(f"Completed in {round((time0-time00)):d} seconds.")
 
-        self._analyze_diagnostics(before_simulation=False)
-
         # TODO: read simulation output to see if it actually was successful
         if record_hash and self.do_write_to_disk:
             self._save_hash()
+
+        self._analyze_diagnostics(before_simulation=False)
 
     # TODO: Add a method for plotting the constituent DensityProfiles like in Chris' results. Include lineouts of gas pressure and the total plasma density.
     # TODO: Add a method for plotting the laser pulse profiles (probably just calling the LaserProfile.plot() method)

@@ -180,17 +180,19 @@ before loading their tagged configurations to register them.
 Set the class attribute `RUN_BEFORE_SIMULATION: ClassVar[bool]` in the concrete
 diagnostic. `True` schedules `analyze()` at the end of `setup_simulation()`;
 `False` (the inherited default) schedules it after stepping at the end of
-`run_simulation()`, before recording the completion hash. This is a class policy,
+`run_simulation()`, after recording the successful-stepping hash. This is a class policy,
 not a constructor argument or serialized parameter. Attach diagnostic instances
 directly to `elements` or include them in nested containers.
 
 Automatic analysis runs on the simulation's write rank (rank zero with MPI).
 Within a phase it follows depth-first element order. Repeated references are not
-deduplicated. Setup skipped because it is already initialized or hashed, and
-runs skipped because they are hashed, do not invoke analysis. Forced runs with
+deduplicated. A matching hash skips FBPIC setup and stepping but still reruns
+the corresponding pre- and post-analysis phases. Repeating setup on an already
+initialized, unhashed instance remains a no-op. Forced runs with
 `skip_if_hashed=False` invoke the appropriate phase normally. A pre-analysis
-failure leaves `is_setup` false; a post-analysis failure prevents recording the
-completion hash. Errors propagate to the caller. Analysis implementations use
+failure leaves a new setup incomplete; a post-analysis failure preserves the
+completed simulation hash, so retrying runs analysis without repeating stepping.
+Errors propagate to the caller. Analysis implementations use
 their own declared inputs; no simulation argument is passed to `_analyze()`.
 
 Diagnostic elements are attached automatically when the simulation is assembled.
@@ -280,8 +282,8 @@ The constructor exposes `longitudinal_mode` (OFF=0, MOMENTS=1, SPLINE=2),
 the function's defaults. All particles of the selected recordings are analyzed without
 additional momentum selection or central cropping. `config_type` remains
 `datapoint` and its concrete `subclass` tag is `moment_descriptor`. Call
-`moments.analyze()` explicitly to recompute results from existing output if the
-simulation run was skipped because its configuration was already hashed.
+`moments.analyze()` explicitly to recompute outside the simulation lifecycle;
+cached `run_simulation()` calls already refresh results from existing output.
 
 ## Demos
 

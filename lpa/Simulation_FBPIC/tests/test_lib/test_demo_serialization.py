@@ -123,14 +123,14 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         captured.append(simulation)
 
     def run(simulation, **kwargs):
-        if not skip_current:
-            simulation._analyze_diagnostics(before_simulation=False)
+        simulation._analyze_diagnostics(before_simulation=False)
 
     monkeypatch.setattr(simulation_module.Simulation, "setup_simulation", setup)
     monkeypatch.setattr(simulation_module.Simulation, "run_simulation", run)
     particles = np.random.default_rng(21).normal(size=(128, 6))
     expected = compute_moment_descriptor(particles, np.ones(len(particles)))
-    calculate = Mock(return_value=expected)
+    refreshed = {**expected, "mean_uz": expected["mean_uz"] + 1.0}
+    calculate = Mock(side_effect=[expected, refreshed])
     monkeypatch.setattr(MomentDescriptorDiagnostic, "_analyze", calculate)
     monkeypatch.setattr(
         demo, "plot_from_hdf5_series", Mock(return_value=(output, "frame"))
@@ -149,7 +149,7 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         demo.main()
         skip_current = skip_run
         demo.main()
-        assert calculate.call_count == (1 if skip_run else 2)
+        assert calculate.call_count == 2
         path = output / "results.h5"
         loaded = SerializableConfig.from_file(path)
         assert isinstance(loaded, ConfigContainer)
@@ -164,10 +164,10 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         assert parameters.data["laser_a0"] > 0.0
         assert parameters.data["flattop_length_m"] > 0.0
         assert moments.selection == ("all_of_species", "e")
-        assert moments.data == expected
+        assert moments.data == refreshed
         assert len(moments.data) == 33
         assert captured[-1].parameters[0].data == parameters.data
-        assert captured[-1].diagnostics[0].analysis_complete is (not skip_run)
+        assert captured[-1].diagnostics[0].analysis_complete
         assert captured[-1].diagnostics[0].attached_simulation is captured[-1]
         assert (output / "cfgs" / "simulation.h5").is_file()
         assert (output / "plots" / "density_profiles.png").is_file()
