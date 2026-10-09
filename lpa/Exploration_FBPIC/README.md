@@ -36,6 +36,21 @@ The configuration fingerprint is written to every `run_manifest.json`. Change bo
 or active stages as needed; do not change the frozen template, numerical settings,
 or analysis settings within a campaign. Begin a new campaign when those must change.
 
+### Adapting a new template
+
+Most template updates require only a new campaign YAML: set `template_script`, update
+the physical parameter names, nominal values, bounds, stages, and fixed execution
+settings. The executor, campaign store, scalar extraction, and Slurm dispatch remain
+unchanged when the template still accepts the physical and hyperparameter mappings,
+provides a `.run()` method, and writes the same final openPMD particle diagnostic.
+
+If the template moves to a configuration-based constructor or CLI, adapt
+`FBPICRunExecutor._write_entrypoint` to write the template's per-run configuration
+from the manifest and invoke its new run method. The rest of the exploration workflow
+can remain unchanged as long as the diagnostic path, particle species, and openPMD
+layout stay compatible. Update `extract_features` only when that output contract or
+the desired scalar calculations change.
+
 ## Stage 1
 
 Stage 1 varies eight physically important controls: plasma density, dopant fraction,
@@ -44,9 +59,8 @@ retains all 29 physical inputs in each manifest. The suggested first batch is no
 plus low/high anchors through that point and a Sobol fill:
 
 ```bash
-explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 \
-  --features total_beam_charge_pc mean_uz cov_x_x cov_y_y cov_uz_uz \
-  initial-design --count 24 --seed 0 --output initial_design.json
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 initial-design \
+  --count 24 --seed 0 --output initial_design.json
 ```
 
 The existing FBPIC utilities reduce each final diagnostic to the fixed 33-scalar
@@ -59,8 +73,8 @@ record under `data/ionization_injection_exploration/`.
 After validating the bounds and environment, run one point:
 
 ```bash
-explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 \
-  evaluate --point '{"laser_energy_J": 2.5}'
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 evaluate \
+  --point '{"laser_energy_J": 2.5}'
 ```
 
 This creates an isolated run directory, writes the full physical vector to
@@ -70,8 +84,28 @@ diagnostic. It is expected to consume normal FBPIC resources.
 ## NERSC/libEnsemble
 
 Use a single Slurm allocation and let libEnsemble assign one GPU or GPU/MPI team per
-FBPIC evaluation. [runs/initial_study/submit_nersc.sh](runs/initial_study/submit_nersc.sh)
-provides allocation settings and a safe initial-design command.
+FBPIC evaluation. The persistent driver runs Xopt's Bayesian exploration generator
+on the libEnsemble manager and uses resource-set workers to launch FBPIC. It starts
+with the campaign's deterministic initial design, records the completed scalar
+outputs, then asks Xopt for later candidates as GPU resource sets become available.
+
+[runs/nersc_smoke/submit_nersc.sh](runs/nersc_smoke/submit_nersc.sh) is the
+reference Perlmutter launch. It starts one manager and eight simulation workers;
+the smoke campaign gives every worker a two-GPU resource set. Do not dispatch
+background `explore-fbpic evaluate` processes from the batch script: libEnsemble's
+`MPIExecutor` owns the FBPIC MPI launch and GPU binding.
+
+Install the NERSC extra before running the driver:
+
+```bash
+python -m pip install --no-cache-dir libensemble
+```
+
+Then submit from the campaign directory:
+
+```bash
+sbatch submit_nersc.sh
+```
 
 For the production driver, configure libEnsemble with:
 

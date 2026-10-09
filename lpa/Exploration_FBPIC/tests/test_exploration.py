@@ -11,7 +11,6 @@ def test_initial_design_has_active_parameters_only() -> None:
     explorer = XoptFBPICExplorer(
         Campaign.from_file(CONFIG),
         "stage_1",
-        ["total_beam_charge_pc"],
     )
 
     points = explorer.initial_design(20, seed=7)

@@ -6,9 +6,23 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 import yaml
+
+
+_NUMERIC_STRING = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _normalize_numeric_strings(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalize_numeric_strings(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_numeric_strings(item) for item in value]
+    if isinstance(value, str) and _NUMERIC_STRING.fullmatch(value):
+        return float(value)
+    return value
 
 
 @dataclass(frozen=True)
@@ -123,7 +137,7 @@ class CampaignConfig:
             parameters=parameters,
             stages=stages,
             analysis=dict(data["analysis"]),
-            execution=dict(data["execution"]),
+            execution=_normalize_numeric_strings(data["execution"]),
         )
 
     def active_parameters(self, stage: str) -> tuple[Parameter, ...]:
@@ -138,6 +152,16 @@ class CampaignConfig:
             return self.stages[stage]
         except KeyError as error:
             raise KeyError(f"unknown stage {stage!r}; choose from {sorted(self.stages)}") from error
+
+    @property
+    def exploration_features(self) -> tuple[str, ...]:
+        """Scalar outputs selected by this campaign for exploration."""
+        features = self.analysis.get("exploration_features", ())
+        if not isinstance(features, list) or not all(isinstance(feature, str) for feature in features):
+            raise ValueError("analysis.exploration_features must be a list of scalar feature names")
+        if not features:
+            raise ValueError("analysis.exploration_features must select at least one scalar feature")
+        return tuple(features)
 
     def complete_parameters(
         self, stage: str, proposed: Mapping[str, float] | None = None

@@ -20,6 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "explore-fbpic=exploration_fbpic.cli:main",
+            "explore-fbpic-libe=exploration_fbpic.libensemble_driver:main",
         ],
     },
 )

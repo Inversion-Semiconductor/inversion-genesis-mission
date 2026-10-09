@@ -10,6 +10,9 @@ import subprocess
 import time
 from typing import Any, Mapping
 
+import numpy as np
+from scipy.constants import c, e, m_e
+
 from inversion_fbpic.utils.distributions import (
     MOMENTS,
     OFF,
@@ -22,7 +25,12 @@ from inversion_fbpic.utils.distributions import (
 
 from .campaign import Campaign, RunManifest
 
-LONGITUDINAL_MODES = {"off": OFF, "moments": MOMENTS, "spline": SPLINE}
+
+def mean_kinetic_energy_mev(particles: np.ndarray, weights: np.ndarray) -> float:
+    """Return the charge-weighted mean electron kinetic energy in MeV."""
+    gamma = np.sqrt(1.0 + np.sum(particles[:, (1, 3, 5)] ** 2, axis=1))
+    kinetic_energy_mev = (gamma - 1.0) * m_e * c**2 / e / 1.0e6
+    return float(np.average(kinetic_energy_mev, weights=weights))
 
 
 @dataclass(frozen=True)
@@ -122,7 +130,7 @@ if __name__ == "__main__":
             )
 
     def extract_features(self, run_directory: Path) -> dict[str, float]:
-        """Reduce the final diagnostic to the campaign's stable scalar schema."""
+        """Extract the complete scalar schema from the final particle diagnostic."""
         analysis = self.config.analysis
         diagnostics = sorted((run_directory / "lab_diags" / "hdf5").glob("data*.h5"))
         if not diagnostics:
@@ -132,13 +140,31 @@ if __name__ == "__main__":
         particles, weights = crop_central_particles(
             particles, weights, central_fraction=float(analysis["central_fraction"])
         )
-        return compute_moment_descriptor(
+        features = compute_moment_descriptor(
             particles,
             weights,
-            longitudinal_mode=LONGITUDINAL_MODES[analysis["longitudinal_mode"]],
+            longitudinal_mode=OFF,
             longitudinal_bins=int(analysis["longitudinal_bins"]),
-            include_higher_moments=bool(analysis.get("include_higher_moments", False)),
+            include_higher_moments=True,
         )
+        features.update(
+            compute_moment_descriptor(
+                particles,
+                weights,
+                longitudinal_mode=MOMENTS,
+                longitudinal_bins=int(analysis["longitudinal_bins"]),
+            )
+        )
+        features.update(
+            compute_moment_descriptor(
+                particles,
+                weights,
+                longitudinal_mode=SPLINE,
+                longitudinal_bins=int(analysis["longitudinal_bins"]),
+            )
+        )
+        features["mean_kinetic_energy_MeV"] = mean_kinetic_energy_mev(particles, weights)
+        return features
 
     @staticmethod
     def _write_result(run_directory: Path, manifest: RunManifest, result: EvaluationResult) -> None:

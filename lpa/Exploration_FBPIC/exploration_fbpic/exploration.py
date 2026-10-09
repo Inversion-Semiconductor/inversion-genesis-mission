@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Mapping
 
 import numpy as np
 import pandas as pd
@@ -26,14 +26,11 @@ class XoptFBPICExplorer:
         self,
         campaign: Campaign,
         stage: str,
-        exploration_features: Iterable[str],
     ) -> None:
         self.campaign = campaign
         self.stage = stage
         self.parameters = campaign.config.active_parameters(stage)
-        self.feature_names = tuple(exploration_features)
-        if not self.feature_names:
-            raise ValueError("at least one scalar feature must be explored")
+        self.feature_names = campaign.config.exploration_features
         self.executor = FBPICRunExecutor(campaign)
         self.store = CampaignStore(campaign.config.run_root)
 

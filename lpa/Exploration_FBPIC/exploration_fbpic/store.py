@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import fcntl
 import pandas as pd
 
 from .executor import EvaluationResult
@@ -33,10 +34,14 @@ class CampaignStore:
         row.update({f"p:{name}": value for name, value in manifest["parameters"].items()})
         row.update({f"f:{name}": value for name, value in result.features.items()})
         self.root.mkdir(parents=True, exist_ok=True)
-        current = pd.read_parquet(self.path) if self.path.exists() else pd.DataFrame()
-        if not current.empty and result.run_id in set(current["run_id"]):
-            raise ValueError(f"duplicate run id: {result.run_id}")
-        pd.concat([current, pd.DataFrame([row])], ignore_index=True).to_parquet(self.path, index=False)
+        with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = pd.read_parquet(self.path) if self.path.exists() else pd.DataFrame()
+            if not current.empty and result.run_id in set(current["run_id"]):
+                raise ValueError(f"duplicate run id: {result.run_id}")
+            pd.concat([current, pd.DataFrame([row])], ignore_index=True).to_parquet(
+                self.path, index=False
+            )
 
     def load(self) -> pd.DataFrame:
         return pd.read_parquet(self.path) if self.path.exists() else pd.DataFrame()
