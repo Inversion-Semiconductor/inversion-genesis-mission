@@ -83,7 +83,7 @@ proj_inversion/
 inversion-radiasoft-plasma-injector/
 
 # fluid sim processing output files
-**/Simulation_Fluid/**/data/
+**/Simulation_Fluid/**/*.json
 # large document files
 *.pdf
 *.pptx
