@@ -62,6 +62,15 @@ GENERALIZED_GAUSSIAN_PLUS_TRIANGLE_KWARGS = {
     "tri_height": 1.0,
 }
 
+BILATERAL_SUPERGAUSSIAN_KWARGS = {
+    **_COMMON,
+    "center": 0.0,
+    "fwhm_left": 4.0e-6,
+    "beta_left": 2.0,
+    "fwhm_right": 8.0e-6,
+    "beta_right": 6.0,
+}
+
 H5_DENSITY_KWARGS = {
     "p_nz": 1,
     "p_nr": 1,
@@ -128,6 +137,12 @@ def _build_generalized_gaussian_plus_triangle():
     from inversion_fbpic.lib.density_profiles import GeneralizedGaussianPlusTriangle
 
     return GeneralizedGaussianPlusTriangle(**GENERALIZED_GAUSSIAN_PLUS_TRIANGLE_KWARGS)
+
+
+def _build_bilateral_supergaussian():
+    from inversion_fbpic.lib.density_profiles import BilateralSuperGaussian
+
+    return BilateralSuperGaussian(**BILATERAL_SUPERGAUSSIAN_KWARGS)
 
 
 def _build_generic_conical_target():
@@ -212,6 +227,7 @@ _PROFILE_BUILDERS = {
     "smooth_sine_flattop": _build_smooth_sine_flattop,
     "gaussian_plus_triangle": _build_gaussian_plus_triangle,
     "generalized_gaussian_plus_triangle": _build_generalized_gaussian_plus_triangle,
+    "bilateral_supergaussian": _build_bilateral_supergaussian,
     "generic_conical_target": _build_generic_conical_target,
     "power_law_flattop": _build_power_law_flattop,
     "generalized_lorentzian_sum": _build_generalized_lorentzian_sum,
@@ -266,6 +282,84 @@ class TestExampleDensityProfile:
         assert isinstance(result, np.ndarray)
         assert result.shape == z.shape
         assert np.all(result >= 0.0)
+
+
+# ===================================================================
+# Unit tests — BilateralSuperGaussian
+# ===================================================================
+
+
+class TestBilateralSuperGaussian:
+    def test_peak_is_exactly_one_at_center(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        assert dens(profile.center, 0.0) == pytest.approx(1.0, abs=1e-12)
+
+    def test_left_side_matches_a_supergaussian_with_only_the_left_params(self) -> None:
+        """At center - fwhm_left/2 the density must hit the FWHM half-max point,
+        using beta_left, regardless of what beta_right/fwhm_right are set to."""
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_half_left = profile.center - profile.fwhm_left / 2.0
+        assert dens(z_half_left, 0.0) == pytest.approx(0.5, rel=1e-10)
+
+    def test_right_side_matches_a_supergaussian_with_only_the_right_params(
+        self,
+    ) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_half_right = profile.center + profile.fwhm_right / 2.0
+        assert dens(z_half_right, 0.0) == pytest.approx(0.5, rel=1e-10)
+
+    def test_asymmetric_parameters_give_asymmetric_extent(self) -> None:
+        """BILATERAL_SUPERGAUSSIAN_KWARGS deliberately has fwhm_right = 2*fwhm_left
+        and a different beta per side, so the two half-spans must differ."""
+        profile = _build_bilateral_supergaussian()
+        z_min, z_max = profile.get_z_extent()
+        left_half = profile.center - z_min
+        right_half = z_max - profile.center
+        assert left_half != pytest.approx(right_half)
+
+    def test_symmetric_parameters_give_a_symmetric_extent(self) -> None:
+        from inversion_fbpic.lib.density_profiles import BilateralSuperGaussian
+
+        profile = BilateralSuperGaussian(
+            **{
+                **BILATERAL_SUPERGAUSSIAN_KWARGS,
+                "fwhm_right": BILATERAL_SUPERGAUSSIAN_KWARGS["fwhm_left"],
+                "beta_right": BILATERAL_SUPERGAUSSIAN_KWARGS["beta_left"],
+            }
+        )
+        z_min, z_max = profile.get_z_extent()
+        assert (profile.center - z_min) == pytest.approx(z_max - profile.center)
+
+    def test_density_is_continuous_across_the_center(self) -> None:
+        """Both sides equal 1.0 at the center by construction, so evaluating just
+        left and just right of it should agree closely even though the two
+        sides use different beta (and would otherwise diverge away from the
+        center)."""
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        eps = 1e-9
+        just_left = dens(profile.center - eps, 0.0)
+        just_right = dens(profile.center + eps, 0.0)
+        assert just_left == pytest.approx(1.0, abs=1e-6)
+        assert just_right == pytest.approx(1.0, abs=1e-6)
+
+    def test_radially_uniform(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        assert dens(profile.center, 0.0) == pytest.approx(dens(profile.center, 1e-3))
+
+    def test_array_input(self) -> None:
+        profile = _build_bilateral_supergaussian()
+        dens = profile.build_density_function()
+        z_min, z_max = profile.get_z_extent()
+        z = np.linspace(z_min, z_max, 50)
+        result = dens(z, np.zeros_like(z))
+        assert isinstance(result, np.ndarray)
+        assert result.shape == z.shape
+        assert np.all(result >= 0.0) and np.all(np.isfinite(result))
 
 
 # ===================================================================
