@@ -175,6 +175,28 @@ def test_conical_kwargs_shifts_center_so_the_profile_starts_at_zero(windowed_lin
     )  # shape parameters are untouched by the shift
 
 
+def test_conical_kwargs_converts_cosine_squared_ramp_fraction(windowed_lineout):
+    target = 9.87e-4
+    family = FixedParameterFamily(
+        GenericConicalTargetFamily("cosine_squared_flattop"), "center", target
+    )
+    result = MultiStartLocalFit(n_starts=3, seed=0).fit(windowed_lineout, family)
+    template_kwargs = {
+        "main_profile_type": "cosine_squared_flattop",
+        "main_profile_parameters": {"fwhm": None, "ramp_length": None},
+    }
+
+    kwargs = _conical_kwargs(result, template_kwargs, target)
+
+    assert kwargs["main_profile_parameters"] == pytest.approx(
+        {
+            "fwhm": result.parameters["fwhm"],
+            "ramp_length": result.parameters["ramp_fraction"]
+            * result.parameters["fwhm"],
+        }
+    )
+
+
 def test_lorentzian_sum_kwargs_shifts_every_term_by_the_same_constant(
     windowed_lineout,
 ):

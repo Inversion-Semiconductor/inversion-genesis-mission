@@ -183,14 +183,17 @@ def _conical_kwargs(
     translation of the whole profile, giving it the same (shifted) anchor.
     """
     parameters = result.parameters
+    family = result.family
+    if isinstance(family, FixedParameterFamily):
+        family = family.family
+    if not isinstance(family, GenericConicalTargetFamily):
+        raise TypeError("conical config generation requires a conical target family")
     shift = _shift_to_left_edge_zero(result.build_profile())
     kwargs: dict[str, Any] = {
         "nominal_density": result.nominal_density_m3(),
         "center": target_centroid + shift,
         "main_profile_type": template_kwargs["main_profile_type"],
-        "main_profile_parameters": {
-            key: parameters[key] for key in template_kwargs["main_profile_parameters"]
-        },
+        "main_profile_parameters": family._main_parameters(parameters),
     }
     if "fringe_profile_type" in template_kwargs:
         kwargs.update(
