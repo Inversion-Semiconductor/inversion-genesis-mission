@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, TYPE_CHECKING, Literal, Iterable
 import matplotlib.pyplot as plt
 
+from ._laser_implementations.lasy_laser import LasyLaserPulse as LasyLaserPulse
+
 class _LaserPulse(SerializableConfig):
     """Base class for serializable laser profile configurations.
 
@@ -20,7 +22,7 @@ class _LaserPulse(SerializableConfig):
 
     Args:
         energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
         z0: (float) [m] Position of the laser pulse within the simulation window in meters.
         method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
         z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -53,7 +55,7 @@ class _LaserPulse(SerializableConfig):
 
         Args:
             energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
             z0: (float) [m] Position of the laser pulse within the simulation window in meters.
             method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
             z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -62,6 +64,23 @@ class _LaserPulse(SerializableConfig):
         ...
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, overrides: dict[str, Any] | None=None) -> '_LaserPulse':
+        ...
+    def prepare(self, comm: Any | None=None, *, relative_to: Path | str | None=None) -> None:
+        """Perform one-time, possibly collective, setup before ``build_laser_profile``.
+
+        ``Simulation.setup_simulation`` calls this on every MPI rank before adding
+        the laser. The base implementation is a no-op; subclasses that need to
+        write files or run expensive precomputation (e.g. ``LasyLaserPulse``)
+        override it.
+
+        Args:
+            comm: (BoundaryCommunicator|mpi4py.MPI.Comm|None) Communicator for
+                collective setup. Accepts FBPIC's ``sim.comm``, an mpi4py
+                communicator such as ``MPI.COMM_WORLD``, or ``None`` when running
+                without MPI (everything happens on the calling process).
+            relative_to: (Path|str|None) Directory against which relative output paths
+                are resolved. ``Simulation`` passes its ``working_directory``; ``None``
+                means the current working directory."""
         ...
     def get_z_extent(self, num_sigma: float=3.0) -> tuple[float, float]:
         """Get the longitudinal extent of the laser pulse in meters.
@@ -94,7 +113,7 @@ class _LaserPulse(SerializableConfig):
         ...
     @abstractmethod
     def get_r_extent(self, simulation_extent: tuple[float, float], num_sigma: float=3.0) -> float:
-        """Get the radial extent of the laser pulse in meters.
+        """Get the radial extent of the laser pulse in meters. Assumes vacuum propagation.
 
         Args:
             simulation_extent: (tuple[float, float]) The extent of the full simulation in meters.
@@ -116,56 +135,13 @@ class _LaserPulse(SerializableConfig):
         """Return a LaserProfile object or list of LaserProfile objects that represents the laser pulse."""
         ...
 
-class LasyLaserPulse(_LaserPulse):
-    """Laser pulse from a `Lasy` profile.
-    This is not yet implemented!
-
-    Args:
-        energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
-        z0: (float) [m] Position of the laser pulse within the simulation window in meters.
-        method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
-        z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
-        v_antenna: (float|None) [m/s] |OPTIONAL| Velocity of the antenna in meters per second. Required if method is "antenna"."""
-    SUBCLASS: ClassVar[str]
-    def __init__(
-        self,
-        *,
-        energy: float | None = None,
-        a0: float | None = None,
-        z0: float,
-        method: Literal['direct', 'antenna'] | None = None,
-        z0_antenna: float | None = None,
-        v_antenna: float | None = None,
-    ) -> None:
-        """Laser pulse from a `Lasy` profile.
-        This is not yet implemented!
-
-        Args:
-            energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
-            z0: (float) [m] Position of the laser pulse within the simulation window in meters.
-            method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
-            z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
-            v_antenna: (float|None) [m/s] |OPTIONAL| Velocity of the antenna in meters per second. Required if method is "antenna"."""
-    def get_r_extent(self, simulation_extent: tuple[float, float], num_sigma: float=3.0) -> float:
-        ...
-    def get_z_extent(self, num_sigma: float=3.0) -> tuple[float, float]:
-        ...
-    def resolve_laser_energy(self) -> float:
-        ...
-    def resolve_laser_a0(self) -> float:
-        ...
-    def build_laser_profile(self) -> LaserProfile | list[LaserProfile]:
-        ...
-
 class _GaussianTemporalLaserPulse(_LaserPulse):
     """Laser pulse with an explicit Gaussian temporal (longitudinal) profile.
     No transverse profile is defined; do not build this abstract class.
 
     Args:
         energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
         z0: (float) [m] Position of the laser pulse within the simulation window in meters.
         method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
         z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -211,7 +187,7 @@ class _GaussianTemporalLaserPulse(_LaserPulse):
 
         Args:
             energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
             z0: (float) [m] Position of the laser pulse within the simulation window in meters.
             method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
             z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -255,7 +231,7 @@ class GaussianLaserPulse(_GaussianTemporalLaserPulse):
 
     Args:
         energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
         z0: (float) [m] Position of the laser pulse within the simulation window in meters.
         method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
         z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -295,7 +271,7 @@ class GaussianLaserPulse(_GaussianTemporalLaserPulse):
 
         Args:
             energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+            a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
             z0: (float) [m] Position of the laser pulse within the simulation window in meters.
             method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
             z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
