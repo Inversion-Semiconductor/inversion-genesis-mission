@@ -194,7 +194,7 @@ class FitObjective:
       parameters move), and ``MultiStartLocalFit`` estimates gradients by
       finite differences; that combination made ``scipy.optimize.minimize``'s
       line search fail intermittently in practice.
-    * ``extent_weight`` times the squared excess of the built profile's own
+    * ``extent_weight`` times the squared logarithm of the excess of the built profile's own
       ``get_z_extent()`` width over ``allowed_extent_ratio`` times the fit
       window's width (a hinge: zero unless that ratio is exceeded).
 
@@ -323,7 +323,7 @@ class FitObjective:
         if self.extent_weight > 0.0:
             extent_ratio = (z_extent[1] - z_extent[0]) / self._window_width
             excess = max(0.0, extent_ratio - self.allowed_extent_ratio)
-            total += self.extent_weight * excess * excess
+            total += self.extent_weight * np.log1p(excess) ** 2
         return total
 
     def result(

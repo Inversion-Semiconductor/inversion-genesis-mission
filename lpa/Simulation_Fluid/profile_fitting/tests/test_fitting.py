@@ -11,6 +11,7 @@ from fludat_fit.families import (
     get_families,
 )
 from fludat_fit.fitting import (
+    INVALID_OBJECTIVE,
     MAX_DEVIATION_EXPONENT,
     FitObjective,
     FitResult,
@@ -351,17 +352,25 @@ def test_extent_term_is_a_hinge_on_the_window_width_ratio():
     at_threshold = FitObjective(lineout, family, space, **common)
     assert at_threshold(u) == pytest.approx(0.0, abs=1e-12)
 
-    # Comfortably past it: a quadratic hinge on the excess ratio.
+    # Comfortably past it: a log-compressed quadratic hinge on the excess ratio.
     family.extent = (0.0, 5.0 * window_width)
     over_threshold = FitObjective(lineout, family, space, **common)
-    assert over_threshold(u) == pytest.approx(9.0)  # excess = 5 - 2 = 3, 3**2 = 9
+    assert over_threshold(u) == pytest.approx(np.log1p(3.0) ** 2)
     assert over_threshold.allowed_extent_ratio == pytest.approx(2.0)
+
+    # A finite, valid long-tailed profile must still score below the invalid
+    # objective sentinel, even at the width ratio seen for shallow Lorentzians.
+    family.extent = (0.0, 4_000.0 * window_width)
+    extreme = FitObjective(lineout, family, space, **common)
+    assert extreme(u) == pytest.approx(np.log1p(3_998.0) ** 2)
+    assert extreme(u) < INVALID_OBJECTIVE
 
     # extent_weight=0.0 disables the term regardless of how wide the extent is.
     disabled = FitObjective(lineout, family, space, **common, extent_weight=0.0)
     assert disabled(u) == pytest.approx(0.0)
 
     # A custom allowed_extent_ratio shifts where the hinge kicks in.
+    family.extent = (0.0, 5.0 * window_width)
     lenient = FitObjective(lineout, family, space, **common, allowed_extent_ratio=10.0)
     assert lenient(u) == pytest.approx(0.0)
 
@@ -401,8 +410,11 @@ def test_extent_term_catches_a_realistic_heavy_tailed_lorentzian_term():
     loss_with = with_extent(u)
     loss_without = without_extent(u)
     expected_excess = extent_ratio - with_extent.allowed_extent_ratio
-    assert loss_with == pytest.approx(loss_without + expected_excess**2, rel=1e-6)
-    assert loss_with > loss_without + 1000.0  # the extent term dominates the total
+    assert loss_with == pytest.approx(
+        loss_without + np.log1p(expected_excess) ** 2, rel=1e-6
+    )
+    assert loss_with < INVALID_OBJECTIVE
+    assert loss_with > loss_without + 1.0  # the extent term still dominates the total
 
 
 def test_multi_start_local_fit_exposes_and_threads_the_extent_parameters(
