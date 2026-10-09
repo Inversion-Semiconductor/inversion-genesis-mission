@@ -195,7 +195,7 @@ def _conical_kwargs(
         "main_profile_type": template_kwargs["main_profile_type"],
         "main_profile_parameters": family._main_parameters(parameters),
     }
-    if "fringe_profile_type" in template_kwargs:
+    if template_kwargs.get("fringe_profile_type") is not None:
         kwargs.update(
             fringe_profile_type=template_kwargs["fringe_profile_type"],
             fringe_profile_parameters={

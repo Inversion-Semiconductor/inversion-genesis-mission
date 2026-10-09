@@ -175,6 +175,27 @@ def test_conical_kwargs_shifts_center_so_the_profile_starts_at_zero(windowed_lin
     )  # shape parameters are untouched by the shift
 
 
+def test_conical_kwargs_treats_null_fringe_type_as_no_fringe(windowed_lineout):
+    target = 9.87e-4
+    family = FixedParameterFamily(
+        GenericConicalTargetFamily("supergaussian"), "center", target
+    )
+    result = MultiStartLocalFit(n_starts=3, seed=0).fit(windowed_lineout, family)
+    template_kwargs = {
+        "main_profile_type": "supergaussian",
+        "main_profile_parameters": {"fwhm": None, "beta": None},
+        "fringe_profile_type": None,
+        "fringe_profile_parameters": {},
+    }
+
+    kwargs = _conical_kwargs(result, template_kwargs, target)
+
+    assert "fringe_profile_type" not in kwargs
+    assert "fringe_profile_parameters" not in kwargs
+    assert "fringe_center_offset" not in kwargs
+    assert "fringe_relative_height" not in kwargs
+
+
 def test_conical_kwargs_converts_cosine_squared_ramp_fraction(windowed_lineout):
     target = 9.87e-4
     family = FixedParameterFamily(
