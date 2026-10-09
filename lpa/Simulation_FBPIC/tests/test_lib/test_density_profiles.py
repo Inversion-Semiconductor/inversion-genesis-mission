@@ -1057,22 +1057,34 @@ class TestGenericConicalTarget:
 
         assert skewed.get_z_extent() == pytest.approx(unskewed.get_z_extent())
 
-    def test_z_extent_correction_is_skipped_when_skew_rate_is_zero(self) -> None:
-        """The skew-correction search never runs at skew_rate == 0 (the common case)."""
-        profile = self._build(
-            main_profile_type="supergaussian",
-            main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
-            fringe_profile_type=None,
-            fringe_profile_parameters={},
-            fringe_center_offset=None,
-            fringe_relative_height=1.0,
-            skew_rate=0.0,
-        )
-        left_span, right_span = profile._profile_support_spans()
+    def test_z_extent_is_continuous_at_zero_finite_supergaussian_skew(self) -> None:
+        def build_profile(skew_rate: float):
+            return self._build(
+                main_profile_type="supergaussian",
+                main_profile_parameters={"fwhm": 2.0e-3, "beta": 2.0},
+                fringe_profile_type=None,
+                fringe_profile_parameters={},
+                fringe_center_offset=None,
+                fringe_relative_height=1.0,
+                skew_rate=skew_rate,
+                skew_mode="finite_supergaussian",
+            )
 
-        assert profile.get_z_extent() == pytest.approx(
-            (profile.start_position, profile.start_position + left_span + right_span)
-        )
+        zero_skew_profile = build_profile(0.0)
+        z_min, z_max = zero_skew_profile.get_z_extent()
+        density = zero_skew_profile.build_density_function()
+        left_span, right_span = zero_skew_profile._profile_support_spans()
+        target_left = zero_skew_profile._unskewed_density(np.array([-left_span]))[0]
+        target_right = zero_skew_profile._unskewed_density(np.array([right_span]))[0]
+
+        assert density(z_min, 0.0) == pytest.approx(target_left, rel=1.0e-6)
+        assert density(z_max, 0.0) == pytest.approx(target_right, rel=1.0e-6)
+
+        zero_skew_extent = (z_min, z_max)
+        for nearby_skew_rate in (-1.0e-8, 1.0e-8):
+            assert build_profile(nearby_skew_rate).get_z_extent() == pytest.approx(
+                zero_skew_extent, rel=1.0e-8, abs=1.0e-12
+            )
 
     @pytest.mark.parametrize(
         "overrides",

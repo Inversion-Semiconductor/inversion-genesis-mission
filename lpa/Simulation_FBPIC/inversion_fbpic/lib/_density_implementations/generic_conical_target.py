@@ -424,12 +424,6 @@ class _FiniteSkewedProfile(_DensityProfile):
 
     def get_z_extent(self) -> tuple[float, float]:
         left_span, right_span = self._profile_support_spans()
-        if self.skew_rate == 0.0:
-            return (
-                self.start_position,
-                self.start_position + left_span + right_span,
-            )
-
         # Skew is applied after these (unskewed) spans are derived, and can
         # shift the density at either nominal edge far from what the shape's
         # own cutoff convention intended; correct each side against the
