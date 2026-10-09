@@ -103,7 +103,7 @@ def test_fit_recovers_known_supergaussian(supergaussian_lineout, supergaussian_t
     assert result.n_function_evaluations > 0
 
     # The exported profile reproduces the fitted curve in m^-3.
-    profile = result.build_profile(species="H", ionization=0, p_nz=2)
+    profile = result.build_profile(species="H", p_nz=2)
     assert profile.species == "H" and profile.p_nz == 2
     assert profile.nominal_density == pytest.approx(result.amplitude * 1.0e6)
     z = result.lineout.z

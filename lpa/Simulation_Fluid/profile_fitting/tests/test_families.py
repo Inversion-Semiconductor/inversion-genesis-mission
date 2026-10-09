@@ -53,9 +53,7 @@ def test_family_builds_valid_profiles_across_its_space(family: ProfileFamily, z_
         relative = family.relative_density(parameters, z_grid)
         assert relative.shape == z_grid.shape
         assert np.all(np.isfinite(relative)) and np.all(relative >= 0.0)
-        profile = family.build(
-            parameters, nominal_density=3.0e24, species="H", ionization=0
-        )
+        profile = family.build(parameters, nominal_density=3.0e24, species="H")
         assert isinstance(profile, family.profile_class)
         assert profile.nominal_density == pytest.approx(3.0e24)
         assert profile.species == "H"
@@ -89,7 +87,6 @@ def test_centered_families_put_the_centroid_where_asked(z_grid):
         parameters["center"] = 1.25e-3
         profile = family.build(parameters)
         assert profile.centroid == pytest.approx(1.25e-3)
-        assert profile.species is None and profile.ionization == 0
 
 
 def test_lorentzian_sum_amplitudes_scale_with_nominal_density(z_grid):

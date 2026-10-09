@@ -50,7 +50,6 @@ def test_build_conical_sets_center_as_the_profiles_own_centroid():
     assert isinstance(profile, GenericConicalTarget)
     assert profile.centroid == pytest.approx(CONICAL_SPEC["kwargs"]["center"])
     assert profile.nominal_density == pytest.approx(3.0e24)
-    assert profile.species is None and profile.ionization == 0
 
 
 def test_build_lorentzian_sum_matches_the_given_terms():
