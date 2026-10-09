@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any, ClassVar
 from unittest.mock import MagicMock
 
+import attrs
 import numpy as np
 import pytest
 import yaml
@@ -79,6 +81,70 @@ def _make_simulation():
 
     hyp, den, las = _make_simulation_elements()
     return Simulation(elements=[hyp, den, las])
+
+
+@pytest.fixture()
+def analysis_classes(monkeypatch: pytest.MonkeyPatch):
+    from inversion_fbpic.lib.datapoint import _Datapoint
+    from inversion_fbpic.lib.diagnostics import _Diagnostic
+
+    monkeypatch.setattr(
+        _Datapoint, "_CONCRETE_REGISTRY", dict(_Datapoint._CONCRETE_REGISTRY)
+    )
+
+    @attrs.define(kw_only=True, slots=False)
+    class BeforeDiagnostics(_Diagnostic):
+        SUBCLASS: ClassVar[str] = "test_simulation_before"
+        RUN_BEFORE_SIMULATION: ClassVar[bool] = True
+
+        calls: int = attrs.field(default=0, init=False)
+        events: list[str] = attrs.field(factory=list, init=False)
+
+        def _analyze(self) -> dict[str, Any]:
+            self.calls += 1
+            self.events.append("before" if self.RUN_BEFORE_SIMULATION else "after")
+            return {"calls": self.calls}
+
+    @attrs.define(kw_only=True, slots=False)
+    class AfterDiagnostics(BeforeDiagnostics):
+        SUBCLASS: ClassVar[str] = "test_simulation_after"
+        RUN_BEFORE_SIMULATION: ClassVar[bool] = False
+
+    return BeforeDiagnostics, AfterDiagnostics
+
+
+@pytest.fixture()
+def analysis_simulation(analysis_classes, monkeypatch: pytest.MonkeyPatch):
+    from inversion_fbpic.lib import simulation as simulation_module
+    from inversion_fbpic.lib.config_container import ConfigContainer
+    from inversion_fbpic.lib.simulation import Simulation
+
+    before_class, after_class = analysis_classes
+    events: list[str] = []
+    before, after = before_class(), after_class()
+    before.events = after.events = events
+    hyperparameters, density, laser = _make_simulation_elements()
+    simulation = Simulation(
+        elements=ConfigContainer(
+            configs=[
+                hyperparameters,
+                ConfigContainer(configs=[after, density, before, laser]),
+            ]
+        )
+    )
+    backend = MagicMock(dt=hyperparameters.dt, diags=[])
+    backend.step.side_effect = lambda *args, **kwargs: events.append("step")
+    backend.set_moving_window.side_effect = lambda *args, **kwargs: events.append(
+        "setup"
+    )
+    monkeypatch.setattr(
+        simulation_module, "FBPICSimulation", MagicMock(return_value=backend)
+    )
+    monkeypatch.setattr(
+        type(density), "add_to_simulation", MagicMock(return_value=(MagicMock(), None))
+    )
+    monkeypatch.setattr(simulation_module, "add_laser_pulse", MagicMock())
+    return simulation, before, after, events
 
 
 # ===================================================================
@@ -333,6 +399,474 @@ class TestSimulationAssembly:
             sim.run_simulation()
 
 
+class TestSupportingElements:
+    def test_nested_containers_and_parameters_preserve_references(self) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, density, laser = _make_simulation_elements()
+        data = {"config_type": "not_a_config", "label": "scan"}
+        parameters = Parameters(data=data)
+        container = ConfigContainer(
+            configs=[
+                hyperparameters,
+                ConfigContainer(configs=[parameters, density, laser]),
+            ]
+        )
+        simulation = Simulation(elements=container)
+        assert simulation.elements is container
+        assert simulation.hyparams is hyperparameters
+        assert simulation.densities == [density]
+        assert simulation.lasers == [laser]
+        assert simulation.parameters[0] is parameters
+        data["label"] = "changed"
+        assert simulation.parameters[0].data["label"] == "changed"
+        assert simulation.config_hash() == _make_simulation().config_hash()
+
+    def test_container_paths_are_resolved_once_at_construction(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.serializable_config import SerializableConfig
+        from inversion_fbpic.lib.simulation import Simulation
+
+        cfg = tmp_path / "cfg"
+        child_file = Parameters(data={"label": "anchored"}).to_yaml_file(
+            cfg / "parameters.yaml"
+        )
+        hyperparameters, density, laser = _make_simulation_elements()
+        with SerializableConfig.resolving_paths_relative_to(cfg):
+            nested = ConfigContainer(configs=["parameters.yaml", density, laser])
+            container = ConfigContainer(configs=[hyperparameters, nested])
+        child = nested.configs[0]
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        resolve = MagicMock(
+            side_effect=AssertionError("Container entries must not be resolved twice")
+        )
+        anchor = MagicMock(
+            side_effect=AssertionError("Sorting must not compute a new path anchor")
+        )
+        monkeypatch.setattr(SerializableConfig, "from_any", resolve)
+        monkeypatch.setattr(Simulation, "_element_config_anchor", anchor)
+        simulation = Simulation(elements=container)
+        assert simulation.parameters[0] is child
+        assert simulation.parameters[0].source_file == child_file
+        assert simulation.parameters[0].data == {"label": "anchored"}
+        assert simulation.hyparams is hyperparameters
+        assert simulation.densities == [density]
+        assert simulation.lasers == [laser]
+        resolve.assert_not_called()
+        anchor.assert_not_called()
+
+    def test_container_rejects_unresolved_entries_added_after_construction(
+        self,
+    ) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.simulation import Simulation
+
+        container = ConfigContainer(configs=list(_make_simulation_elements()))
+        container.configs.append("unresolved.yaml")
+        with pytest.raises(TypeError, match="resolved configuration objects"):
+            Simulation(elements=container)
+
+    @pytest.mark.parametrize("method", ["from_dict", "from_json", "from_yaml"])
+    def test_nested_elements_round_trip(self, analysis_classes, method: str) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.serializable_config import SerializableConfig
+        from inversion_fbpic.lib.simulation import Simulation
+
+        before_class, after_class = analysis_classes
+        before, after = before_class(), after_class()
+        before.analyze()
+        after.analyze()
+        hyperparameters, density, laser = _make_simulation_elements()
+        original = Simulation(
+            elements=ConfigContainer(
+                configs=[
+                    hyperparameters,
+                    ConfigContainer(
+                        configs=[density, Parameters(data={"energy": 5.0}), before]
+                    ),
+                    laser,
+                    after,
+                ]
+            )
+        )
+        payload = getattr(original, method.replace("from_", "to_"))()
+        loaded = getattr(SerializableConfig, method)(payload)
+        assert isinstance(loaded, Simulation)
+        assert isinstance(loaded.elements, ConfigContainer)
+        assert loaded.parameters[0].data == {"energy": 5.0}
+        assert [type(item) for item in loaded.diagnostics] == [
+            before_class,
+            after_class,
+        ]
+        assert [item.RUN_BEFORE_SIMULATION for item in loaded.diagnostics] == [
+            True,
+            False,
+        ]
+        assert all(not item.analysis_complete for item in loaded.diagnostics)
+        assert all(item.data == {"calls": 1} for item in loaded.diagnostics)
+        assert loaded.config_hash() == original.config_hash()
+        assert set(loaded.to_dict()["parameters"]) == {"elements", "verbosity"}
+        assert "RUN_BEFORE_SIMULATION" not in before.to_dict()["parameters"]
+        loaded.parameters[0].data["energy"] = 7.0
+        loaded.diagnostics[0].analyze()
+        loaded.diagnostics[0].analyze()
+        saved = SerializableConfig.from_dict(loaded.to_dict())
+        assert isinstance(saved, Simulation)
+        assert saved.parameters[0].data == {"energy": 7.0}
+        assert saved.diagnostics[0].data == {"calls": 2}
+
+    def test_directory_accepts_parameter_and_container_files(
+        self, tmp_path: Path
+    ) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, density, laser = _make_simulation_elements()
+        ConfigContainer(
+            configs=[hyperparameters, ConfigContainer(configs=[density, laser])]
+        ).to_yaml_file(tmp_path / "components.yaml")
+        Parameters(data={"label": "scan"}).to_json_file(tmp_path / "parameters.json")
+        simulation = Simulation(elements=tmp_path)
+        assert simulation.hyparams is not None
+        assert len(simulation.densities) == len(simulation.lasers) == 1
+        assert simulation.parameters[0].data == {"label": "scan"}
+
+    def test_nested_duplicate_hyperparameters_still_raise(self) -> None:
+        from inversion_fbpic.lib.config_container import ConfigContainer
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, density, laser = _make_simulation_elements()
+        container = ConfigContainer(
+            configs=[
+                hyperparameters,
+                density,
+                laser,
+                ConfigContainer(configs=[hyperparameters]),
+            ]
+        )
+        with pytest.raises(ValueError, match="Multiple SimulationHyperparameters"):
+            Simulation(elements=container)
+
+    def test_parameters_do_not_replace_required_components(self) -> None:
+        from inversion_fbpic.lib.datapoint import Parameters
+        from inversion_fbpic.lib.simulation import Simulation
+
+        with pytest.raises(ValueError, match="No SimulationHyperparameters"):
+            Simulation(elements=Parameters(data={"label": "scan"}))
+
+    def test_nested_relative_references_from_another_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, density, laser = _make_simulation_elements()
+        cfg = tmp_path / "cfg"
+        hyperparameters.to_json_file(cfg / "hyperparameters.json")
+        density.to_yaml_file(cfg / "nested" / "density.yaml")
+        laser.to_json_file(cfg / "nested" / "laser.json")
+        container = {
+            "config_type": "config_container",
+            "subclass": "config_container",
+            "parameters": {"configs": ["density.yaml", "laser.json"]},
+        }
+        (cfg / "nested" / "container.yaml").write_text(
+            yaml.safe_dump(container), encoding="utf-8"
+        )
+        outer = {
+            "config_type": "simulation",
+            "subclass": "simulation",
+            "parameters": {
+                "elements": ["hyperparameters.json", "nested/container.yaml"]
+            },
+        }
+        simulation_file = cfg / "simulation.yaml"
+        simulation_file.write_text(yaml.safe_dump(outer), encoding="utf-8")
+        other = tmp_path / "other"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        loaded = Simulation.from_file(simulation_file)
+        assert isinstance(loaded, Simulation)
+        assert len(loaded.densities) == len(loaded.lasers) == 1
+        assert (
+            loaded.densities[0].source_file
+            == (cfg / "nested" / "density.yaml").resolve()
+        )
+        assert loaded.lasers[0].source_file == (cfg / "nested" / "laser.json").resolve()
+
+    def test_collecting_diagnostics_does_not_serialize_or_analyze(
+        self, analysis_classes, caplog
+    ) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        before_class, after_class = analysis_classes
+        before, after = before_class(), after_class()
+        with caplog.at_level(logging.DEBUG):
+            simulation = Simulation(
+                elements=[*_make_simulation_elements(), before, after],
+                verbosity=logging.DEBUG,
+            )
+        assert simulation.diagnostics[0] is before
+        assert simulation.diagnostics[1] is after
+        assert before.calls == after.calls == 0
+        assert not any(
+            record.name == "inversion_fbpic.lib.diagnostics"
+            for record in caplog.records
+        )
+
+    def test_invalid_analysis_phase_is_rejected(
+        self, analysis_classes, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        before_class, _ = analysis_classes
+        monkeypatch.setattr(before_class, "RUN_BEFORE_SIMULATION", "before")
+        with pytest.raises(ValueError, match="RUN_BEFORE_SIMULATION must be a bool"):
+            Simulation(elements=[*_make_simulation_elements(), before_class()])
+
+
+class TestAttachedAnalysis:
+    def test_moment_descriptor_runs_after_stepping(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import diagnostics as module
+        from inversion_fbpic.lib import simulation as simulation_module
+        from inversion_fbpic.lib.diagnostics import MomentDescriptorDiagnostic
+        from inversion_fbpic.utils.distributions import compute_moment_descriptor
+
+        simulation, _, _, events = analysis_simulation
+        diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+        monkeypatch.setattr(simulation_module, "ParticleDiagnostic", MagicMock())
+        simulation._sort_component(diagnostic)
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert not diagnostic.analysis_complete
+        particles = np.random.default_rng(9).normal(size=(128, 6))
+        weights = np.ones(len(particles))
+        directory = simulation._save_directory / "hdf5"
+        directory.mkdir(parents=True)
+        latest = directory / "data00000010.h5"
+
+        def finish_step(*args, **kwargs):
+            events.append("step")
+            latest.touch()
+
+        loader = MagicMock(return_value=(particles, weights))
+        monkeypatch.setattr(module, "load_openpmd_particles", loader)
+        simulation.simulation.step.side_effect = finish_step
+        simulation.run_simulation(record_hash=False)
+        loader.assert_called_once_with(latest, "electrons")
+        assert diagnostic.data == compute_moment_descriptor(particles, weights)
+        assert diagnostic.analysis_complete
+
+    @pytest.mark.parametrize("logger_friendly", [False, True])
+    def test_phase_order_and_hash_recording(
+        self, analysis_simulation, tmp_path: Path, monkeypatch, logger_friendly: bool
+    ) -> None:
+        simulation, before, after, events = analysis_simulation
+        monkeypatch.setattr(simulation, "_save_hash", lambda: events.append("hash"))
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert events == ["setup", "before"]
+        assert before.analysis_complete and not after.analysis_complete
+        simulation.run_simulation(
+            show_progress=False, logger_friendly_progress=logger_friendly
+        )
+        assert events == ["setup", "before", "step", "hash", "after"]
+        assert before.calls == after.calls == 1
+        assert after.analysis_complete
+
+    def test_post_analysis_runs_once_after_all_progress_chunks(
+        self, analysis_simulation, tmp_path
+    ) -> None:
+        simulation, before, after, events = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.T_interact = simulation.simulation.dt * 600
+        simulation.run_simulation(logger_friendly_progress=True, record_hash=False)
+        assert events[0:2] == ["setup", "before"]
+        assert events[-1] == "after"
+        assert events.count("step") == 100
+        assert events.count("after") == 1
+        assert before.calls == after.calls == 1
+        assert (
+            sum(call.args[0] for call in simulation.simulation.step.call_args_list)
+            == simulation.num_steps
+        )
+
+    def test_setup_is_idempotent_and_explicit_runs_rerun_analysis(
+        self, analysis_simulation, tmp_path
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert before.calls == 1
+        simulation.run_simulation(record_hash=False)
+        simulation.run_simulation(record_hash=False)
+        assert after.calls == 2
+
+    @pytest.mark.parametrize("phase", ["setup", "run"])
+    def test_hashed_phase_reruns_analysis_without_simulation_work(
+        self, analysis_simulation, tmp_path, monkeypatch, phase
+    ) -> None:
+        simulation, before, after, events = analysis_simulation
+        monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
+        if phase == "setup":
+            simulation.setup_simulation(working_directory=tmp_path)
+        else:
+            simulation.run_simulation()
+        assert events == ["before" if phase == "setup" else "after"]
+        assert before.calls == (1 if phase == "setup" else 0)
+        assert after.calls == (1 if phase == "run" else 0)
+        assert not simulation.is_setup
+
+    def test_disabled_skip_runs_analysis(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
+        simulation.setup_simulation(working_directory=tmp_path, skip_if_hashed=False)
+        simulation.run_simulation(skip_if_hashed=False, record_hash=False)
+        assert before.calls == after.calls == 1
+
+    @pytest.mark.parametrize("rank", [0, 1])
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_only_mpi_write_rank_analyzes(
+        self, analysis_simulation, tmp_path, monkeypatch, rank, cached
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, before, after, _ = analysis_simulation
+        simulation.hyparams = _make_hyparams(use_mpi=True)
+        monkeypatch.setattr(simulation_module, "MPI_RANK", rank)
+        if cached:
+            monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(record_hash=False)
+        assert before.calls == after.calls == (1 if rank == 0 else 0)
+
+    @pytest.mark.parametrize("phase", ["before", "after"])
+    def test_analysis_failure_preserves_successful_stepping_hash(
+        self, analysis_simulation, tmp_path, monkeypatch, phase
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        diagnostic = before if phase == "before" else after
+        save_hash = MagicMock()
+        monkeypatch.setattr(simulation, "_save_hash", save_hash)
+
+        def fail():
+            raise RuntimeError("analysis failed")
+
+        monkeypatch.setattr(diagnostic, "_analyze", fail)
+        if phase == "before":
+            with pytest.raises(RuntimeError, match="analysis failed"):
+                simulation.setup_simulation(working_directory=tmp_path)
+            assert not simulation.is_setup
+        else:
+            simulation.setup_simulation(working_directory=tmp_path)
+            with pytest.raises(RuntimeError, match="analysis failed"):
+                simulation.run_simulation()
+        assert not diagnostic.analysis_complete
+        if phase == "before":
+            save_hash.assert_not_called()
+        else:
+            save_hash.assert_called_once_with()
+
+    def test_failed_post_analysis_retry_does_not_repeat_simulation(
+        self, analysis_simulation, analysis_classes, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        simulation, _, after, events = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        def fail():
+            assert simulation._is_hashed()
+            raise RuntimeError("post-analysis failed")
+
+        monkeypatch.setattr(after, "_analyze", fail)
+        with pytest.raises(RuntimeError, match="post-analysis failed"):
+            simulation.run_simulation()
+        assert simulation._hash_path.is_file()
+        assert simulation._is_hashed()
+        assert events.count("step") == 1
+        backend = simulation.simulation
+        backend.step.reset_mock()
+        before_class, after_class = analysis_classes
+        before_retry, after_retry = before_class(), after_class()
+        retry = Simulation(
+            elements=[
+                simulation.hyparams,
+                *simulation.densities,
+                *simulation.lasers,
+                before_retry,
+                after_retry,
+            ]
+        )
+        retry.setup_simulation(working_directory=tmp_path)
+        assert not retry.is_setup
+        assert before_retry.analysis_complete
+        assert not hasattr(retry, "simulation")
+        retry.run_simulation()
+        backend.step.assert_not_called()
+        assert after_retry.analysis_complete
+        assert after_retry.calls == 1
+
+    def test_disabling_hash_recording_does_not_create_hash_on_analysis_failure(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, _, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        monkeypatch.setattr(
+            after, "_analyze", MagicMock(side_effect=RuntimeError("analysis failed"))
+        )
+        with pytest.raises(RuntimeError, match="analysis failed"):
+            simulation.run_simulation(record_hash=False)
+        assert not simulation._hash_path.exists()
+
+    def test_hash_save_failure_does_not_start_analysis(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, _, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        monkeypatch.setattr(
+            simulation, "_save_hash", MagicMock(side_effect=OSError("write failed"))
+        )
+        with pytest.raises(OSError, match="write failed"):
+            simulation.run_simulation()
+        assert after.calls == 0
+
+    def test_failed_stepping_does_not_analyze(
+        self, analysis_simulation, tmp_path
+    ) -> None:
+        simulation, _, after, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.simulation.step.side_effect = RuntimeError("step failed")
+        with pytest.raises(RuntimeError, match="step failed"):
+            simulation.run_simulation(record_hash=False)
+        assert after.calls == 0
+
+    def test_depth_first_order_within_phase(
+        self, analysis_simulation, analysis_classes, tmp_path
+    ) -> None:
+        simulation, before, after, events = analysis_simulation
+        before_class, _ = analysis_classes
+        second = before_class()
+        second.events = events
+        simulation._sort_component(second)
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert events == ["setup", "before", "before"]
+        assert simulation.diagnostics == [after, before, second]
+
+
 # ===================================================================
 # Directory-based loading
 # ===================================================================
@@ -387,6 +921,18 @@ class TestDirectoryLoading:
 
 
 class TestConfigHash:
+    def test_analysis_results_do_not_change_simulation_hash(
+        self, analysis_simulation
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        original = simulation.config_hash()
+        before.analyze()
+        after.analyze()
+        assert simulation.config_hash() == original
+        before.data["arbitrary_result"] = 123.0
+        after.data = {"different_result": -1.0}
+        assert simulation.config_hash() == original
+
     def test_same_config_same_hash(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 

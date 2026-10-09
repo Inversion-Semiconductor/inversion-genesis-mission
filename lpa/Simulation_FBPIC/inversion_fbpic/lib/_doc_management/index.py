@@ -20,6 +20,9 @@ ClassKey = tuple[str, str]
 
 _LIB_MODULE_STEMS = (
     "serializable_config",
+    "datapoint",
+    "diagnostics",
+    "config_container",
     "density_core",
     "density_profiles",
     "density_modifiers",
@@ -83,7 +86,7 @@ class ParsedField(NamedTuple):
 
 
 class ParsedMethod(NamedTuple):
-    """A public method extracted from a config class body.
+    """A public or protected abstract method extracted from a config class body.
 
     Attributes:
         name: Method name (e.g. ``"to_yaml"``).
@@ -320,21 +323,30 @@ def _unparse_params(
     return ast.unparse(trimmed)
 
 
-def _class_methods(node: ast.ClassDef) -> tuple[ParsedMethod, ...]:
-    """Extract public methods from a class body."""
+def _class_methods(
+    node: ast.ClassDef, *, protected_names: set[str] | None = None
+) -> tuple[ParsedMethod, ...]:
+    """Extract public methods, abstract contracts, and their protected overrides."""
     methods: list[ParsedMethod] = []
     for stmt in node.body:
         if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         name = stmt.name
-        if name.startswith("_"):
-            continue
 
         dec_names: list[str] = []
         for dec in stmt.decorator_list:
             dec_name = _call_name(dec.func if isinstance(dec, ast.Call) else dec)
             if dec_name in _KNOWN_DECORATORS:
                 dec_names.append(dec_name)
+
+        if name.startswith("_") and (
+            name.startswith("__")
+            or (
+                "abstractmethod" not in dec_names
+                and name not in (protected_names or set())
+            )
+        ):
+            continue
 
         is_static = "staticmethod" in dec_names
         skip_first = not is_static
@@ -504,12 +516,37 @@ class LibIndex:
             imports[module] = module_imports
             import_lines[module] = module_import_lines
             definitions[module] = module_definitions
-        return cls(
+        index = cls(
             classes=classes,
             imports=imports,
             import_lines=import_lines,
             definitions=definitions,
         )
+        # Resolve inherited protected contracts only after every module has
+        # been indexed, including cross-module base classes. Concrete overrides
+        # must accompany emitted abstract methods or stubs make valid classes
+        # appear abstract. Unrelated private helpers remain excluded.
+        for module in lib_module_names(lib_dir):
+            path = module_source_path(lib_dir, module)
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in tree.body:
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                parsed = index.classes.get((module, node.name))
+                if parsed is None:
+                    continue
+                protected_names = {
+                    method.name
+                    for key in index.mro(parsed)
+                    for method in index.classes[key].methods
+                    if method.name.startswith("_")
+                    and "abstractmethod" in method.decorators
+                }
+                if protected_names:
+                    index.classes[(module, node.name)] = parsed._replace(
+                        methods=_class_methods(node, protected_names=protected_names)
+                    )
+        return index
 
     def _resolve_base(self, base_name: str, module: str) -> ClassKey | None:
         """Resolve an unqualified base-class name to a :data:`ClassKey`.

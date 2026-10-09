@@ -21,6 +21,7 @@ Run from Simulation_FBPIC::
 
 from __future__ import annotations
 
+import errno
 import functools
 import json
 import logging
@@ -230,13 +231,16 @@ def test_git_hash_stays_cached_during_serialization(
     assert minimal_density.to_dict()["git_hash"] == revision
 
 
-def test_from_any_parses_json_after_path_oserror(monkeypatch, minimal_density) -> None:
+@pytest.mark.parametrize("error_code", [errno.ENAMETOOLONG, errno.EINVAL])
+def test_from_any_parses_json_after_path_oserror(
+    monkeypatch, minimal_density, error_code: int
+) -> None:
     from inversion_fbpic.lib.serializable_config import SerializableConfig
 
     monkeypatch.setattr(
         SerializableConfig,
         "from_file",
-        Mock(side_effect=OSError("File name too long")),
+        Mock(side_effect=OSError(error_code, "Invalid file name")),
     )
     loaded = SerializableConfig.from_any(minimal_density.to_json())
     assert loaded.to_dict() == minimal_density.to_dict()
@@ -1159,6 +1163,9 @@ parameters:
 
 
 _EXPECTED_REGISTRY_ENTRIES: list[tuple[str, str]] = [
+    ("datapoint", "parameters"),
+    ("datapoint", "moment_descriptor"),
+    ("config_container", "config_container"),
     ("density_profile", "sine_squared_bump"),
     ("density_profile", "asymmetric_sine"),
     ("density_profile", "smooth_sine_flattop"),

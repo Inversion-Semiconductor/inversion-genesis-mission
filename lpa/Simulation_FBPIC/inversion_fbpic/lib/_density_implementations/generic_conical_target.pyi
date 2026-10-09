@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from ..density_core import _DensityProfile
 
+from abc import abstractmethod
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
-from typing import Callable, ClassVar, Literal
+from typing import ClassVar, Literal
+import numpy as np
+import numpy.typing as npt
 
 SkewMode = Literal['auto', 'finite_supergaussian', 'exponential', 'saturated']
 
@@ -88,6 +91,12 @@ class _FiniteSkewedProfile(_DensityProfile):
     def get_r_extent(self) -> float | None:
         ...
     def build_density_function(self) -> DensityCallable:
+        ...
+    @abstractmethod
+    def _profile_half_extent(self) -> float:
+        ...
+    @abstractmethod
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         ...
 
 class GenericConicalTarget(_FiniteSkewedProfile):
@@ -213,6 +222,10 @@ class GenericConicalTarget(_FiniteSkewedProfile):
             fringe_center_offset: (float|None) [m] |OPTIONAL| Positive distance from the main center to each fringe center. Required when a fringe type is selected.
             fringe_relative_height: (float) |OPTIONAL| Amplitude of every fringe relative to the main profile. Fringe support is included where its amplitude relative to the unit main lobe is at or above the component cutoff. Defaults to 1.0.
             fringe_side: (Literal[str]) |OPTIONAL| Select ``left``, ``right``, or ``both`` fringes. Defaults to ``both``."""
+    def _profile_half_extent(self) -> float:
+        ...
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        ...
 
 class PowerLawFlattop(_FiniteSkewedProfile):
     """Finite flattop with a second-order-continuous power-law edge.
@@ -317,3 +330,7 @@ class PowerLawFlattop(_FiniteSkewedProfile):
             flattop_width: (float) [m] Full width of the constant-density central region.
             transition_length: (float) [m] Length of each power-law edge transition.
             transition_exponent: (float) Power-law exponent. Must be greater than 2."""
+    def _profile_half_extent(self) -> float:
+        ...
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        ...
