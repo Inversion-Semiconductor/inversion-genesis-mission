@@ -231,7 +231,7 @@ class LasyLaserPulse(_LaserPulse):
     def build_laser_profile(self) -> LaserProfile | list[LaserProfile]:
         ...
     def get_r_extent(self, simulation_extent: tuple[float, float], num_sigma: float=3.0) -> float:
-        """Get the radial extent of the laser pulse in meters.
+        """Get the radial extent of the laser pulse in meters. Assumes vacuum propagation.
         This uses a Gaussian approximation, and higher order modes can
         extend the radial extent of the pulse beyond this value. Use with caution.
 

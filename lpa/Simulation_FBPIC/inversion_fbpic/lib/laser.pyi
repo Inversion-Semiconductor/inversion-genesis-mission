@@ -113,7 +113,7 @@ class _LaserPulse(SerializableConfig):
         ...
     @abstractmethod
     def get_r_extent(self, simulation_extent: tuple[float, float], num_sigma: float=3.0) -> float:
-        """Get the radial extent of the laser pulse in meters.
+        """Get the radial extent of the laser pulse in meters. Assumes vacuum propagation.
 
         Args:
             simulation_extent: (tuple[float, float]) The extent of the full simulation in meters.
