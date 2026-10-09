@@ -138,7 +138,7 @@ parameters of every family are used as warm starts, so small slider moves refit 
 ```bash
 python -m fludat_fit.fit_statistics htu_dens_7_0.h5 \
     --x-range 0 3 --pressure-range 5 40 --angle-range -10 10 --samples 32 --workers 4 \
-    --json stats.json --csv stats.csv --plot stats.png
+    --json stats.json --csv stats.csv --plot stats.png --param-stats stats_params.json
 python -m fludat_fit.fit_statistics cube.h5 --pressure-range 5 35 --sampling grid --samples 9
 ```
 
@@ -160,7 +160,9 @@ NRMSE against one condition for the best families.
 | `--workers` | `1` | Processes fitting points in parallel (lineouts are extracted first, so the cubes stay in the main process). |
 | `--json` | — | Summary plus every fit; `--include-profiles` adds each serialized FBPIC config. |
 | `--csv` | — | One row per (point, family): conditions, rank, metrics, amplitude and the fitted parameters. |
-| `--plot`, `--show` | — | Save / show the summary figure; `--plot-axis` picks the condition on the scatter's x axis. |
+| `--param-stats` | — | Per family, per fitted parameter (plus `amplitude`): median and a `--confidence`-level confidence window across every fitted point, as JSON. Worth checking before committing to a long run at full `--samples`. |
+| `--confidence` | `0.95` | Confidence level for `--param-stats`. |
+| `--plot`, `--show` | — | Save / show the summary figure; `--plot-axis` picks the condition on the scatter's x axis. Each family's label includes its free-parameter count, e.g. `generalized_lorentzian_sum[3] (13)`. |
 | `-q`, `--quiet` | off | Suppress per-point progress on stderr. |
 
 The CSV is the raw material for a `conditions -> parameters` mapping: filter it to one
@@ -215,6 +217,7 @@ one, and the amplitude counts as one extra parameter in the information criteria
 | `smooth_sine_flattop` | `SmoothSineFlattop` | `center`, `flattop_width`, `upramp_length`, `downramp_length` |
 | `gaussian_plus_triangle` | `GaussianPlusTriangle` | `gauss_z0`, `gauss_sigma`, `tri_z0`, `tri_left_width`, `tri_right_width`, `tri_height` |
 | `generalized_gaussian_plus_triangle` | `GeneralizedGaussianPlusTriangle` | as above with `gauss_alpha`, `gauss_beta` (`gauss_peak = 1`) |
+| `bilateral_supergaussian` | `BilateralSuperGaussian` | `center`, `fwhm_left`, `beta_left`, `fwhm_right`, `beta_right` — a supergaussian with an independent width and shape exponent on each side of `center` (peak is always exactly 1) |
 | `generalized_lorentzian_sum[n]`, n = 1, 2, 3 | `GeneralizedLorentzianSum` | per term `c_i`, `w_i`, `b_i`, `m_i`; `A_0 = 1`, `A_i ∈ [-1, 1]` |
 | `power_law_flattop` | `PowerLawFlattop` | `center`, `flattop_width`, `transition_length`, `transition_exponent`, `skew_rate` |
 | `conical:<main>` | `GenericConicalTarget` | `center`, the main-type parameters, `skew_rate` |

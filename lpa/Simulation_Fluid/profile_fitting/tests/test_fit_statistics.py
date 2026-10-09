@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 
 import pytest
 
@@ -11,6 +12,7 @@ from fludat_fit.families import get_families
 from fludat_fit.fit_statistics import (
     ConditionRanges,
     FitStatistics,
+    ParameterStats,
     fit_points,
     main,
 )
@@ -138,6 +140,86 @@ def test_statistics_rows_and_plot(statistics, tmp_path):
     figure = statistics.plot(condition_axis="x_mm", top=2)
     assert len(figure.axes) == 3
     assert len(figure.axes[2].collections) == 2  # two scatter series
+
+    # Labels carry each family's free-parameter count (shape params + amplitude,
+    # see FitObjective.n_parameters), e.g. "conical:supergaussian (N)" -- but
+    # results_of() lookups inside plot() must still use the plain family name.
+    summaries = {s.family: s.n_parameters for s in statistics.summary()}
+    y_labels = [tick.get_text() for tick in figure.axes[0].get_yticklabels()]
+    assert y_labels == [f"{family} ({n})" for family, n in summaries.items()]
+    legend_labels = [
+        text.get_text() for text in figure.axes[2].get_legend().get_texts()
+    ]
+    assert legend_labels == y_labels[:2]
+
+
+def test_parameter_stats_of_computes_a_confidence_window_around_the_median():
+    stats = ParameterStats.of([0.0, 1.0, 2.0, 3.0, 4.0], confidence=0.8)
+    assert stats.n == 5
+    assert stats.median == pytest.approx(2.0)
+    assert stats.confidence == pytest.approx(0.8)
+    # 10th/90th percentile of [0..4]
+    assert stats.ci[0] == pytest.approx(0.4) and stats.ci[1] == pytest.approx(3.6)
+    assert stats.to_dict() == {
+        "n": 5,
+        "median": pytest.approx(2.0),
+        "confidence": pytest.approx(0.8),
+        "ci": [pytest.approx(0.4), pytest.approx(3.6)],
+    }
+
+
+def test_parameter_stats_of_rejects_an_invalid_confidence_level():
+    with pytest.raises(ValueError, match="confidence"):
+        ParameterStats.of([1.0, 2.0], confidence=1.0)
+
+
+def test_parameter_stats_of_handles_all_nan_input():
+    stats = ParameterStats.of([float("nan"), float("nan")])
+    assert stats.n == 0
+    assert math.isnan(stats.median)
+    assert math.isnan(stats.ci[0]) and math.isnan(stats.ci[1])
+
+
+def test_parameter_distribution_covers_every_family_and_its_own_parameters(
+    statistics,
+):
+    distribution = statistics.parameter_distribution(confidence=0.95)
+
+    assert set(distribution) == set(statistics.family_names)
+    for family in statistics.family_names:
+        entry = distribution[family]
+        results = [result for _, result in statistics.results_of(family)]
+        assert entry["n_points"] == len(results)
+        assert set(entry["parameters"]) == {"amplitude", *results[0].parameters}
+        for name, stats in entry["parameters"].items():
+            assert stats["n"] == len(results)
+            assert stats["confidence"] == pytest.approx(0.95)
+            assert stats["ci"][0] <= stats["median"] <= stats["ci"][1]
+
+
+def test_cli_writes_param_stats_json(small_cube_path, tmp_path):
+    output = tmp_path / "params.json"
+    code = main(
+        [
+            str(small_cube_path),
+            "--families",
+            *FAMILIES,
+            "--samples",
+            "4",
+            "--starts",
+            "2",
+            "--param-stats",
+            str(output),
+            "--confidence",
+            "0.9",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(output.read_text())
+    assert set(payload) == set(FAMILIES)
+    for entry in payload.values():
+        for stats in entry["parameters"].values():
+            assert stats["confidence"] == pytest.approx(0.9)
 
 
 def test_fit_points_skips_empty_lineouts_and_runs_in_parallel(small_cube_path):

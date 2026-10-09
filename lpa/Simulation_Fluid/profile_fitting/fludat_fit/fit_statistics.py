@@ -5,7 +5,8 @@ Examples (conda env inv-fbpic):
 
     python -m fludat_fit.fit_statistics htu_dens_7_0.h5 \\
         --x-range 0 2 --pressure-range 5 40 --angle-range -10 10 --samples 32 \\
-        --workers 4 --json stats.json --csv stats.csv --plot stats.png
+        --workers 4 --json stats.json --csv stats.csv --plot stats.png \\
+        --param-stats stats_params.json
     python -m fludat_fit.fit_statistics cube.h5 --pressure-range 5 35 --sampling grid \\
         --samples 9 --families conical:supergaussian generalized_lorentzian_sum[2]
 
@@ -15,7 +16,11 @@ angle fixed at 0 unless ``--angle-range`` is given). Every family is fitted at
 every point; the report gives, per family, the distribution of goodness-of-fit
 metrics across points, how often it ranks first, its mean rank, and timing.
 The CSV lists one row per (point, family) with the fitted parameters, which is
-the raw material for a ``conditions -> parameters`` mapping.
+the raw material for a ``conditions -> parameters`` mapping. ``--param-stats``
+writes, per family and per fitted parameter (plus ``amplitude``), its median and
+a ``--confidence``-level confidence window (default 95%) across every point --
+worth checking before committing to a long run at full sample count, as a sanity
+check on where each family's parameters actually land.
 """
 
 from __future__ import annotations
@@ -167,6 +172,57 @@ class MetricStats:
         )
 
 
+DEFAULT_PARAMETER_CONFIDENCE = 0.95
+
+
+@dataclass(frozen=True)
+class ParameterStats:
+    """One fitted parameter's distribution across every point a family was fit at."""
+
+    n: int
+    median: float
+    confidence: float
+    """The confidence level ``ci`` is a window for, e.g. ``0.95`` for 95%."""
+    ci: tuple[float, float]
+    """The ``confidence``-level confidence window: the
+    ``(1 - confidence) / 2`` and ``1 - (1 - confidence) / 2`` percentiles."""
+
+    @classmethod
+    def of(
+        cls,
+        values: Sequence[float],
+        *,
+        confidence: float = DEFAULT_PARAMETER_CONFIDENCE,
+    ) -> ParameterStats:
+        if not 0.0 < confidence < 1.0:
+            raise ValueError("confidence must be in (0, 1)")
+        array = np.asarray(values, dtype=float)
+        finite = array[np.isfinite(array)]
+        if finite.size == 0:
+            return cls(
+                n=0,
+                median=float("nan"),
+                confidence=confidence,
+                ci=(float("nan"), float("nan")),
+            )
+        tail = 100.0 * (1.0 - confidence) / 2.0
+        lower, median, upper = np.percentile(finite, [tail, 50.0, 100.0 - tail])
+        return cls(
+            n=int(finite.size),
+            median=float(median),
+            confidence=confidence,
+            ci=(float(lower), float(upper)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n": self.n,
+            "median": self.median,
+            "confidence": self.confidence,
+            "ci": list(self.ci),
+        }
+
+
 @dataclass(frozen=True)
 class FamilySummary:
     """One family's fitting performance across the sampled points."""
@@ -271,6 +327,33 @@ class FitStatistics:
             counts[name] = counts.get(name, 0) + 1
         return dict(sorted(counts.items(), key=lambda item: -item[1]))
 
+    def parameter_distribution(
+        self, *, confidence: float = DEFAULT_PARAMETER_CONFIDENCE
+    ) -> dict[str, dict[str, Any]]:
+        """Per family, per fitted parameter (plus ``amplitude``): how many points
+        it was fit at, its median, and a ``confidence``-level confidence window
+        (default 95%) across every point that family was fitted at. Meant to be
+        looked at before committing to a long fitting run at full sample count,
+        as a sanity check on where each family's fitted parameters actually land
+        (e.g. pinned at a bound, or a window so wide it is not meaningfully
+        constrained by the data)."""
+        distributions: dict[str, dict[str, Any]] = {}
+        for family in self.family_names:
+            results = [result for _, result in self.results_of(family)]
+            values: dict[str, list[float]] = {"amplitude": []}
+            for result in results:
+                values["amplitude"].append(result.amplitude)
+                for name, value in result.parameters.items():
+                    values.setdefault(name, []).append(value)
+            distributions[family] = {
+                "n_points": len(results),
+                "parameters": {
+                    name: ParameterStats.of(vals, confidence=confidence).to_dict()
+                    for name, vals in values.items()
+                },
+            }
+        return distributions
+
     # ------------------------------------------------------------ reports
     def table(self) -> str:
         header = (
@@ -348,6 +431,11 @@ class FitStatistics:
         """NRMSE distribution and rank-1 frequency per family, and NRMSE vs one condition."""
         summaries = self.summary()
         order = [s.family for s in summaries]
+        # Family name plus its free-parameter count (shape parameters, plus the
+        # amplitude when fitted -- see FitObjective.n_parameters), for the
+        # y-axis/legend labels; `order` itself stays the plain name since
+        # results_of() looks results up by exact family name.
+        labels = [f"{s.family} ({s.n_parameters})" for s in summaries]
         positions = np.arange(len(order))
         fig = plt.figure(figsize=(13.0, 9.0))
         grid = fig.add_gridspec(
@@ -389,7 +477,7 @@ class FitStatistics:
         )
         ax_box.set_xscale("log")
         ax_box.set_yticks(positions)
-        ax_box.set_yticklabels(order, fontsize=8)
+        ax_box.set_yticklabels(labels, fontsize=8)
         ax_box.invert_yaxis()
         ax_box.set_xlabel("NRMSE (rmse / peak)")
         ax_box.set_title(f"fit error over {self.n_points} points", fontsize=10)
@@ -405,8 +493,10 @@ class FitStatistics:
                     fraction + 1, position, f"{fraction:.0f}", va="center", fontsize=7.5
                 )
 
-        shown = order[: max(1, min(top, len(SERIES_COLORS)))]
-        for color, name in zip(SERIES_COLORS, shown, strict=False):
+        n_shown = max(1, min(top, len(SERIES_COLORS)))
+        shown = order[:n_shown]
+        shown_labels = labels[:n_shown]
+        for color, name, label in zip(SERIES_COLORS, shown, shown_labels, strict=False):
             results = [result for _, result in self.results_of(name)]
             values = [getattr(r.conditions, condition_axis) for r in results]
             ax_scatter.scatter(
@@ -414,7 +504,7 @@ class FitStatistics:
                 [r.goodness.nrmse for r in results],
                 s=18,
                 color=color,
-                label=name,
+                label=label,
                 edgecolors="white",
                 linewidths=0.6,
             )
@@ -499,6 +589,18 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument(
         "--csv", type=Path, help="Write one row per (point, family) as CSV."
     )
+    group.add_argument(
+        "--param-stats",
+        type=Path,
+        help="Write each family's per-parameter confidence window as JSON "
+        "(median and a --confidence-level window across every fitted point).",
+    )
+    group.add_argument(
+        "--confidence",
+        type=float,
+        default=DEFAULT_PARAMETER_CONFIDENCE,
+        help=f"Confidence level for --param-stats; default {DEFAULT_PARAMETER_CONFIDENCE:g}.",
+    )
     group.add_argument("--plot", type=Path, help="Save the summary figure here.")
     group.add_argument("--show", action="store_true", help="Show the summary figure.")
     group.add_argument(
@@ -562,6 +664,15 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
 
+    if args.param_stats is not None:
+        args.param_stats.parent.mkdir(parents=True, exist_ok=True)
+        args.param_stats.write_text(
+            json.dumps(
+                statistics.parameter_distribution(confidence=args.confidence),
+                indent=2,
+            )
+        )
+        print(f"wrote {args.param_stats}")
     if args.json is not None:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(
