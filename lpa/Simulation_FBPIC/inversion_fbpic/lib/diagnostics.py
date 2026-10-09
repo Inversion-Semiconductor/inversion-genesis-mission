@@ -208,7 +208,7 @@ class _ParticleDiagnostic(_Diagnostic):
             available = {
                 getattr(density, kind)
                 for density in densities
-                if kind == "elec_name" or density.species is not None
+                if getattr(density, kind)
             }
             missing = [name for name in names if name not in available]
             if missing:
