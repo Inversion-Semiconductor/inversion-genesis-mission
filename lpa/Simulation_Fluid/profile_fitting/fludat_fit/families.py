@@ -27,6 +27,7 @@ import numpy as np
 from inversion_fbpic.lib.density_core import _DensityProfile
 from inversion_fbpic.lib.density_profiles import (
     AsymmetricSine,
+    BilateralSuperGaussian,
     GaussianPlusTriangle,
     GeneralizedGaussianPlusTriangle,
     GeneralizedLorentzianSum,
@@ -323,6 +324,48 @@ class GeneralizedGaussianPlusTriangleFamily(ProfileFamily):
             tri_left_width=parameters["tri_left_width"],
             tri_right_width=parameters["tri_right_width"],
             tri_height=parameters["tri_height"],
+            nominal_density=nominal_density,
+            **self._kwargs(overrides),
+        )
+
+
+class BilateralSuperGaussianFamily(ProfileFamily):
+    """``BilateralSuperGaussian``: independent width and shape exponent on each
+    side of the center. Its peak is exactly 1.0 by construction (both sides equal
+    1.0 at the center), so there is no intrinsic amplitude field to fix, unlike
+    ``GeneralizedGaussianPlusTriangleFamily``'s ``gauss_peak``."""
+
+    name = "bilateral_supergaussian"
+    profile_class = BilateralSuperGaussian
+
+    def parameter_space(self, summary: LineoutSummary) -> ParameterSpace:
+        return ParameterSpace(
+            (
+                _position("center", summary),
+                _length("fwhm_left", summary),
+                _exponent("beta_left", 0.5, 12.0),
+                _length("fwhm_right", summary),
+                _exponent("beta_right", 0.5, 12.0),
+            )
+        )
+
+    def initial_guess(self, summary: LineoutSummary) -> dict[str, float]:
+        _, fwhm, _ = _scales(summary)
+        return {
+            "center": summary.z_peak,
+            "fwhm_left": fwhm,
+            "beta_left": 2.0,
+            "fwhm_right": fwhm,
+            "beta_right": 2.0,
+        }
+
+    def build(self, parameters, *, nominal_density=1.0, **overrides):
+        return BilateralSuperGaussian(
+            center=parameters["center"],
+            fwhm_left=parameters["fwhm_left"],
+            beta_left=parameters["beta_left"],
+            fwhm_right=parameters["fwhm_right"],
+            beta_right=parameters["beta_right"],
             nominal_density=nominal_density,
             **self._kwargs(overrides),
         )
@@ -705,6 +748,7 @@ def family_registry(
         SmoothSineFlattopFamily(profile_kwargs),
         GaussianPlusTriangleFamily(profile_kwargs),
         GeneralizedGaussianPlusTriangleFamily(profile_kwargs),
+        BilateralSuperGaussianFamily(profile_kwargs),
         GeneralizedLorentzianSumFamily(1, profile_kwargs),
         GeneralizedLorentzianSumFamily(2, profile_kwargs),
         GeneralizedLorentzianSumFamily(3, profile_kwargs),
