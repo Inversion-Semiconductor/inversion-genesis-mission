@@ -248,6 +248,102 @@ def test_helium_too_small_for_excessive_ionization() -> None:
 _PARTICLE_BOUND_NAMES = ("p_rmin", "p_rmax", "p_zmin", "p_zmax")
 
 
+@pytest.mark.parametrize(
+    "minimum,maximum", [("p_zmin", "p_zmax"), ("p_rmin", "p_rmax")]
+)
+@pytest.mark.parametrize(
+    "lower,upper", [(2.0e-6, 1.0e-6), (1.0e-6, 1.0e-6), (np.inf, np.inf)]
+)
+@pytest.mark.parametrize("species", [None, "He"])
+def test_particle_bound_pairs_must_be_strictly_ordered(
+    minimum, maximum, lower, upper, species
+) -> None:
+    with pytest.raises(ValueError, match=f"{minimum} must be less than {maximum}"):
+        ExampleDensityProfile(
+            **_MINIMAL_PROFILE_KWARGS,
+            species=species,
+            **{minimum: lower, maximum: upper},
+        )
+
+
+@pytest.mark.parametrize(
+    "minimum,maximum", [("p_zmin", "p_zmax"), ("p_rmin", "p_rmax")]
+)
+def test_particle_bound_pairs_are_validated_on_deserialization(
+    minimum, maximum
+) -> None:
+    payload = ExampleDensityProfile(**_MINIMAL_PROFILE_KWARGS).to_dict()
+    payload["parameters"].update({minimum: 2.0e-6, maximum: 1.0e-6})
+    with pytest.raises(ValueError, match=f"{minimum} must be less than {maximum}"):
+        _DensityProfile.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "bounds,edge",
+    [
+        ({"p_zmin": 9.0e-6}, 8.0e-6),
+        ({"p_zmin": 8.0e-6}, 8.0e-6),
+        ({"p_zmin": 9.0e-6, "p_zmax": 10.0e-6}, 8.0e-6),
+        ({"p_zmax": -3.0e-6}, -2.0e-6),
+        ({"p_zmax": -2.0e-6}, -2.0e-6),
+        ({"p_zmin": -4.0e-6, "p_zmax": -3.0e-6}, -2.0e-6),
+        ({"p_zmin": np.inf}, 8.0e-6),
+        ({"p_zmax": -np.inf}, -2.0e-6),
+    ],
+)
+def test_empty_z_extent_warns_and_collapses_to_intrinsic_edge(bounds, edge) -> None:
+    profile = ExampleDensityProfile(
+        **_MINIMAL_PROFILE_KWARGS, start_position=-2.0e-6, **bounds
+    )
+    with pytest.warns(RuntimeWarning, match="empty longitudinal extent"):
+        extent = profile.get_z_extent()
+    assert extent == pytest.approx((edge, edge))
+    assert extent[1] - extent[0] == 0.0
+
+
+@pytest.mark.parametrize(
+    "p_rmin,p_rmax,expected",
+    [(5.0e-6, None, 5.0e-6), (6.0e-6, None, 6.0e-6), (6.0e-6, 8.0e-6, 6.0e-6)],
+)
+def test_empty_r_extent_warns_and_collapses_to_particle_minimum(
+    p_rmin, p_rmax, expected, monkeypatch
+) -> None:
+    monkeypatch.setattr(ExampleDensityProfile, "_get_r_extent", lambda self: 5.0e-6)
+    profile = ExampleDensityProfile(
+        **_MINIMAL_PROFILE_KWARGS, p_rmin=p_rmin, p_rmax=p_rmax
+    )
+    with pytest.warns(RuntimeWarning, match="empty radial extent"):
+        extent = profile.get_r_extent()
+    assert extent == pytest.approx(expected)
+    assert extent - profile.p_rmin == 0.0
+
+
+def test_radial_minimum_preserves_unknown_upper_extent(recwarn) -> None:
+    profile = ExampleDensityProfile(**_MINIMAL_PROFILE_KWARGS, p_rmin=6.0e-6)
+    assert profile.get_r_extent() is None
+    assert not recwarn
+
+
+@pytest.mark.parametrize(
+    "bounds,method,expected",
+    [
+        ({"p_zmin": 11.0e-6}, "get_z_extent", (1.0e-5, 1.0e-5)),
+        ({"p_rmin": 6.0e-6}, "get_r_extent", 6.0e-6),
+    ],
+)
+def test_modified_profile_warns_for_empty_clipped_extents(
+    bounds, method, expected, monkeypatch
+) -> None:
+    from inversion_fbpic.lib.density_modifiers import ModifiedDensityProfile
+
+    monkeypatch.setattr(ExampleDensityProfile, "_get_r_extent", lambda self: 5.0e-6)
+    base = ExampleDensityProfile(**_MINIMAL_PROFILE_KWARGS, **bounds)
+    modified = ModifiedDensityProfile(base_density_profile=base)
+    with pytest.warns(RuntimeWarning, match="empty"):
+        extent = getattr(modified, method)()
+    assert extent == pytest.approx(expected)
+
+
 @pytest.mark.parametrize("name", _PARTICLE_BOUND_NAMES)
 @pytest.mark.parametrize("value", [None, "2.5e-6", 1])
 def test_particle_bounds_default_and_conversion(name, value) -> None:

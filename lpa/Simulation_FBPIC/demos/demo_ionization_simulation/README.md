@@ -93,6 +93,8 @@ The simulation saves a hash representation of itself; if it has already run succ
 
 When stepping is skipped because a matching hash exists, automatic analysis
 still reruns against the last recorded particle dump and refreshes `results.h5`.
-The simulation hash is saved before post-analysis. If analysis fails, retrying
-the demo skips the completed simulation and retries analysis rather than stepping
-again. The results file is replaced only after successful analysis.
+The simulation hash is saved before post-analysis. Automatic analysis failures
+are logged with tracebacks without stopping the demo. Retrying skips the completed
+simulation and retries analysis rather than stepping again. The demo overwrites
+the results file even if analysis fails; check the logs and
+`beam_moments.analysis_complete` before relying on the beam results.

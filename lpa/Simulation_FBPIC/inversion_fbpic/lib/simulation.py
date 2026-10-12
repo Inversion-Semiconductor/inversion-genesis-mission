@@ -674,7 +674,8 @@ class Simulation(SerializableConfig):
 
         Analysis runs on the write rank after FBPIC setup completes. A matching
         completion hash skips FBPIC setup but still runs pre-simulation analysis.
-        Analysis errors propagate and leave ``is_setup`` false for a new setup.
+        Analysis errors are logged with tracebacks without aborting setup or
+        preventing the remaining diagnostics from running.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -930,7 +931,8 @@ class Simulation(SerializableConfig):
         Attached post-simulation diagnostics run on the write rank after all
         stepping succeeds and the requested completion hash is saved. A matching
         hash skips stepping but still reruns analysis, without requiring FBPIC
-        setup. Analysis errors propagate while preserving the completion hash,
+        setup. Analysis errors are logged with tracebacks without preventing
+        remaining diagnostics from running. The completion hash is preserved,
         so retries can analyze existing output without repeating the simulation.
 
         Args:
