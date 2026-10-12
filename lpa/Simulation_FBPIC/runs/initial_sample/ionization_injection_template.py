@@ -175,6 +175,8 @@ class IonizationInjectionSimulation:
             elec_select={"uz": [10.0, None]},  # NOTE: Parameterize?
         )
 
+        # NOTE: add plots of the density profiles?
+
         laser = ls.LasyLaserPulse(
             energy=physical_parameters["laser_energy_J"],
             z0=0.0,  # only used for plotting
@@ -214,6 +216,8 @@ class IonizationInjectionSimulation:
             ],
         )
 
+        # NOTE: add plots of the laser profile?
+
         hyp = sm.SimulationHyperparameters(
             zmin=hyperparameters["zmin"],
             zmax=hyperparameters["zmax"],
@@ -224,7 +228,7 @@ class IonizationInjectionSimulation:
             use_mpi=True,
             number_dumps=hyperparameters["number_dumps_lab"],
             gamma_boost=hyperparameters["gamma_boost"],
-            field_diagnostics=None,
+            field_diagnostics=None,  # NOTE: add field diagnostics for plotting?
             save_directory=Path(hyperparameters["lab_diagnostic_directory"]),
             save_checkpoints=hyperparameters["save_checkpoints"],
             checkpoint_period=hyperparameters["checkpoint_period"],
@@ -238,8 +242,8 @@ class IonizationInjectionSimulation:
 
         datapoint = cc.ConfigContainer(
             configs=[
-                dp.Parameters(data=hyperparameters),
-                dp.Parameters(data=physical_parameters),
+                dp.Parameters(label="hyperparameters", data=hyperparameters),
+                dp.Parameters(label="physical_parameters", data=physical_parameters),
                 dg.MomentDescriptorDiagnostic(selection=("all_of_species", "e")),
             ]
         )
@@ -253,6 +257,7 @@ class IonizationInjectionSimulation:
                 Path(hyperparameters["results_directory"]) / "simulation.h5"
             )  # contains all simulation parameters, results, element metadata
             datapoint.to_hdf5_file(
-                Path(hyperparameters["results_directory"]) / "datapoint.h5"
+                Path(hyperparameters["results_directory"]) / "datapoint.h5",
+                group_path="/results",
             )  # contains just the parameters and analyzed diagnostics
             # NOTE: Easy to change filetypes here, we can use json or yaml for either of these
