@@ -182,7 +182,7 @@ class IonizationInjectionSimulation:
             z0=0.0,  # only used for plotting
             z0_antenna=hyperparameters["lasy_antenna_position"],
             t_start=hyperparameters["lasy_t_start"],
-            lasy_file=hyperparameters["lasy_file"],
+            lasy_file=self._laser_output_path(),
             wavelength=physical_parameters["laser_wavelength_m"],
             tau_fwhm=physical_parameters["laser_pulse_duration_fwhm_s"],
             waist=physical_parameters["laser_spot_size_m"],
