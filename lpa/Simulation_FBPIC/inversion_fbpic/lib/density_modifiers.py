@@ -33,7 +33,10 @@ class ModifiedDensityProfile(_DensityProfile):
         "p_nt",
         "species",
         "ionization",
+        "p_rmin",
         "p_rmax",
+        "p_zmin",
+        "p_zmax",
         "elec_name",
         "elec_select",
         "ion_name",
@@ -47,7 +50,10 @@ class ModifiedDensityProfile(_DensityProfile):
     p_nt: int = attrs.field(init=False, default=0)
     species: str | None = attrs.field(init=False, default=None)
     ionization: int | None = attrs.field(init=False, default=None)
+    p_rmin: float | None = attrs.field(init=False, default=None)
     p_rmax: float | None = attrs.field(init=False, default=None)
+    p_zmin: float | None = attrs.field(init=False, default=None)
+    p_zmax: float | None = attrs.field(init=False, default=None)
     elec_name: str | None = attrs.field(init=False, default=None)
     elec_select: dict[str, list[float | None]] | None = attrs.field(
         init=False, default=None
