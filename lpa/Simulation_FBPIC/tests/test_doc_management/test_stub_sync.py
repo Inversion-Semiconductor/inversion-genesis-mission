@@ -553,6 +553,8 @@ def test_datapoint_stub_includes_required_parameters() -> None:
     assert "from typing import Any, ClassVar" in pyi
     assert "class _Datapoint(SerializableConfig):" in pyi
     parameters = pyi.split("class Parameters(_Datapoint):")[1].split("\n\nclass ")[0]
+    assert "    label: str\n" in parameters
+    assert "        label: str = ''," in parameters
     assert "        data: dict[str, Any]," in parameters
     assert "        data: dict[str, Any] =" not in parameters
     assert "class _Diagnostic(" not in pyi
