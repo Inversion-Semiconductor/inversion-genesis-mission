@@ -282,7 +282,7 @@ def test_particle_bound_pairs_are_validated_on_deserialization(
     "bounds,edge",
     [
         ({"p_zmin": 9.0e-6}, 8.0e-6),
-        ({"p_zmin": 8.0e-6}, 8.0e-6),
+        ({"p_zmin": _MINIMAL_PROFILE_KWARGS["length"] - 2.0e-6}, 8.0e-6),
         ({"p_zmin": 9.0e-6, "p_zmax": 10.0e-6}, 8.0e-6),
         ({"p_zmax": -3.0e-6}, -2.0e-6),
         ({"p_zmax": -2.0e-6}, -2.0e-6),
@@ -299,6 +299,18 @@ def test_empty_z_extent_warns_and_collapses_to_intrinsic_edge(bounds, edge) -> N
         extent = profile.get_z_extent()
     assert extent == pytest.approx((edge, edge))
     assert extent[1] - extent[0] == 0.0
+
+
+def test_z_extent_preserves_positive_width_near_edge(recwarn) -> None:
+    base = ExampleDensityProfile(**_MINIMAL_PROFILE_KWARGS, start_position=-2.0e-6)
+    upper = base._get_z_extent()[1]
+    lower = float(np.nextafter(upper, -np.inf))
+    profile = ExampleDensityProfile(
+        **_MINIMAL_PROFILE_KWARGS, start_position=-2.0e-6, p_zmin=lower
+    )
+    assert profile.get_z_extent() == (lower, upper)
+    assert upper - lower > 0.0
+    assert not recwarn
 
 
 @pytest.mark.parametrize(
@@ -444,7 +456,13 @@ def test_particle_bounds_serialization_round_trip(bounds) -> None:
     assert isinstance(restored, ExampleDensityProfile)
     for name, value in bounds.items():
         assert getattr(restored, name) == value
-    assert restored.get_z_extent() == profile.get_z_extent()
+    if bounds.get("p_zmax") == 0.0:
+        with pytest.warns(RuntimeWarning, match="empty longitudinal extent"):
+            original_extent = profile.get_z_extent()
+        with pytest.warns(RuntimeWarning, match="empty longitudinal extent"):
+            assert restored.get_z_extent() == original_extent
+    else:
+        assert restored.get_z_extent() == profile.get_z_extent()
 
 
 @pytest.mark.parametrize(

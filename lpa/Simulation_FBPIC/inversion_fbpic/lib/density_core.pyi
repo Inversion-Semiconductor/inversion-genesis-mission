@@ -136,10 +136,14 @@ class _DensityProfile(SerializableConfig):
                 Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
                 Defaults to None."""
     def get_z_extent(self) -> tuple[float, float]:
-        """Get the longitudinal extent of the density profile in meters, further bounded by p_zmin and p_zmax if they are set.
+        """Get the longitudinal extent in meters, clipped by p_zmin and p_zmax.
 
         Returns:
-            tuple[float, float]: A tuple of (z_min, z_max) representing the longitudinal extent in meters."""
+            tuple[float, float]: An ordered (z_min, z_max) interval. Empty
+                intersections collapse to the nearest intrinsic profile edge.
+
+        Warns:
+            RuntimeWarning: If clipping leaves no longitudinal width."""
         ...
     @abstractmethod
     def _get_z_extent(self) -> tuple[float, float]:
@@ -149,10 +153,14 @@ class _DensityProfile(SerializableConfig):
             tuple[float, float]: A tuple of (z_min, z_max) representing the longitudinal extent in meters."""
         ...
     def get_r_extent(self) -> float | None:
-        """Get the radial extent of the density profile in meters, further bounded by p_rmax if it is set.
+        """Get the radial upper extent in meters, clipped by p_rmax.
 
         Returns:
-            float|None: The radial extent in meters, or None if not applicable."""
+            float|None: The upper radius, or None if unknown. Empty radial
+                intervals collapse to p_rmin (or zero when p_rmin is unset).
+
+        Warns:
+            RuntimeWarning: If clipping leaves no radial width above p_rmin."""
         ...
     @abstractmethod
     def _get_r_extent(self) -> float | None:

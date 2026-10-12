@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
+import warnings
 
 from pathlib import Path
 import attrs
@@ -108,15 +109,28 @@ class _DensityProfile(SerializableConfig):
 
     def get_z_extent(self) -> tuple[float, float]:
         """
-        Get the longitudinal extent of the density profile in meters, further bounded by p_zmin and p_zmax if they are set.
+        Get the longitudinal extent in meters, clipped by p_zmin and p_zmax.
 
         Returns:
-            tuple[float, float]: A tuple of (z_min, z_max) representing the longitudinal extent in meters.
+            tuple[float, float]: An ordered (z_min, z_max) interval. Empty
+                intersections collapse to the nearest intrinsic profile edge.
+
+        Warns:
+            RuntimeWarning: If clipping leaves no longitudinal width.
         """
         unb_ext = self._get_z_extent()
-        return unb_ext[0] if self.p_zmin is None else max(unb_ext[0], self.p_zmin), (
-            unb_ext[1] if self.p_zmax is None else min(unb_ext[1], self.p_zmax)
-        )
+        z_min = unb_ext[0] if self.p_zmin is None else max(unb_ext[0], self.p_zmin)
+        z_max = unb_ext[1] if self.p_zmax is None else min(unb_ext[1], self.p_zmax)
+        if z_min >= z_max:
+            edge = float(np.clip(z_min, unb_ext[0], unb_ext[1]))
+            warnings.warn(
+                f"Particle bounds produce an empty longitudinal extent ({z_min}, {z_max}); "
+                f"returning the zero-width extent ({edge}, {edge}).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return edge, edge
+        return z_min, z_max
 
     @abstractmethod
     def _get_z_extent(self) -> tuple[float, float]:
@@ -129,18 +143,32 @@ class _DensityProfile(SerializableConfig):
 
     def get_r_extent(self) -> float | None:
         """
-        Get the radial extent of the density profile in meters, further bounded by p_rmax if it is set.
+        Get the radial upper extent in meters, clipped by p_rmax.
 
         Returns:
-            float|None: The radial extent in meters, or None if not applicable.
+            float|None: The upper radius, or None if unknown. Empty radial
+                intervals collapse to p_rmin (or zero when p_rmin is unset).
+
+        Warns:
+            RuntimeWarning: If clipping leaves no radial width above p_rmin.
         """
         unb_ext = self._get_r_extent()
         if unb_ext is None:
-            return self.p_rmax
+            r_max = self.p_rmax
         elif self.p_rmax is None:
-            return unb_ext
+            r_max = unb_ext
         else:
-            return min(unb_ext, self.p_rmax)
+            r_max = min(unb_ext, self.p_rmax)
+        r_min = 0.0 if self.p_rmin is None else self.p_rmin
+        if r_max is not None and r_min >= r_max:
+            warnings.warn(
+                f"Particle bounds produce an empty radial extent ({r_min}, {r_max}); "
+                f"returning the zero-width upper radius {r_min}.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return r_min
+        return r_max
 
     @abstractmethod
     def _get_r_extent(self) -> float | None:
@@ -165,6 +193,12 @@ class _DensityProfile(SerializableConfig):
         """
 
     def __attrs_post_init__(self) -> None:
+        for minimum, maximum in (("p_zmin", "p_zmax"), ("p_rmin", "p_rmax")):
+            lower, upper = getattr(self, minimum), getattr(self, maximum)
+            if lower is not None and upper is not None and not lower < upper:
+                raise ValueError(
+                    f"{minimum} must be less than {maximum}; got {lower} and {upper}."
+                )
         if self.species is None:
             # Bare electrons: one "level", already ionized.
             if self.ionization not in (None, 0, -1, 1):
