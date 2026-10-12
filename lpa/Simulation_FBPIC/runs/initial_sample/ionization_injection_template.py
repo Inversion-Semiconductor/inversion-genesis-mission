@@ -113,10 +113,6 @@ class IonizationInjectionSimulation:
         if not 0.0 <= self.physical_parameters["nitrogen_dopant_fraction"] <= 1.0:
             raise ValueError("nitrogen_dopant_fraction must be in the interval [0, 1].")
 
-    def _laser_output_path(self) -> Path:
-        requested_path = Path(self.hyperparameters["lasy_file"])
-        return requested_path.parent / f"{requested_path.stem}_00000.h5"
-
     def run(self) -> None:
         """Create the FBPIC simulation, run it, and save the results."""
         hyperparameters = self.hyperparameters
@@ -182,7 +178,7 @@ class IonizationInjectionSimulation:
             z0=0.0,  # only used for plotting
             z0_antenna=hyperparameters["lasy_antenna_position"],
             t_start=hyperparameters["lasy_t_start"],
-            lasy_file=self._laser_output_path(),
+            lasy_file=hyperparameters["lasy_file"],
             wavelength=physical_parameters["laser_wavelength_m"],
             tau_fwhm=physical_parameters["laser_pulse_duration_fwhm_s"],
             waist=physical_parameters["laser_spot_size_m"],
