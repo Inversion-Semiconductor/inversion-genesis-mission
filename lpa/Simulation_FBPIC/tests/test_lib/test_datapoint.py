@@ -79,7 +79,7 @@ def test_parameters_retain_live_dictionary() -> None:
         "config_type": "datapoint",
         "subclass": "parameters",
         "git_hash": module._git_hash(),
-        "parameters": {"data": data},
+        "parameters": {"label": "", "data": data},
     }
 
 
