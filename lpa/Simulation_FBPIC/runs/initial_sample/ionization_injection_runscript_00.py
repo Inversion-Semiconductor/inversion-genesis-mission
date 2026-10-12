@@ -2,8 +2,8 @@
 This script is a simple launch script for the template in the same directory.
 
 Demonstrates configuring and launching one ionization-injection simulation.
-Use ``build-dataset`` and ``plot-phase-space-moments`` after the run completes
-to calculate dataset descriptors and inspect the resulting phase space.
+Use ``plot-phase-space-moments`` after the run completes
+to inspect the resulting phase space.
 """
 
 from pathlib import Path
