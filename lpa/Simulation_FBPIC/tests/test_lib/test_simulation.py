@@ -407,7 +407,7 @@ class TestSupportingElements:
 
         hyperparameters, density, laser = _make_simulation_elements()
         data = {"config_type": "not_a_config", "label": "scan"}
-        parameters = Parameters(data=data)
+        parameters = Parameters(label="scan inputs", data=data)
         container = ConfigContainer(
             configs=[
                 hyperparameters,
@@ -420,8 +420,11 @@ class TestSupportingElements:
         assert simulation.densities == [density]
         assert simulation.lasers == [laser]
         assert simulation.parameters[0] is parameters
+        assert simulation.parameters[0].label == "scan inputs"
         data["label"] = "changed"
         assert simulation.parameters[0].data["label"] == "changed"
+        parameters.label = "updated inputs"
+        assert simulation.parameters[0].label == "updated inputs"
         assert simulation.config_hash() == _make_simulation().config_hash()
 
     def test_container_paths_are_resolved_once_at_construction(

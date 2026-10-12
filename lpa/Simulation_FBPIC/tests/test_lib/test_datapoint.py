@@ -65,11 +65,13 @@ def _round_trip(config: SerializableConfig, method: str, tmp_path: Path):
     return SerializableConfig.from_file(value)
 
 
-def test_parameters_retain_live_dictionary() -> None:
+@pytest.mark.parametrize("label", ["", "scan inputs"])
+def test_parameters_retain_live_dictionary(label: str) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
     data = {"energy": 5.0, "nested": {"selection": [10.0, None]}}
-    parameters = Parameters(data=data)
+    parameters = Parameters(label=label, data=data)
+    assert parameters.label == label
     assert parameters.data is data
     data["energy"] = 6.0
     assert parameters.data["energy"] == 6.0
@@ -79,7 +81,7 @@ def test_parameters_retain_live_dictionary() -> None:
         "config_type": "datapoint",
         "subclass": "parameters",
         "git_hash": module._git_hash(),
-        "parameters": {"label": "", "data": data},
+        "parameters": {"label": label, "data": data},
     }
 
 
@@ -94,14 +96,34 @@ def test_parameters_reject_non_dictionary(data: Any) -> None:
         Parameters(data=data)
 
 
+@pytest.mark.parametrize("label", ["", "scan inputs"])
 @pytest.mark.parametrize("method", SERIALIZERS)
-def test_parameters_round_trip(method: str, tmp_path: Path) -> None:
+def test_parameters_round_trip(method: str, tmp_path: Path, label: str) -> None:
     original = Parameters(
-        data={"energy": 5.0, "nested": {"selection": [10.0, None]}, "label": "run"}
+        label=label,
+        data={"energy": 5.0, "nested": {"selection": [10.0, None]}, "label": "run"},
     )
     loaded = _round_trip(original, method, tmp_path)
     assert type(loaded) is Parameters
+    assert loaded.label == label
     assert loaded.data == original.data
+
+
+@pytest.mark.parametrize("label", [None, [], {}, 1])
+def test_parameters_reject_non_string_label(label: Any) -> None:
+    with pytest.raises(TypeError, match="label"):
+        Parameters(label=label, data={})
+
+
+def test_parameters_default_label_for_construction_and_legacy_payload() -> None:
+    parameters = Parameters(data={"energy": 5.0})
+    assert parameters.label == ""
+    payload = parameters.to_dict()
+    del payload["parameters"]["label"]
+    loaded = Parameters.from_dict(payload)
+    assert isinstance(loaded, Parameters)
+    assert loaded.label == ""
+    assert loaded.data == parameters.data
 
 
 def test_parameters_keep_config_like_user_dictionaries_as_data() -> None:
@@ -138,14 +160,18 @@ def test_parameters_use_standard_serialization_conversions(tmp_path: Path) -> No
     }
 
 
+@pytest.mark.parametrize("label", ["", "scan inputs"])
 @pytest.mark.parametrize("include_nones", [True, False])
-def test_empty_parameters_load_with_collection_fallback(include_nones: bool) -> None:
-    payload = Parameters(data={}).to_dict(include_nones=include_nones)
+def test_empty_parameters_load_with_collection_fallback(
+    include_nones: bool, label: str
+) -> None:
+    payload = Parameters(label=label, data={}).to_dict(include_nones=include_nones)
     assert ("data" in payload["parameters"]) is include_nones
     first = Parameters.from_dict(payload)
     second = Parameters.from_dict(payload)
     assert isinstance(first, Parameters) and isinstance(second, Parameters)
     assert first.data == second.data == {}
+    assert first.label == second.label == label
     if include_nones:
         # An explicitly supplied dict stays live, including a payload's dict.
         assert first.data is second.data is payload["parameters"]["data"]

@@ -37,7 +37,7 @@ def test_container_preserves_live_objects_order_and_repeated_references() -> Non
 
 
 def test_container_resolves_all_supported_sources(tmp_path: Path) -> None:
-    parameters = Parameters(data={"long_value": "x" * 512})
+    parameters = Parameters(label="scan inputs", data={"long_value": "x" * 512})
     json_file = parameters.to_json_file(tmp_path / "parameters.json")
     yaml_file = parameters.to_yaml_file(tmp_path / "parameters.yaml")
     container = ConfigContainer(
@@ -54,6 +54,7 @@ def test_container_resolves_all_supported_sources(tmp_path: Path) -> None:
     assert len(container.configs) == 6
     for config in container.configs:
         assert isinstance(config, Parameters)
+        assert config.label == parameters.label
         assert config.data == parameters.data
     from_json = container.configs[4]
     from_yaml = container.configs[5]
