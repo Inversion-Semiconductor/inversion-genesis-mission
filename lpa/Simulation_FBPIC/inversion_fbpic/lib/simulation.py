@@ -494,8 +494,13 @@ class Simulation(SerializableConfig):
         """Run attached analysis for this phase on the simulation's write rank."""
         if self.do_write_to_disk:
             for diagnostic in self.diagnostics:
-                if diagnostic.RUN_BEFORE_SIMULATION == before_simulation:
-                    diagnostic.analyze()
+                try:
+                    if diagnostic.RUN_BEFORE_SIMULATION == before_simulation:
+                        diagnostic.analyze()
+                except Exception as e:
+                    self._logger.error(
+                        f"Error running diagnostic {type(diagnostic).__name__}: {e}"
+                    )
 
     def _element_config_anchor(self) -> Path | None:
         """Directory for resolving ``elements`` path strings."""
