@@ -203,11 +203,13 @@ Within a phase it follows depth-first element order. Repeated references are not
 deduplicated. A matching hash skips FBPIC setup and stepping but still reruns
 the corresponding pre- and post-analysis phases. Repeating setup on an already
 initialized, unhashed instance remains a no-op. Forced runs with
-`skip_if_hashed=False` invoke the appropriate phase normally. A pre-analysis
-failure leaves a new setup incomplete; a post-analysis failure preserves the
-completed simulation hash, so retrying runs analysis without repeating stepping.
-Errors propagate to the caller. Analysis implementations use
-their own declared inputs; no simulation argument is passed to `_analyze()`.
+`skip_if_hashed=False` invoke the appropriate phase normally. Automatic analysis
+failures are logged with tracebacks; they do not abort setup or execution, and
+remaining diagnostics in the phase still run. A failed first analysis remains
+incomplete. Post-analysis failures preserve the completed simulation hash, so
+retrying runs analysis without repeating stepping. Direct calls to a diagnostic's
+`analyze()` still propagate errors. Analysis implementations use their own
+declared inputs; no simulation argument is passed to `_analyze()`.
 
 Diagnostic elements are attached automatically when the simulation is assembled.
 Implementations access their simulation through `attached_simulation`; callers

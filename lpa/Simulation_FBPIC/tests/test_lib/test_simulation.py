@@ -754,8 +754,8 @@ class TestAttachedAnalysis:
         assert before.calls == after.calls == (1 if rank == 0 else 0)
 
     @pytest.mark.parametrize("phase", ["before", "after"])
-    def test_analysis_failure_preserves_successful_stepping_hash(
-        self, analysis_simulation, tmp_path, monkeypatch, phase
+    def test_analysis_failure_is_logged_and_preserves_successful_stepping_hash(
+        self, analysis_simulation, tmp_path, monkeypatch, caplog, phase
     ) -> None:
         simulation, before, after, _ = analysis_simulation
         diagnostic = before if phase == "before" else after
@@ -766,19 +766,24 @@ class TestAttachedAnalysis:
             raise RuntimeError("analysis failed")
 
         monkeypatch.setattr(diagnostic, "_analyze", fail)
-        if phase == "before":
-            with pytest.raises(RuntimeError, match="analysis failed"):
-                simulation.setup_simulation(working_directory=tmp_path)
-            assert not simulation.is_setup
-        else:
-            simulation.setup_simulation(working_directory=tmp_path)
-            with pytest.raises(RuntimeError, match="analysis failed"):
-                simulation.run_simulation()
-        assert not diagnostic.analysis_complete
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert simulation.is_setup
         if phase == "before":
             save_hash.assert_not_called()
-        else:
-            save_hash.assert_called_once_with()
+        simulation.run_simulation()
+        assert not diagnostic.analysis_complete
+        assert (after if phase == "before" else before).analysis_complete
+        save_hash.assert_called_once_with()
+        errors = [
+            record for record in caplog.records if record.levelno == logging.ERROR
+        ]
+        assert len(errors) == 1
+        assert errors[0].getMessage() == (
+            f"Error running diagnostic {type(diagnostic).__name__}: analysis failed"
+        )
+        assert errors[0].exc_info is not None
+        assert errors[0].exc_info[0] is RuntimeError
+        assert "Traceback (most recent call last)" in caplog.text
 
     def test_failed_post_analysis_retry_does_not_repeat_simulation(
         self, analysis_simulation, analysis_classes, tmp_path, monkeypatch
@@ -793,8 +798,8 @@ class TestAttachedAnalysis:
             raise RuntimeError("post-analysis failed")
 
         monkeypatch.setattr(after, "_analyze", fail)
-        with pytest.raises(RuntimeError, match="post-analysis failed"):
-            simulation.run_simulation()
+        simulation.run_simulation()
+        assert not after.analysis_complete
         assert simulation._hash_path.is_file()
         assert simulation._is_hashed()
         assert events.count("step") == 1
@@ -828,9 +833,39 @@ class TestAttachedAnalysis:
         monkeypatch.setattr(
             after, "_analyze", MagicMock(side_effect=RuntimeError("analysis failed"))
         )
-        with pytest.raises(RuntimeError, match="analysis failed"):
-            simulation.run_simulation(record_hash=False)
+        simulation.run_simulation(record_hash=False)
+        assert not after.analysis_complete
+        simulation.simulation.step.assert_called_once()
         assert not simulation._hash_path.exists()
+
+    @pytest.mark.parametrize("before_simulation", [False, True])
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_analysis_failure_does_not_skip_remaining_diagnostics(
+        self,
+        analysis_simulation,
+        analysis_classes,
+        tmp_path,
+        monkeypatch,
+        before_simulation,
+        cached,
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        before_class, after_class = analysis_classes
+        diagnostic = before if before_simulation else after
+        following = (before_class if before_simulation else after_class)()
+        simulation._sort_component(following)
+        monkeypatch.setattr(
+            diagnostic,
+            "_analyze",
+            MagicMock(side_effect=RuntimeError("analysis failed")),
+        )
+        if cached:
+            monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(record_hash=False)
+        assert not diagnostic.analysis_complete
+        assert following.analysis_complete
+        assert following.calls == 1
 
     def test_hash_save_failure_does_not_start_analysis(
         self, analysis_simulation, tmp_path, monkeypatch
