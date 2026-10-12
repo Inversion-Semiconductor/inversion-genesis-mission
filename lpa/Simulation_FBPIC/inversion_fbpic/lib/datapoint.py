@@ -41,6 +41,7 @@ class Parameters(_Datapoint):
     values through ``data`` rather than through configuration attributes.
 
     Args:
+        label: (str) A short string label for this parameter set.
         data: (dict[str, Any]) The user-provided dictionary, retained without
             copying. Required for Python construction; omitted serialized
             dictionaries use the standard empty-dictionary loading fallback.
@@ -48,4 +49,8 @@ class Parameters(_Datapoint):
 
     SUBCLASS: ClassVar[str] = "parameters"
 
+    label: str = attrs.field(
+        default="",
+        validator=attrs.validators.instance_of(str),
+    )
     data: dict[str, Any] = attrs.field(validator=attrs.validators.instance_of(dict))
