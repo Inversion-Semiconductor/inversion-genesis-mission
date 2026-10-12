@@ -254,10 +254,12 @@ class IonizationInjectionSimulation:
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
             sim.to_hdf5_file(
-                Path(hyperparameters["results_directory"]) / "simulation.h5"
+                Path(hyperparameters["results_directory"]) / "simulation.h5",
+                overwrite=True,
             )  # contains all simulation parameters, results, element metadata
             datapoint.to_hdf5_file(
                 Path(hyperparameters["results_directory"]) / "datapoint.h5",
                 group_path="/results",
+                overwrite=True,
             )  # contains just the parameters and analyzed diagnostics
             # NOTE: Easy to change filetypes here, we can use json or yaml for either of these
