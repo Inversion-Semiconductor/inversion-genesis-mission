@@ -114,7 +114,7 @@ class ModifiedDensityProfile(_DensityProfile):
             )
         super().__attrs_post_init__()
 
-    def get_z_extent(self) -> tuple[float, float] | None:
+    def _get_z_extent(self) -> tuple[float, float] | None:
         extent = list(self.resolved_base_density_profile.get_z_extent())
         for modifier in self.resolved_modifiers:
             m_extent = modifier.get_z_extent()
@@ -125,7 +125,7 @@ class ModifiedDensityProfile(_DensityProfile):
                     extent[1] = max(extent[1], m_extent[1])
         return tuple(extent)
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         extent = self.resolved_base_density_profile.get_r_extent()
         for modifier in self.resolved_modifiers:
             m_extent = modifier.get_r_extent()
