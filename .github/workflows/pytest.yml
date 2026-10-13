@@ -44,5 +44,6 @@ jobs:
           pip install -e "lpa/Simulation_FBPIC[dev]"
           pip install -e "lpa/Simulation_Fluid/postproc[dev]"
           pip install -e "lume-fbpic[dev]"
+          pip install -e "lpa/Simulation_Fluid/profile_fitting[dev]"
       - name: Run pytest
         run: pytest

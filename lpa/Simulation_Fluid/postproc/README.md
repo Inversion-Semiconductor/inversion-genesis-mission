@@ -25,6 +25,10 @@ shock_evaluator  – interactive |grad rho| heatmap with oblique-shock check
 The CGNS route is the production path: FBPIC reads the uniform-grid cube produced by
 `cgns_to_density_hdf5` through `interpolate_density.build_density_callable`.
 
+The sibling package [`../profile_fitting`](../profile_fitting/) (`fludat_fit`) fits the
+parameterized `inversion_fbpic` density profiles to lineouts of these cubes and ranks
+the profile families by goodness of fit.
+
 ## Installation and running
 
 The package lives in [`fludat_proc/`](fludat_proc/). No installation is needed: the

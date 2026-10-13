@@ -498,6 +498,10 @@ def test_simulation_stub_includes_properties() -> None:
     assert "@property" in pyi
     assert "def is_boosted(self) -> bool:" in pyi
     assert "def setup_simulation(" in pyi
+    assert "from .diagnostics import _Diagnostic" in pyi
+    assert "from .datapoint import Parameters" in pyi
+    assert "diagnostics: List[_Diagnostic]" in pyi
+    assert "parameters: List[Parameters]" in pyi
 
 
 def test_class_methods_skips_private_and_dunder() -> None:
@@ -518,6 +522,132 @@ def test_class_methods_skips_private_and_dunder() -> None:
     methods = _class_methods(node)
     names = [m.name for m in methods]
     assert names == ["public"]
+
+
+def test_class_methods_keeps_protected_abstract_contracts() -> None:
+    node = _parse_class(
+        """
+        import attrs
+        from abc import abstractmethod
+
+        @attrs.define(kw_only=True)
+        class Example:
+            @abstractmethod
+            def _analyze(self) -> dict[str, float]: ...
+
+            def _private(self) -> None: ...
+
+            @abstractmethod
+            def __private(self) -> None: ...
+        """
+    )
+    methods = _class_methods(node)
+    assert [method.name for method in methods] == ["_analyze"]
+    assert methods[0].decorators == ("abstractmethod",)
+    assert methods[0].return_annotation == "dict[str, float]"
+
+
+def test_datapoint_stub_includes_required_parameters() -> None:
+    pyi = generate_module_pyi("datapoint", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    assert "from typing import Any, ClassVar" in pyi
+    assert "class _Datapoint(SerializableConfig):" in pyi
+    parameters = pyi.split("class Parameters(_Datapoint):")[1].split("\n\nclass ")[0]
+    assert "        data: dict[str, Any]," in parameters
+    assert "        data: dict[str, Any] =" not in parameters
+    assert "class _Diagnostic(" not in pyi
+
+
+def test_diagnostics_stub_includes_analysis_contract_and_inherited_data() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    assert "from .datapoint import _Datapoint" in pyi
+    assert "from abc import abstractmethod" in pyi
+    assert "from typing import TYPE_CHECKING, Any, ClassVar, Literal" in pyi
+    diagnostics = pyi.split("class _Diagnostic(_Datapoint):")[1].split("\n\nclass ")[0]
+    assert "RUN_BEFORE_SIMULATION: ClassVar[bool]" in diagnostics
+    assert "        data: dict[str, Any] = ...," in diagnostics
+    assert (
+        "    @abstractmethod\n    def _analyze(self) -> dict[str, Any]:" in diagnostics
+    )
+    assert "def analyze(self) -> None:" in diagnostics
+    assert "def analysis_complete(self) -> bool:" in diagnostics
+    assert (
+        "def to_dict(self, *, include_nones: bool=True) -> dict[str, Any]:"
+        in diagnostics
+    )
+    assert "_analysis_complete:" not in diagnostics
+    assert "from .simulation import Simulation" in pyi
+    assert "def attach(self, simulation: Simulation) -> None:" in diagnostics
+    assert "def attached_simulation(self) -> Simulation:" in diagnostics
+
+
+def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    descriptor = pyi.split("class MomentDescriptorDiagnostic(_ParticleDiagnostic):")[1]
+    assert (
+        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in descriptor
+    )
+    assert "        species: str," not in descriptor
+    assert "        data: dict[str, Any] = ...," in descriptor
+    assert "longitudinal_mode: int = SPLINE" in descriptor
+    assert "longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS" in descriptor
+    assert "include_higher_moments: bool = False" in descriptor
+    assert "def _analyze(self) -> dict[str, Any]:" in descriptor
+    assert "@abstractmethod" not in descriptor
+    assert "_simulation:" not in pyi
+
+
+def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    particle = pyi.split("class _ParticleDiagnostic(_Diagnostic):")[1].split(
+        "\n\nclass "
+    )[0]
+    assert (
+        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in particle
+    )
+    assert "def load_particles(self) -> tuple[ParticleArray, WeightArray]:" in particle
+    assert "SUBCLASS:" not in particle
+    assert "longitudinal_mode:" not in particle
+    assert "load_openpmd_particles" in pyi
+
+
+def test_generated_protected_abstract_contracts_have_concrete_overrides() -> None:
+    pyi = generate_module_pyi(
+        "_density_implementations.generic_conical_target", lib_dir=LIB_DIR
+    )
+    classes = {
+        node.name: node
+        for node in ast.parse(pyi).body
+        if isinstance(node, ast.ClassDef)
+    }
+    for name in ("GenericConicalTarget", "PowerLawFlattop"):
+        methods = {
+            node.name: node
+            for node in classes[name].body
+            if isinstance(node, ast.FunctionDef)
+        }
+        for method in ("_profile_half_extent", "_unskewed_density"):
+            assert method in methods
+            assert not methods[method].decorator_list
+        assert "_validate_profile" not in methods
+
+
+def test_config_container_stub_includes_supported_sources() -> None:
+    pyi = generate_module_pyi("config_container", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    assert "from pathlib import Path" in pyi
+    assert "class ConfigContainer(SerializableConfig):" in pyi
+    assert (
+        "configs: list[SerializableConfig | str | Path | dict[str, Any]] = ..." in pyi
+    )
+    assert {"datapoint", "diagnostics", "config_container"}.issubset(
+        lib_module_names(LIB_DIR)
+    )
 
 
 def test_class_methods_captures_decorators_and_return() -> None:
