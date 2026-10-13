@@ -29,7 +29,7 @@ class IonizationInjectionSimulation:
 
     _PHYSICAL_PARAMETER_KEYS = frozenset(
         {
-            "peak_plasma_density_cm3",  # NOTE: likely to replace this with neutral density
+            "peak_neutral_density_cm3",
             "nitrogen_dopant_fraction",
             "density_alpha_m",
             "density_beta",
@@ -117,14 +117,10 @@ class IonizationInjectionSimulation:
         """Create the FBPIC simulation, run it, and save the results."""
         hyperparameters = self.hyperparameters
         physical_parameters = self.physical_parameters
-        neutral_density = (
-            physical_parameters["peak_plasma_density_cm3"]
-            * 1.0e6
-            / (2.0 + (14.0 - 2.0) * physical_parameters["nitrogen_dopant_fraction"])
-        )
 
         density_he = dn.BilateralSuperGaussian(
-            nominal_density=neutral_density
+            nominal_density=physical_parameters["peak_neutral_density_cm3"]
+            * 1e6
             * (1.0 - physical_parameters["nitrogen_dopant_fraction"])
             * 2.0,
             fwhm_left=2.0
@@ -148,7 +144,8 @@ class IonizationInjectionSimulation:
         )
 
         density_n2 = dn.BilateralSuperGaussian(
-            nominal_density=neutral_density
+            nominal_density=physical_parameters["peak_neutral_density_cm3"]
+            * 1e6
             * physical_parameters["nitrogen_dopant_fraction"]
             * 14.0,
             fwhm_left=2.0
