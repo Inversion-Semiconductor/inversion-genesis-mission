@@ -88,6 +88,8 @@ class FBPICRunExecutor:
             result = EvaluationResult(run_id, "fbpic_error", {}, run_directory, str(error), time.perf_counter() - started)
         except (FileNotFoundError, ValueError, OSError) as error:
             result = EvaluationResult(run_id, "analysis_error", {}, run_directory, str(error), time.perf_counter() - started)
+        except Exception as error:
+            result = EvaluationResult(run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started)
         else:
             result = EvaluationResult(run_id, "ok", features, run_directory, wall_s=time.perf_counter() - started)
         self._write_result(run_directory, manifest, result)

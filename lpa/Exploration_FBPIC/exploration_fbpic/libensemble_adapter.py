@@ -41,44 +41,43 @@ def run_fbpic_simulation(
         run_id = f"sim_{run_number:06d}"
         run_directory, manifest = executor.prepare_run(run_id, stage, proposal)
         started = time.perf_counter()
-        with chdir(run_directory):
-            task = libE_info["executor"].submit(
-                app_name="fbpic_python",
-                app_args="run_fbpic.py",
-                auto_assign_gpus=True,
-                match_procs_to_gpus=True,
-                extra_args="--cpu-bind=none",
-                stdout="stdout.log",
-                stderr="stderr.log",
-            )
-            try:
-                task.wait(timeout=float(executor.config.execution.get("timeout_s", 21600)))
-            except TimeoutExpired as error:
-                task.kill()
-                result = EvaluationResult(
-                    run_id, "timeout", {}, run_directory, str(error), time.perf_counter() - started
+        try:
+            with chdir(run_directory):
+                task = libE_info["executor"].submit(
+                    app_name="fbpic_python",
+                    app_args="run_fbpic.py",
+                    auto_assign_gpus=True,
+                    match_procs_to_gpus=True,
+                    extra_args="--cpu-bind=none",
+                    stdout="stdout.log",
+                    stderr="stderr.log",
                 )
-            else:
-                result = None
-        if result is not None:
-            pass
-        elif task.state == "FINISHED":
-            try:
+                try:
+                    task.wait(timeout=float(executor.config.execution.get("timeout_s", 21600)))
+                except TimeoutExpired as error:
+                    task.kill()
+                    result = EvaluationResult(
+                        run_id, "timeout", {}, run_directory, str(error), time.perf_counter() - started
+                    )
+                else:
+                    result = None
+            if result is not None:
+                pass
+            elif task.state == "FINISHED":
                 features = executor.extract_features(run_directory)
-            except (FileNotFoundError, ValueError, OSError) as error:
-                result = EvaluationResult(
-                    run_id, "analysis_error", {}, run_directory, str(error), time.perf_counter() - started
-                )
-            else:
                 result = EvaluationResult(run_id, "ok", features, run_directory, wall_s=time.perf_counter() - started)
-        else:
+            else:
+                result = EvaluationResult(
+                    run_id,
+                    "fbpic_error",
+                    {},
+                    run_directory,
+                    f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
+                    time.perf_counter() - started,
+                )
+        except Exception as error:
             result = EvaluationResult(
-                run_id,
-                "fbpic_error",
-                {},
-                run_directory,
-                f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
-                time.perf_counter() - started,
+                run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started
             )
         executor._write_result(run_directory, manifest, result)
         store.append(result)
