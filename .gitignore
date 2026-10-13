@@ -82,8 +82,11 @@ modelling/impactx/htu_digital_twin/beam_tracking/data
 proj_inversion/
 inversion-radiasoft-plasma-injector/
 
-# fluid sim processing output files
-**/Simulation_Fluid/**/*.json
+# fluid sim processing output & data files
+/lpa/Simulation_Fluid/**/*.h5
+/lpa/Simulation_Fluid/**/*.cgns
+/lpa/Simulation_Fluid/**/*.txt
+/lpa/Simulation_Fluid/**/*.json
 # large document files
 *.pdf
 *.pptx
