@@ -82,6 +82,24 @@ def test_stage_one_training_data_rejects_off_nominal_later_stage_rows(monkeypatc
         explorer.training_data()
 
 
+def test_stage_one_training_data_ignores_failed_later_stage_rows(monkeypatch) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    explorer = XoptFBPICExplorer(campaign, "stage_1")
+    parameters = campaign.config.complete_parameters("stage_2")
+    failed_later_stage = {
+        "run_id": "sim_000001",
+        "stage": "stage_2",
+        "campaign_fingerprint": campaign.config.fingerprint(),
+        "status": "failed",
+        **{f"p:{name}": value for name, value in parameters.items()},
+        "p:density_peak": 1.3,
+        "f:total_beam_charge_pc": 100.0,
+    }
+    monkeypatch.setattr(explorer.store, "load", lambda: pd.DataFrame([failed_later_stage]))
+
+    assert explorer.training_data().empty
+
+
 def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
     campaign = Campaign.from_file(CONFIG)
     config = campaign.config.__class__(

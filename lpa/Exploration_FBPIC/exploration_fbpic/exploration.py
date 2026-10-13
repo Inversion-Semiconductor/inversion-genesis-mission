@@ -139,6 +139,7 @@ class XoptFBPICExplorer:
         if data.empty:
             return data
         data = data.loc[data["campaign_fingerprint"] == self.campaign.config.fingerprint()]
+        data = data.loc[data["status"] == "ok"]
         if data.empty:
             return data
         active_names = {parameter.name for parameter in self.parameters}
@@ -161,7 +162,7 @@ class XoptFBPICExplorer:
         available = [column for column in feature_columns if column in data]
         if not available:
             return pd.DataFrame()
-        selected = data.loc[data["status"] == "ok", [*required, *available]].copy()
+        selected = data.loc[:, [*required, *available]].copy()
         selected.columns = [parameter.name for parameter in self.parameters] + [
             column.removeprefix("f:") for column in available
         ]

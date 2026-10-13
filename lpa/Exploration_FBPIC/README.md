@@ -123,6 +123,10 @@ budget but are excluded from GP training. Keep all numerical, analysis, template
 and parameter settings unchanged when resuming, since changing them changes the
 fingerprint and begins a new campaign.
 
+Stages cannot be run in reverse: successful records from a later stage that vary a
+parameter inactive in the requested stage cause the driver to fail before it starts
+libEnsemble, regardless of that stage's `continuation` setting.
+
 For the production driver, configure libEnsemble with:
 
 - `exploration_fbpic.libensemble_adapter.run_fbpic_simulation` as `sim_f`;

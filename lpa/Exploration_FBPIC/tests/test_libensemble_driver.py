@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 
 import numpy as np
+import pytest
 from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
 
 from exploration_fbpic.campaign import Campaign
@@ -31,6 +32,16 @@ def test_smoke_driver_assigns_eight_two_gpu_resource_sets() -> None:
         "total_beam_charge_pc",
         "mean_kinetic_energy_MeV",
     }
+
+
+def test_make_ensemble_validates_training_data_before_allocation(monkeypatch) -> None:
+    def fail_preflight(_: XoptFBPICExplorer) -> object:
+        raise ValueError("invalid reverse-stage history")
+
+    monkeypatch.setattr(XoptFBPICExplorer, "training_data", fail_preflight)
+
+    with pytest.raises(ValueError, match="invalid reverse-stage history"):
+        make_ensemble(CONFIG, "smoke")
 
 
 def test_next_run_id_offset_skips_existing_simulation_directories(tmp_path: Path) -> None:

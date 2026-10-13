@@ -90,6 +90,7 @@ def make_ensemble(config_path: str | Path, stage: str):
     from libensemble.specs import AllocSpecs, ExitCriteria, GenSpecs, LibeSpecs, SimSpecs
 
     explorer = XoptFBPICExplorer(Campaign.from_file(config_path), stage)
+    explorer.training_data()
     settings = explorer.campaign.config.stage_settings(stage)
     completed_count = explorer.completed_evaluation_count() if settings.continuation else 0
     remaining_evaluations = settings.max_evaluations - completed_count
