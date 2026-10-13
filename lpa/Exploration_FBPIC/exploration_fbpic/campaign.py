@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from hashlib import sha256
+from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import re
 from typing import Any, Mapping
 
 import yaml
+
+from . import __version__ as _PACKAGE_VERSION
 
 
 _NUMERIC_STRING = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
@@ -23,6 +26,14 @@ def _normalize_numeric_strings(value: Any) -> Any:
     if isinstance(value, str) and _NUMERIC_STRING.fullmatch(value):
         return float(value)
     return value
+
+
+def _exploration_package_version() -> str:
+    """Return installed package metadata, with an in-tree source fallback."""
+    try:
+        return version("exploration_fbpic")
+    except PackageNotFoundError:
+        return _PACKAGE_VERSION
 
 
 @dataclass(frozen=True)
@@ -183,7 +194,7 @@ class CampaignConfig:
     def fingerprint(self) -> str:
         """Hash settings that must remain fixed to compare all campaign outputs."""
         payload = {
-            "template_script": str(self.template_script),
+            "exploration_fbpic_version": _exploration_package_version(),
             "template_sha256": sha256(self.template_script.read_bytes()).hexdigest(),
             "analysis": self.analysis,
             "execution": self.execution,

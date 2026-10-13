@@ -41,3 +41,20 @@ def test_stage_one_rejects_inactive_parameters() -> None:
         assert "inactive" in str(error)
     else:
         raise AssertionError("expected an inactive parameter to be rejected")
+
+
+def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    template_copy = tmp_path / "copied_template.py"
+    template_copy.write_bytes(campaign.config.template_script.read_bytes())
+    relocated = campaign.config.__class__(
+        name=campaign.config.name,
+        template_script=template_copy,
+        run_root=campaign.config.run_root,
+        parameters=campaign.config.parameters,
+        stages=campaign.config.stages,
+        analysis=campaign.config.analysis,
+        execution=campaign.config.execution,
+    )
+
+    assert relocated.fingerprint() == campaign.config.fingerprint()
