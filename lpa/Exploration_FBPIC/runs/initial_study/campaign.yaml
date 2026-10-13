@@ -2,6 +2,7 @@ name: ionization_injection_exploration
 # Relative to this file. The source template and all numerical settings are
 # fingerprinted so staged data are comparable and reusable.
 template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
+template_class: IonizationInjectionSimulation
 run_root: ../../data/ionization_injection_exploration
 
 # Every physical parameter is persisted for every simulation. Bounds are

@@ -105,6 +105,7 @@ class CampaignConfig:
 
     name: str
     template_script: Path
+    template_class: str
     run_root: Path
     parameters: dict[str, Parameter]
     stages: dict[str, StageConfig]
@@ -146,6 +147,7 @@ class CampaignConfig:
         return cls(
             name=data["name"],
             template_script=(path.parent / data["template_script"]).resolve(),
+            template_class=str(data.get("template_class", "IonizationInjectionSimulation")),
             run_root=(path.parent / data["run_root"]).resolve(),
             parameters=parameters,
             stages=stages,
@@ -196,6 +198,7 @@ class CampaignConfig:
         payload = {
             "exploration_fbpic_version": _exploration_package_version(),
             "template_sha256": sha256(self.template_script.read_bytes()).hexdigest(),
+            "template_class": self.template_class,
             "analysis": self.analysis,
             "execution": self.execution,
             "parameters": {name: asdict(parameter) for name, parameter in self.parameters.items()},

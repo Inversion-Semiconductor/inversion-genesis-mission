@@ -50,6 +50,7 @@ def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) ->
     relocated = campaign.config.__class__(
         name=campaign.config.name,
         template_script=template_copy,
+        template_class=campaign.config.template_class,
         run_root=campaign.config.run_root,
         parameters=campaign.config.parameters,
         stages=campaign.config.stages,

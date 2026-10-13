@@ -55,6 +55,7 @@ def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
     config = campaign.config.__class__(
         name=campaign.config.name,
         template_script=campaign.config.template_script,
+        template_class=campaign.config.template_class,
         run_root=tmp_path,
         parameters=campaign.config.parameters,
         stages=campaign.config.stages,

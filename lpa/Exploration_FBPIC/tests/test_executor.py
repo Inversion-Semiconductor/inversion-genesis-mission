@@ -16,6 +16,7 @@ def test_prepare_run_writes_isolated_full_manifest(tmp_path: Path) -> None:
     copied_config = config.__class__(
         name=config.name,
         template_script=config.template_script,
+        template_class=config.template_class,
         run_root=tmp_path,
         parameters=config.parameters,
         stages=config.stages,
@@ -28,7 +29,30 @@ def test_prepare_run_writes_isolated_full_manifest(tmp_path: Path) -> None:
 
     assert (run_directory / "run_manifest.json").is_file()
     assert (run_directory / "run_fbpic.py").is_file()
+    assert "from ionization_injection_template import IonizationInjectionSimulation" in (run_directory / "run_fbpic.py").read_text(encoding="utf-8")
     assert manifest.parameters["laser_spectral_bandwidth_rad_s"] == "auto"
+
+
+def test_prepare_run_imports_the_configured_template_module_and_class(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    alternate_template = tmp_path / "alternate_template.py"
+    alternate_template.write_text("class AlternateSimulation:\n    pass\n", encoding="utf-8")
+    config = campaign.config.__class__(
+        name=campaign.config.name,
+        template_script=alternate_template,
+        template_class="AlternateSimulation",
+        run_root=tmp_path / "runs",
+        parameters=campaign.config.parameters,
+        stages=campaign.config.stages,
+        analysis=campaign.config.analysis,
+        execution=campaign.config.execution,
+    )
+
+    run_directory, _ = FBPICRunExecutor(Campaign(config)).prepare_run("sim_000001", "stage_1")
+    entrypoint = (run_directory / "run_fbpic.py").read_text(encoding="utf-8")
+
+    assert "from alternate_template import AlternateSimulation" in entrypoint
+    assert "AlternateSimulation(PHYSICAL_PARAMETERS, HYPERPARAMETERS).run()" in entrypoint
 
 
 def test_mean_kinetic_energy_uses_all_normalized_momentum_components() -> None:

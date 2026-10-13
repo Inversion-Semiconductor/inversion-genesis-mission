@@ -38,11 +38,14 @@ or analysis settings within a campaign. Begin a new campaign when those must cha
 
 ### Adapting a new template
 
-Most template updates require only a new campaign YAML: set `template_script`, update
-the physical parameter names, nominal values, bounds, stages, and fixed execution
-settings. The executor, campaign store, scalar extraction, and Slurm dispatch remain
-unchanged when the template still accepts the physical and hyperparameter mappings,
-provides a `.run()` method, and writes the same final openPMD particle diagnostic.
+Most template updates require only a new campaign YAML: set `template_script` and,
+when needed, `template_class`; update the physical parameter names, nominal values,
+bounds, stages, and fixed execution settings. The generated entrypoint imports the
+module named by `template_script`'s filename and the configured class (default:
+`IonizationInjectionSimulation`). The executor, campaign store, scalar extraction,
+and Slurm dispatch remain unchanged when that class accepts the physical and
+hyperparameter mappings, provides a `.run()` method, and writes the same final
+openPMD particle diagnostic.
 
 If the template moves to a configuration-based constructor or CLI, adapt
 `FBPICRunExecutor._write_entrypoint` to write the template's per-run configuration

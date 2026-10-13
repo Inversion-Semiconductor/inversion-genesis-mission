@@ -105,13 +105,13 @@ import sys
 
 TEMPLATE_DIRECTORY = Path({str(self.config.template_script.parent)!r})
 sys.path.insert(0, str(TEMPLATE_DIRECTORY))
-from ionization_injection_template import IonizationInjectionSimulation
+from {self.config.template_script.stem} import {self.config.template_class}
 
 PHYSICAL_PARAMETERS = {manifest.parameters!r}
 HYPERPARAMETERS = {hyperparameters!r}
 
 if __name__ == "__main__":
-    IonizationInjectionSimulation(PHYSICAL_PARAMETERS, HYPERPARAMETERS).run()
+    {self.config.template_class}(PHYSICAL_PARAMETERS, HYPERPARAMETERS).run()
 '''
         (run_directory / "run_fbpic.py").write_text(contents, encoding="utf-8")
 
