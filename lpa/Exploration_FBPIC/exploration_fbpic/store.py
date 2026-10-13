@@ -30,7 +30,7 @@ class CampaignStore:
             fcntl.flock(lock, fcntl.LOCK_EX)
             current, rebuilt = self._load_locked()
             if not current.empty and result.run_id in set(current["run_id"]):
-                if rebuilt:
+                if rebuilt or (result.run_directory / "result.json").is_file():
                     return
                 raise ValueError(f"duplicate run id: {result.run_id}")
             self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))

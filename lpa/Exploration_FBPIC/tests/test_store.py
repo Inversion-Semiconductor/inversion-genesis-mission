@@ -95,3 +95,27 @@ def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -
     repaired = store.load()
 
     assert set(repaired["run_id"]) == {"sim_000001", "sim_000002"}
+
+
+def test_store_append_is_idempotent_after_another_worker_rebuilds(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    store = CampaignStore(tmp_path)
+    results = []
+    for run_id, charge in [("sim_000001", 5.0), ("sim_000002", 6.0)]:
+        run_directory = tmp_path / run_id
+        run_directory.mkdir()
+        manifest = campaign.make_manifest(run_id, "stage_1")
+        manifest.write(run_directory)
+        result = EvaluationResult(run_id, "ok", {"total_beam_charge_pc": charge}, run_directory)
+        (run_directory / "result.json").write_text(
+            json.dumps({"manifest": manifest.__dict__, "result": result.as_dict()}, default=str),
+            encoding="utf-8",
+        )
+        results.append(result)
+    store.path.write_bytes(b"corrupt")
+
+    store.append(results[0])
+    store.append(results[1])
+
+    repaired = store.load()
+    assert set(repaired["run_id"]) == {"sim_000001", "sim_000002"}
