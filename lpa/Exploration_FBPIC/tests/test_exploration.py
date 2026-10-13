@@ -49,6 +49,7 @@ def test_stage_two_training_data_reuses_compatible_stage_one_records(monkeypatch
 
     assert len(training) == 1
     assert set(training) == {*explorer.variable_bounds, *explorer.feature_names}
+    assert training.iloc[0]["peak_plasma_density_cm3"] == 4.0
     assert training.iloc[0]["density_peak"] == 1.1
     assert explorer.completed_evaluation_count() == 0
 

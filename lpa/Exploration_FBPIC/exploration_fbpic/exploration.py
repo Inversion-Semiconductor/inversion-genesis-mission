@@ -151,8 +151,10 @@ class XoptFBPICExplorer:
             column.removeprefix("f:") for column in available
         ]
         for parameter in self.parameters:
-            if parameter.log_scale:
-                selected[parameter.name] = np.log(selected[parameter.name])
+            selected[parameter.name] = [
+                self._to_model_value(parameter, float(value))
+                for value in selected[parameter.name]
+            ]
         for feature in self.feature_names:
             if feature not in selected:
                 selected[feature] = np.nan
