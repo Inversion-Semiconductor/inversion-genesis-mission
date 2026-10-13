@@ -239,8 +239,9 @@ class IonizationInjectionSimulation:
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
                 dg.MomentDescriptorDiagnostic(
-                    target=("all_of_species", "e")
-                ),  # NOTE: all electron groups are being concatenated, do we really only want N2 electrons to be analyzed?
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["openpmd_select"],
+                ),
             ]
         )
 
