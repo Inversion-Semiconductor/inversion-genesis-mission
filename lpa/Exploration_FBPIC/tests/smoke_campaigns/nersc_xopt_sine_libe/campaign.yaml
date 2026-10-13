@@ -1,0 +1,16 @@
+name: xopt_sine_libe_gpu_validation
+variables:
+  amplitude: [0.5, 2.0]
+  phase_rad: [-3.141592653589793, 3.141592653589793]
+initial_points:
+  - {amplitude: 1.25, phase_rad: 0.0}
+  - {amplitude: 0.5, phase_rad: 1.5707963267948966}
+  - {amplitude: 2.0, phase_rad: 1.5707963267948966}
+  - {amplitude: 1.25, phase_rad: -1.5707963267948966}
+  - {amplitude: 1.25, phase_rad: 3.141592653589793}
+max_evaluations: 53
+run_root: /pscratch/sd/c/cedoss/xopt_sine_libe_gpu_validation
+timeout_s: 20
+resources:
+  gpus_per_simulation: 2
+  concurrent_simulations: 8
