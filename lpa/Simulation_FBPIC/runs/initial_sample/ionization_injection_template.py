@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import itertools
 import logging
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Literal
 
 import attrs
 import numpy as np
@@ -24,6 +24,9 @@ from inversion_fbpic.lib import (
 
 _MOVIE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fbpic-movies")
 _LOGGER = logging.getLogger(__name__)
+
+_SERIALIZATION_FORMAT: Literal["json", "yaml", "h5"] = "json"
+_PARAMETERS_FORMAT: Literal["json", "yaml", "h5"] = "json"
 
 
 class IonizationInjectionSimulation:
@@ -311,16 +314,42 @@ class IonizationInjectionSimulation:
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
-            sim.to_hdf5_file(
-                Path(hyperparameters["results_directory"]) / "simulation.h5",
-                overwrite=True,
-            )  # contains all simulation parameters, results, element metadata
-            datapoint.to_hdf5_file(
-                Path(hyperparameters["results_directory"]) / "datapoint.h5",
-                group_path="/results",
-                overwrite=True,
-            )  # contains just the parameters and analyzed diagnostics
-            # NOTE: Easy to change filetypes here, we can use json or yaml for either of these
+            # contains all simulation parameters, results, element metadata
+            if _SERIALIZATION_FORMAT == "json":
+                sim.to_json_file(
+                    Path(hyperparameters["results_directory"]) / "simulation.json",
+                )
+            elif _SERIALIZATION_FORMAT == "yaml":
+                sim.to_yaml_file(
+                    Path(hyperparameters["results_directory"]) / "simulation.yaml",
+                )
+            elif _SERIALIZATION_FORMAT == "h5":
+                sim.to_hdf5_file(
+                    Path(hyperparameters["results_directory"]) / "simulation.h5",
+                    overwrite=True,
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported serialization format: {_SERIALIZATION_FORMAT}"
+                )
+
+            # contains only the simulation parameters and processed results
+            if _PARAMETERS_FORMAT == "json":
+                datapoint.to_json_file(
+                    Path(hyperparameters["results_directory"]) / "datapoint.json",
+                )
+            elif _PARAMETERS_FORMAT == "yaml":
+                datapoint.to_yaml_file(
+                    Path(hyperparameters["results_directory"]) / "datapoint.yaml",
+                )
+            elif _PARAMETERS_FORMAT == "h5":
+                datapoint.to_hdf5_file(
+                    Path(hyperparameters["results_directory"]) / "datapoint.h5",
+                    group_path="/results",
+                    overwrite=True,
+                )
+            else:
+                raise ValueError(f"Unsupported parameters format: {_PARAMETERS_FORMAT}")
 
         if hyperparameters["plot_movies"]:
             self.movie_future = self._queue_movies(

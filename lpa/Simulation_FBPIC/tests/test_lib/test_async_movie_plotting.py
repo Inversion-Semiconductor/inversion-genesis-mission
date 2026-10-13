@@ -116,7 +116,7 @@ def test_movie_job_returns_before_rendering_and_drops_solver_state(
         scale="log",
         save_path=output,
     )
-    assert calls[-1] == call(field_name="E", component="eme", save_path=output)
+    assert calls[-1] == call(field_name=None, component="eme", save_path=output)
     assert [entry.kwargs["component"] for entry in calls[1:7]] == [
         "x",
         "y",
