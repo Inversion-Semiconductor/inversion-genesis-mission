@@ -32,6 +32,7 @@ HYPERPARAMETERS = {
     "r_boundary": "reflective",
     "diagnostic_select": {"uz": [10.0, None]},
     "openpmd_select": {"uz": [10.0, None]},
+    "dump_fields": False,
     "number_dumps_lab": 50,
     "write_period": 50,
     "save_checkpoints": False,

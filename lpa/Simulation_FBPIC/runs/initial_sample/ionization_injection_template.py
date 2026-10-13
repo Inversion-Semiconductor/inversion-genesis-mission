@@ -55,8 +55,11 @@ class IonizationInjectionSimulation:
         "p_nr": 4,
         "p_nt": 30,
         "r_boundary": "reflective",
-        "diagnostic_select": {"uz": [10.0, None]},
-        "openpmd_select": {"uz": [10.0, None]},
+        "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
+        "openpmd_select": {
+            "uz": [10.0, None]
+        },  # which particles are used for post-analysis
+        "dump_fields": False,
         "number_dumps_lab": 100,
         "write_period": 50,
         "save_checkpoints": False,
@@ -222,7 +225,9 @@ class IonizationInjectionSimulation:
             use_mpi=True,
             number_dumps=hyperparameters["number_dumps_lab"],
             gamma_boost=hyperparameters["gamma_boost"],
-            field_diagnostics=None,  # NOTE: add field diagnostics for plotting?
+            field_diagnostics=(
+                ["rho", "E", "B"] if hyperparameters["dump_fields"] else None
+            ),
             save_directory=Path(hyperparameters["lab_diagnostic_directory"]),
             save_checkpoints=hyperparameters["save_checkpoints"],
             checkpoint_period=hyperparameters["checkpoint_period"],
