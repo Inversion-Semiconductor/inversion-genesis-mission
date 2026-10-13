@@ -36,6 +36,7 @@ def adapter_inputs(campaign_executor, store, mpi_executor):
             "store": store,
             "stage": "smoke",
             "active_parameter_names": ("laser_spot_size_m",),
+                "log_scaled_names": (),
         },
     }
     return history, sim_specs, {"executor": mpi_executor}

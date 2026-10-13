@@ -29,6 +29,7 @@ production campaign template. It contains:
 
 - every physical input accepted by `IonizationInjectionSimulation`;
 - nominal values and reviewed, conservative bounds;
+- linear or logarithmic optimization coordinates via `log_scale` on positive parameters;
 - active dimensions for each study stage;
 - fixed numerical/execution settings, and descriptor extraction settings.
 

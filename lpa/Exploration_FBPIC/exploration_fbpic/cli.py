@@ -37,7 +37,9 @@ def main() -> None:
     elif args.command == "evaluate":
         point = json.loads(args.point)
         if args.run_id is None:
-            print(json.dumps(explorer.evaluate(point), indent=2))
+            result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id or f"sim_{explorer._next_run_number():06d}", args.stage, point)
+            CampaignStore(explorer.campaign.config.run_root).append(result)
+            print(json.dumps(result.as_dict(), indent=2))
         else:
             result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id, args.stage, point)
             CampaignStore(explorer.campaign.config.run_root).append(result)

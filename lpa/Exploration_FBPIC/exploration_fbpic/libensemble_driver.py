@@ -27,7 +27,7 @@ def next_run_id_offset(run_root: str | Path) -> int:
 
 def fallback_design(explorer: XoptFBPICExplorer, offset: int, count: int) -> list[dict[str, float]]:
     """Return a non-overlapping deterministic design slice when GP training has no data."""
-    return explorer.initial_design(offset + count, seed=0)[offset:]
+    return explorer.model_initial_design(offset + count, seed=0)[offset:]
 
 
 def persistent_xopt(
@@ -122,6 +122,7 @@ def make_ensemble(config_path: str | Path, stage: str):
             "store": explorer.store,
             "stage": stage,
             "active_parameter_names": variables,
+            "log_scaled_names": tuple(parameter.name for parameter in explorer.parameters if parameter.log_scale),
             "run_id_offset": next_run_id_offset(explorer.campaign.config.run_root),
         },
     )
@@ -134,7 +135,7 @@ def make_ensemble(config_path: str | Path, stage: str):
             "stage": stage,
             "variable_names": variables,
             "feature_names": features,
-            "initial_points": explorer.initial_design(initial_count),
+            "initial_points": explorer.model_initial_design(initial_count),
             "sim_max": remaining_evaluations,
             "batch_size": settings.concurrent_simulations,
             "fallback_offset": completed_count,

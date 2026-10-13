@@ -18,7 +18,7 @@ parameters:
   laser_gdd_relative: {nominal: 0.0}
   laser_tod_relative: {nominal: 0.0}
   laser_fod_s4: {nominal: 0.0}
-  laser_spot_size_m: {nominal: 24e-6, lower: 18e-6, upper: 30e-6, unit: m, log_scale: true}
+  laser_spot_size_m: {nominal: 24e-6, lower: 18e-6, upper: 30e-6, unit: m}
   laser_super_gaussian_order: {nominal: 3}
   laser_focal_position_m: {nominal: 3.5e-3, lower: 2.5e-3, upper: 4.5e-3, unit: m}
   zernike_astigmatism_2: {nominal: 0.0}

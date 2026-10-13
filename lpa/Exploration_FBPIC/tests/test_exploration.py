@@ -1,6 +1,9 @@
 from pathlib import Path
+from dataclasses import replace
 
+import numpy as np
 import pandas as pd
+import pytest
 
 from exploration_fbpic.campaign import Campaign
 from exploration_fbpic.exploration import XoptFBPICExplorer
@@ -67,3 +70,20 @@ def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
     (tmp_path / "sim_000010").mkdir()
 
     assert explorer._next_run_number() == 11
+
+
+def test_log_scale_uses_log_model_coordinates_and_physical_manifests() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    parameters = dict(campaign.config.parameters)
+    parameters["peak_plasma_density_cm3"] = replace(
+        parameters["peak_plasma_density_cm3"], log_scale=True
+    )
+    config = replace(campaign.config, parameters=parameters)
+    explorer = XoptFBPICExplorer(Campaign(config), "stage_1")
+    physical = explorer.initial_design(1)[0]
+    model = explorer.model_initial_design(1)[0]
+
+    assert physical["peak_plasma_density_cm3"] == 4.0e18
+    assert model["peak_plasma_density_cm3"] == np.log(4.0e18)
+    assert model["laser_focal_position_m"] == 3.5e-3
+    assert explorer.model_to_physical(model)["peak_plasma_density_cm3"] == pytest.approx(4.0e18)

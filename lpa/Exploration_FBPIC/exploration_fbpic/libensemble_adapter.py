@@ -30,16 +30,21 @@ def run_fbpic_simulation(
     store = user["store"]
     stage: str = user["stage"]
     active_names: tuple[str, ...] = tuple(user["active_parameter_names"])
+    log_scaled_names: set[str] = set(user.get("log_scaled_names", ()))
     run_id_offset = int(user.get("run_id_offset", 0))
     out = np.zeros(len(H), dtype=sim_specs["out"])
     for name in out.dtype.names or ():
         if name != "status_code" and np.issubdtype(out.dtype[name], np.floating):
             out[name].fill(np.nan)
     for index, row in enumerate(H):
-        proposal = {name: float(row[name]) for name in active_names}
+        model_point = {name: float(row[name]) for name in active_names}
+        physical_point = {
+            name: float(np.exp(value)) if name in log_scaled_names else value
+            for name, value in model_point.items()
+        }
         run_number = run_id_offset + (int(row["sim_id"]) if "sim_id" in H.dtype.names else index)
         run_id = f"sim_{run_number:06d}"
-        run_directory, manifest = executor.prepare_run(run_id, stage, proposal)
+        run_directory, manifest = executor.prepare_run(run_id, stage, physical_point)
         started = time.perf_counter()
         try:
             with chdir(run_directory):

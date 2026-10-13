@@ -37,13 +37,16 @@ class XoptFBPICExplorer:
     @property
     def variable_bounds(self) -> dict[str, list[float]]:
         return {
-            parameter.name: [float(parameter.lower), float(parameter.upper)]
+            parameter.name: [
+                self._to_model_value(parameter, float(parameter.lower)),
+                self._to_model_value(parameter, float(parameter.upper)),
+            ]
             for parameter in self.parameters
             if parameter.lower is not None and parameter.upper is not None
         }
 
     def initial_design(self, n: int, seed: int = 0) -> list[dict[str, float]]:
-        """Nominal + active axis bounds + Sobol fill for a transparent first batch."""
+        """Physical-unit nominal, anchor, and Sobol points for CLI inspection."""
         nominal = {parameter.name: float(parameter.nominal) for parameter in self.parameters}
         points = [nominal]
         for parameter in self.parameters:
@@ -55,16 +58,47 @@ class XoptFBPICExplorer:
         fill = max(0, n - len(points))
         if fill:
             unit = qmc.Sobol(d=len(self.parameters), scramble=True, seed=seed).random(fill)
-            low = np.array([self.variable_bounds[name][0] for name in self.variable_bounds])
-            high = np.array([self.variable_bounds[name][1] for name in self.variable_bounds])
+            low = np.array([self._to_model_value(parameter, float(parameter.lower)) for parameter in self.parameters])
+            high = np.array([self._to_model_value(parameter, float(parameter.upper)) for parameter in self.parameters])
             for row in low + unit * (high - low):
-                points.append(dict(zip(self.variable_bounds, row, strict=True)))
+                points.append(
+                    {
+                        parameter.name: self._to_physical_value(parameter, value)
+                        for parameter, value in zip(self.parameters, row, strict=True)
+                    }
+                )
         return points[:n]
+
+    def model_initial_design(self, n: int, seed: int = 0) -> list[dict[str, float]]:
+        """Return the initial design transformed into Xopt/GP coordinates."""
+        return [self.physical_to_model(point) for point in self.initial_design(n, seed)]
+
+    def physical_to_model(self, point: Mapping[str, float]) -> dict[str, float]:
+        """Transform active physical inputs into the coordinates seen by Xopt."""
+        return {
+            parameter.name: self._to_model_value(parameter, float(point[parameter.name]))
+            for parameter in self.parameters
+        }
+
+    def model_to_physical(self, point: Mapping[str, float]) -> dict[str, float]:
+        """Transform Xopt/GP coordinates back to physical inputs for FBPIC."""
+        return {
+            parameter.name: self._to_physical_value(parameter, float(point[parameter.name]))
+            for parameter in self.parameters
+        }
+
+    @staticmethod
+    def _to_model_value(parameter, value: float) -> float:
+        return float(np.log(value)) if parameter.log_scale else value
+
+    @staticmethod
+    def _to_physical_value(parameter, value: float) -> float:
+        return float(np.exp(value)) if parameter.log_scale else value
 
     def evaluate(self, proposal: Mapping[str, float]) -> dict[str, float | bool | str]:
         """Xopt evaluator function: launch FBPIC and return selected scalar outputs."""
         run_id = f"sim_{self._next_run_number():06d}"
-        result = self.executor.evaluate(run_id, self.stage, proposal)
+        result = self.executor.evaluate(run_id, self.stage, self.model_to_physical(proposal))
         self.store.append(result)
         outputs: dict[str, float | bool | str] = {
             "status_ok": result.status == "ok",
@@ -114,6 +148,9 @@ class XoptFBPICExplorer:
         selected.columns = [parameter.name for parameter in self.parameters] + [
             column.removeprefix("f:") for column in available
         ]
+        for parameter in self.parameters:
+            if parameter.log_scale:
+                selected[parameter.name] = np.log(selected[parameter.name])
         for feature in self.feature_names:
             if feature not in selected:
                 selected[feature] = np.nan
