@@ -31,6 +31,7 @@ def run_fbpic_simulation(
     stage: str = user["stage"]
     active_names: tuple[str, ...] = tuple(user["active_parameter_names"])
     log_scaled_names: set[str] = set(user.get("log_scaled_names", ()))
+    linear_scales: dict[str, float] = dict(user.get("linear_scales", {}))
     run_id_offset = int(user.get("run_id_offset", 0))
     out = np.zeros(len(H), dtype=sim_specs["out"])
     for name in out.dtype.names or ():
@@ -39,7 +40,7 @@ def run_fbpic_simulation(
     for index, row in enumerate(H):
         model_point = {name: float(row[name]) for name in active_names}
         physical_point = {
-            name: float(np.exp(value)) if name in log_scaled_names else value
+            name: (float(np.exp(value)) if name in log_scaled_names else value) * linear_scales.get(name, 1.0)
             for name, value in model_point.items()
         }
         run_number = run_id_offset + (int(row["sim_id"]) if "sim_id" in H.dtype.names else index)

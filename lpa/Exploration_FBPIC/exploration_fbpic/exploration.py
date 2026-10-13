@@ -89,11 +89,13 @@ class XoptFBPICExplorer:
 
     @staticmethod
     def _to_model_value(parameter, value: float) -> float:
-        return float(np.log(value)) if parameter.log_scale else value
+        scaled = value / parameter.linear_scale
+        return float(np.log(scaled)) if parameter.log_scale else scaled
 
     @staticmethod
     def _to_physical_value(parameter, value: float) -> float:
-        return float(np.exp(value)) if parameter.log_scale else value
+        scaled = float(np.exp(value)) if parameter.log_scale else value
+        return scaled * parameter.linear_scale
 
     def evaluate(self, proposal: Mapping[str, float]) -> dict[str, float | bool | str]:
         """Xopt evaluator function: launch FBPIC and return selected scalar outputs."""

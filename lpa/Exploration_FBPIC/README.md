@@ -30,6 +30,8 @@ production campaign template. It contains:
 - every physical input accepted by `IonizationInjectionSimulation`;
 - nominal values and reviewed, conservative bounds;
 - linear or logarithmic optimization coordinates via `log_scale` on positive parameters;
+- readable scaled input coordinates via `linear_scale` (default `1`), with physical
+  values restored before FBPIC execution;
 - active dimensions for each study stage;
 - fixed numerical/execution settings, and descriptor extraction settings.
 

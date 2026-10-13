@@ -123,6 +123,7 @@ def make_ensemble(config_path: str | Path, stage: str):
             "stage": stage,
             "active_parameter_names": variables,
             "log_scaled_names": tuple(parameter.name for parameter in explorer.parameters if parameter.log_scale),
+            "linear_scales": {parameter.name: parameter.linear_scale for parameter in explorer.parameters},
             "run_id_offset": next_run_id_offset(explorer.campaign.config.run_root),
         },
     )

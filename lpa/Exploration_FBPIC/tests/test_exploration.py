@@ -84,6 +84,16 @@ def test_log_scale_uses_log_model_coordinates_and_physical_manifests() -> None:
     model = explorer.model_initial_design(1)[0]
 
     assert physical["peak_plasma_density_cm3"] == 4.0e18
-    assert model["peak_plasma_density_cm3"] == np.log(4.0e18)
+    assert model["peak_plasma_density_cm3"] == np.log(4.0)
     assert model["laser_focal_position_m"] == 3.5e-3
     assert explorer.model_to_physical(model)["peak_plasma_density_cm3"] == pytest.approx(4.0e18)
+
+
+def test_linear_scale_uses_normalized_model_coordinates_and_physical_manifests() -> None:
+    explorer = XoptFBPICExplorer(Campaign.from_file(CONFIG), "stage_1")
+    physical = explorer.initial_design(1)[0]
+    model = explorer.model_initial_design(1)[0]
+
+    assert physical["density_center_location_m"] == 2.3e-3
+    assert model["density_center_location_m"] == 2.3
+    assert explorer.model_to_physical(model)["density_center_location_m"] == pytest.approx(2.3e-3)

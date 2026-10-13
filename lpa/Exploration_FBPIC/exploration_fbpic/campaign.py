@@ -45,6 +45,7 @@ class Parameter:
     lower: float | None = None
     upper: float | None = None
     unit: str = ""
+    linear_scale: float = 1.0
     log_scale: bool = False
     description: str = ""
 
@@ -53,6 +54,8 @@ class Parameter:
         return self.lower is not None and self.upper is not None
 
     def validate(self, value: float | str) -> float | str:
+        if self.linear_scale <= 0:
+            raise ValueError(f"{self.name}.linear_scale must be positive")
         if not self.variable:
             if value != self.nominal:
                 raise ValueError(f"{self.name} is fixed at {self.nominal!r}")
@@ -116,20 +119,20 @@ class CampaignConfig:
     def from_file(cls, path: str | Path) -> "CampaignConfig":
         path = Path(path).expanduser().resolve()
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        parameters = {
-            name: Parameter(
-                name=name,
-                **{
-                    key: float(value)
-                    if key in {"nominal", "lower", "upper"}
-                    and isinstance(value, str)
-                    and value != "auto"
-                    else value
-                    for key, value in values.items()
-                },
-            )
-            for name, values in data["parameters"].items()
-        }
+        parameters = {}
+        for name, raw_values in data["parameters"].items():
+            values = dict(raw_values)
+            scale = float(values.get("linear_scale", 1.0))
+            if scale <= 0:
+                raise ValueError(f"{name}.linear_scale must be positive")
+            for key in {"nominal", "lower", "upper"}:
+                value = values.get(key)
+                if isinstance(value, str) and value != "auto":
+                    value = float(value)
+                if isinstance(value, (int, float)):
+                    values[key] = float(value) * scale
+            values["linear_scale"] = scale
+            parameters[name] = Parameter(name=name, **values)
         stages = {
             name: StageConfig(
                 active_parameters=tuple(values["active_parameters"]),
