@@ -131,8 +131,9 @@ class XoptFBPICExplorer:
         return len(compatible)
 
     def _next_run_number(self) -> int:
-        data = self.store.load()
-        if data.empty:
-            return 0
-        numbers = pd.to_numeric(data["run_id"].str.extract(r"(\d+)$")[0], errors="coerce")
-        return int(numbers.max()) + 1
+        numbers = [
+            int(path.name.removeprefix("sim_"))
+            for path in self.campaign.config.run_root.glob("sim_*")
+            if path.is_dir() and path.name.removeprefix("sim_").isdigit()
+        ]
+        return max(numbers, default=-1) + 1

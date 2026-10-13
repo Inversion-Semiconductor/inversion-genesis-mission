@@ -48,3 +48,21 @@ def test_stage_two_training_data_reuses_compatible_stage_one_records(monkeypatch
     assert set(training) == {*explorer.variable_bounds, *explorer.feature_names}
     assert training.iloc[0]["density_peak"] == 1.1
     assert explorer.completed_evaluation_count() == 0
+
+
+def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    config = campaign.config.__class__(
+        name=campaign.config.name,
+        template_script=campaign.config.template_script,
+        run_root=tmp_path,
+        parameters=campaign.config.parameters,
+        stages=campaign.config.stages,
+        analysis=campaign.config.analysis,
+        execution=campaign.config.execution,
+    )
+    explorer = XoptFBPICExplorer(Campaign(config), "stage_1")
+    (tmp_path / "sim_000002").mkdir()
+    (tmp_path / "sim_000010").mkdir()
+
+    assert explorer._next_run_number() == 11
