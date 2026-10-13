@@ -36,7 +36,8 @@ def persistent_xopt(
     from libensemble.tools.persistent_support import PersistentSupport
 
     user = gen_specs["user"]
-    xopt = user["xopt"]
+    explorer = XoptFBPICExplorer(Campaign.from_file(user["config_path"]), user["stage"])
+    xopt = explorer.make_xopt()
     variable_names: tuple[str, ...] = tuple(user["variable_names"])
     feature_names: tuple[str, ...] = tuple(user["feature_names"])
     initial_points: list[dict[str, float]] = user["initial_points"]
@@ -62,7 +63,7 @@ def persistent_xopt(
         submitted += len(candidates)
         tag, _, completed = support.send_recv(candidates)
 
-        if len(completed):
+        if completed is not None and len(completed):
             rows = pd.DataFrame({name: completed[name] for name in (*variable_names, *feature_names)})
             successful = completed["status_code"] == 0
             successful &= np.isfinite(rows.loc[:, feature_names]).all(axis=1).to_numpy()
@@ -81,13 +82,20 @@ def make_ensemble(config_path: str | Path, stage: str):
 
     explorer = XoptFBPICExplorer(Campaign.from_file(config_path), stage)
     settings = explorer.campaign.config.stage_settings(stage)
+    completed_count = explorer.completed_evaluation_count() if settings.continuation else 0
+    remaining_evaluations = settings.max_evaluations - completed_count
+    if remaining_evaluations < 1:
+        raise RuntimeError(
+            f"stage {stage!r} already has {completed_count} compatible evaluations, "
+            f"meeting its budget of {settings.max_evaluations}"
+        )
     executor = MPIExecutor()
     executor.register_app(full_path=sys.executable, app_name="fbpic_python")
     ensemble = Ensemble(parse_args=True, executor=executor)
 
     variables = tuple(explorer.variable_bounds)
     features = explorer.feature_names
-    initial_count = min(settings.initial_design_size, settings.max_evaluations)
+    initial_count = 0 if completed_count else min(settings.initial_design_size, remaining_evaluations)
     ensemble.libE_specs = LibeSpecs(
         comms="mpi",
         gen_on_manager=True,
@@ -113,20 +121,22 @@ def make_ensemble(config_path: str | Path, stage: str):
         persis_in=["sim_id", "status_code", *variables, *features],
         out=[(name, float) for name in variables],
         user={
-            "xopt": explorer.make_xopt(),
-            "explorer": explorer,
+            "config_path": str(Path(config_path).resolve()),
+            "stage": stage,
             "variable_names": variables,
             "feature_names": features,
             "initial_points": explorer.initial_design(initial_count),
-            "sim_max": settings.max_evaluations,
+            "sim_max": remaining_evaluations,
             "batch_size": settings.concurrent_simulations,
         },
     )
     ensemble.alloc_specs = AllocSpecs(
         alloc_f=only_persistent_gens,
-        user={"async_return": True},
+        # FBPIC candidates are generated in worker-sized batches. Returning
+        # partial batches can exhaust sim_max while candidates remain queued.
+        user={"async_return": False, "init_sample_size": initial_count},
     )
-    ensemble.exit_criteria = ExitCriteria(sim_max=settings.max_evaluations)
+    ensemble.exit_criteria = ExitCriteria(sim_max=remaining_evaluations)
     ensemble.add_random_streams()
     return ensemble
 

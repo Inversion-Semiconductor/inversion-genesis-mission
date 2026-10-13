@@ -102,6 +102,12 @@ class XoptFBPICExplorer:
         data = self.store.load()
         if data.empty:
             return data
+        data = data.loc[
+            (data["stage"] == self.stage)
+            & (data["campaign_fingerprint"] == self.campaign.config.fingerprint())
+        ]
+        if data.empty:
+            return data
         required = [f"p:{parameter.name}" for parameter in self.parameters]
         feature_columns = [f"f:{feature}" for feature in self.feature_names]
         available = [column for column in feature_columns if column in data]
@@ -115,6 +121,17 @@ class XoptFBPICExplorer:
             if feature not in selected:
                 selected[feature] = np.nan
         return selected
+
+    def completed_evaluation_count(self) -> int:
+        """Count compatible persisted evaluations that consume this stage's budget."""
+        data = self.store.load()
+        if data.empty:
+            return 0
+        compatible = data.loc[
+            (data["stage"] == self.stage)
+            & (data["campaign_fingerprint"] == self.campaign.config.fingerprint())
+        ]
+        return len(compatible)
 
     def _next_run_number(self) -> int:
         data = self.store.load()

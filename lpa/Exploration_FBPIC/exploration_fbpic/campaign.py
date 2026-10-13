@@ -67,6 +67,7 @@ class StageConfig:
     gpus_per_simulation: int
     total_gpus: int
     concurrent_simulations: int
+    continuation: bool = False
 
     def validate(self, name: str, parameters: Mapping[str, Parameter]) -> None:
         unknown = set(self.active_parameters) - set(parameters)
@@ -125,6 +126,7 @@ class CampaignConfig:
                 gpus_per_simulation=int(values["gpus_per_simulation"]),
                 total_gpus=int(values["total_gpus"]),
                 concurrent_simulations=int(values["concurrent_simulations"]),
+                continuation=bool(values.get("continuation", False)),
             )
             for name, values in data["stages"].items()
         }
