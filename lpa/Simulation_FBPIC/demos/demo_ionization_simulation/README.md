@@ -74,11 +74,17 @@ or J. The beam record contains the default 33-feature descriptor: momentum
 centroids, the 6D covariance entries, longitudinal slice features, and beam
 charge in pC.
 
-The selector `("all_of_species", "e")` gathers both recorded electron
+The target `("all_of_species", "e")` gathers both recorded electron
 populations. It analyzes the particles retained by their existing `uz >= 10`
 diagnostic filters. `results.h5` is written after analysis on rank zero, before
 the optional movie and plotting work, and can be overwritten by rerunning the
 demo. No raw particle arrays are copied into this results file.
+
+The separate optional `select` parameter adds loading-time filters, for example
+`MomentDescriptorDiagnostic(target=("all_of_species", "e"), select={"uz": [20.0, None], "x": [-1.0e-6, 1.0e-6]})`.
+Ranges for `x`, `y`, `z` use meters; `ux`, `uy`, `uz` use normalized momenta.
+Bounds may be `None` for an open end. Omitting `select` or setting it to
+`None` or `{}` applies no further filtering to the recorded particles.
 
 Reloading preserves `beam_moments.data`, but runtime completion status and the
 simulation attachment are deliberately not persisted.

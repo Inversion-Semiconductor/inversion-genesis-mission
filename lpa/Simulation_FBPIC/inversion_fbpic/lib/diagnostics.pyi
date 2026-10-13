@@ -104,9 +104,10 @@ class _ParticleDiagnostic(_Diagnostic):
     At analysis time, select the highest-numbered ``data########.h5`` file in
     the attached simulation's resolved save directory under ``hdf5``. The file
     need not exist at construction or attachment time. ``load_particles()``
-    resolves the selector against attached density profiles and concatenates
+    resolves ``target`` against attached density profiles and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
-    are loaded only once; no extra selection or cropping is applied.
+    are loaded only once. ``select`` applies additional openPMD-viewer particle
+    filtering to each recording before concatenation.
 
     Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
     to obtain the input for their calculation. This base has no concrete tag.
@@ -115,27 +116,35 @@ class _ParticleDiagnostic(_Diagnostic):
         data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
             dictionary. Values use the standard configuration serialization
             conversions; arbitrary dictionaries are not interpreted as configs.
-        selection: (tuple) Select recorded particles using ("elec_name", name
+        target: (tuple) Select recorded particles using ("elec_name", name
             or list of names), ("ion_name", name or list of names), or
             ("all_of_species", species). The species "e" selects all recorded
             electrons; an atomic symbol such as "He" selects recorded ions
             of that species. Names must be configured on the attached
-            simulation's densities."""
-    selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
+            simulation's densities.
+        select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+            mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+            [minimum, maximum] ranges; None bounds are unbounded. For example,
+            {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+            no further filtering."""
+    target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
+    select: dict[str, list[float | None]] | None
     def __init__(
         self,
         *,
         data: dict[str, Any] = ...,
-        selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        select: dict[str, list[float | None]] | None = None,
     ) -> None:
         """Abstract diagnostic for selected particles from the simulation's last dump.
 
         At analysis time, select the highest-numbered ``data########.h5`` file in
         the attached simulation's resolved save directory under ``hdf5``. The file
         need not exist at construction or attachment time. ``load_particles()``
-        resolves the selector against attached density profiles and concatenates
+        resolves ``target`` against attached density profiles and concatenates
         the selected particle arrays and macro-weights. Repeated recording names
-        are loaded only once; no extra selection or cropping is applied.
+        are loaded only once. ``select`` applies additional openPMD-viewer particle
+        filtering to each recording before concatenation.
 
         Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
         to obtain the input for their calculation. This base has no concrete tag.
@@ -144,14 +153,22 @@ class _ParticleDiagnostic(_Diagnostic):
             data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs.
-            selection: (tuple) Select recorded particles using ("elec_name", name
+            target: (tuple) Select recorded particles using ("elec_name", name
                 or list of names), ("ion_name", name or list of names), or
                 ("all_of_species", species). The species "e" selects all recorded
                 electrons; an atomic symbol such as "He" selects recorded ions
                 of that species. Names must be configured on the attached
-                simulation's densities."""
+                simulation's densities.
+            select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+                mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+                [minimum, maximum] ranges; None bounds are unbounded. For example,
+                {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+                no further filtering."""
     def load_particles(self) -> tuple[ParticleArray, WeightArray]:
         """Load and concatenate selected particles and weights from the latest dump.
+
+        ``select`` is passed to openPMD-viewer's ``get_particle(select=...)``
+        for each recording identified by ``target``.
 
         Returns:
             A float64 particle array of shape (N, 6), ordered x, ux, y, uy, z,
@@ -174,12 +191,17 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
         data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
             dictionary. Values use the standard configuration serialization
             conversions; arbitrary dictionaries are not interpreted as configs.
-        selection: (tuple) Select recorded particles using ("elec_name", name
+        target: (tuple) Select recorded particles using ("elec_name", name
             or list of names), ("ion_name", name or list of names), or
             ("all_of_species", species). The species "e" selects all recorded
             electrons; an atomic symbol such as "He" selects recorded ions
             of that species. Names must be configured on the attached
             simulation's densities.
+        select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+            mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+            [minimum, maximum] ranges; None bounds are unbounded. For example,
+            {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+            no further filtering.
         longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
             to SPLINE (2).
         longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,
@@ -198,7 +220,8 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
         self,
         *,
         data: dict[str, Any] = ...,
-        selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        select: dict[str, list[float | None]] | None = None,
         longitudinal_mode: int = SPLINE,
         longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
         include_total_weight: bool = False,
@@ -215,12 +238,17 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
             data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs.
-            selection: (tuple) Select recorded particles using ("elec_name", name
+            target: (tuple) Select recorded particles using ("elec_name", name
                 or list of names), ("ion_name", name or list of names), or
                 ("all_of_species", species). The species "e" selects all recorded
                 electrons; an atomic symbol such as "He" selects recorded ions
                 of that species. Names must be configured on the attached
                 simulation's densities.
+            select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+                mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+                [minimum, maximum] ranges; None bounds are unbounded. For example,
+                {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+                no further filtering.
             longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
                 to SPLINE (2).
             longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,

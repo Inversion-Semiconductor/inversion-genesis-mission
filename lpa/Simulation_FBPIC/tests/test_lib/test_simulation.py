@@ -646,7 +646,7 @@ class TestAttachedAnalysis:
         from inversion_fbpic.utils.distributions import compute_moment_descriptor
 
         simulation, _, _, events = analysis_simulation
-        diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+        diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
         simulation.densities = [
             attrs.evolve(simulation.densities[0], elec_name="electrons")
         ]
@@ -668,7 +668,7 @@ class TestAttachedAnalysis:
         monkeypatch.setattr(module, "load_openpmd_particles", loader)
         simulation.simulation.step.side_effect = finish_step
         simulation.run_simulation(record_hash=False)
-        loader.assert_called_once_with(latest, "electrons")
+        loader.assert_called_once_with(latest, "electrons", select=None)
         assert diagnostic.data == compute_moment_descriptor(particles, weights)
         assert diagnostic.analysis_complete
 

@@ -138,7 +138,7 @@ def main() -> None:
             "flattop_length_m": flattop_length,
         }
     )
-    beam_moments = MomentDescriptorDiagnostic(selection=("all_of_species", "e"))
+    beam_moments = MomentDescriptorDiagnostic(target=("all_of_species", "e"))
     results = ConfigContainer(configs=[physical_parameters, beam_moments])
 
     # plot density profiles

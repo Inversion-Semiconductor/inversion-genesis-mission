@@ -237,8 +237,8 @@ each simulation.
 
 ## Compute The Final Beam Moment Descriptor
 
-`_ParticleDiagnostic` extends `_Diagnostic` with the shared `selection` field,
-recording-name resolution, latest-output discovery, and particle/weight
+`_ParticleDiagnostic` extends `_Diagnostic` with the shared `target` and `select`
+fields, recording-name resolution, latest-output discovery, and particle/weight
 concatenation. Its `load_particles()` method returns an `(N, 6)` particle array
 and matching `(N,)` macro-weights without changing `data` or completion state.
 Subclass it and implement `_analyze()` to reuse this input pipeline for another
@@ -254,14 +254,16 @@ import attrs
 from inversion_fbpic.lib.diagnostics import MomentDescriptorDiagnostic
 
 density = attrs.evolve(density, elec_name="electrons")
-moments = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+moments = MomentDescriptorDiagnostic(
+    target=("elec_name", "electrons"), select={"uz": [10.0, None]}
+)
 simulation = Simulation(elements=[hyperparameters, density, laser, moments])
 simulation.setup_simulation(working_directory=Path("runs/example"))
 simulation.run_simulation()
 features = moments.data
 ```
 
-The required `selection` is a Literal-tagged tuple with these supported forms:
+The required `target` is a two-entry Literal-tagged tuple with these supported forms:
 
 ```python
 ("elec_name", ["elec_name_1", "elec_name_2"])
@@ -283,8 +285,14 @@ an error.
 The selected particle arrays and macro-weights are concatenated before computing
 one descriptor. Duplicate recording names are loaded only once, so they do not
 double-count particles or charge. Outer tuples reload correctly from the list
-representation used in JSON, YAML, and HDF5. This replaces the previous
-single-string `species` constructor argument.
+representation used in JSON, YAML, and HDF5. `target` replaces the previous
+`selection` constructor argument; filters are supplied separately as `select`.
+
+The optional `select` dict maps `x`, `y`, `z` (in meters) or `ux`, `uy`, `uz`
+(normalized momenta) to `[minimum, maximum]` ranges. A `None` bound is unbounded.
+These filters are passed to openPMD-viewer's `get_particle(select=...)` for
+all targeted recordings before concatenation. Omitted `select`, `None`, or `{}`
+applies no further filtering. Both inputs are serialized independently.
 
 At each
 analysis call, the diagnostic searches the resolved `save_directory/hdf5` and
@@ -295,8 +303,8 @@ replacing prior results or marking analysis complete.
 
 The constructor exposes `longitudinal_mode` (OFF=0, MOMENTS=1, SPLINE=2),
 `longitudinal_bins`, `include_total_weight`, and `include_higher_moments` using
-the function's defaults. All particles of the selected recordings are analyzed without
-additional momentum selection or central cropping. `config_type` remains
+the function's defaults. All particles of the targeted recordings are analyzed unless
+`select` restricts them; no central cropping is applied. `config_type` remains
 `datapoint` and its concrete `subclass` tag is `moment_descriptor`. Call
 `moments.analyze()` explicitly to recompute outside the simulation lifecycle;
 cached `run_simulation()` calls already refresh results from existing output.

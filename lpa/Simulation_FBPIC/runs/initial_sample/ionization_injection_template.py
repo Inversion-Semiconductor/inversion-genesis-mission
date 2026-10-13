@@ -55,6 +55,8 @@ class IonizationInjectionSimulation:
         "p_nr": 4,
         "p_nt": 30,
         "r_boundary": "reflective",
+        "diagnostic_select": {"uz": [10.0, None]},
+        "openpmd_select": {"uz": [10.0, None]},
         "number_dumps_lab": 100,
         "write_period": 50,
         "save_checkpoints": False,
@@ -77,7 +79,6 @@ class IonizationInjectionSimulation:
         "laser_centering_angles": 72,
         # NOTE: Add hyperparameters for...?
         # - plotting/movies
-        # - beam minimum energy/select
     }
 
     def __init__(
@@ -140,7 +141,7 @@ class IonizationInjectionSimulation:
             species="He",
             ionization=0,
             elec_name="electrons_he",
-            elec_select={"uz": [10.0, None]},  # NOTE: Parameterize?
+            elec_select=hyperparameters["diagnostic_select"],
         )
 
         density_n2 = dn.BilateralSuperGaussian(
@@ -165,7 +166,7 @@ class IonizationInjectionSimulation:
             species="N",
             ionization=0,
             elec_name="electrons_n2",
-            elec_select={"uz": [10.0, None]},  # NOTE: Parameterize?
+            elec_select=hyperparameters["diagnostic_select"],
         )
 
         # NOTE: add plots of the density profiles?
@@ -238,7 +239,7 @@ class IonizationInjectionSimulation:
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
                 dg.MomentDescriptorDiagnostic(
-                    selection=("all_of_species", "e")
+                    target=("all_of_species", "e")
                 ),  # NOTE: all electron groups are being concatenated, do we really only want N2 electrons to be analyzed?
             ]
         )

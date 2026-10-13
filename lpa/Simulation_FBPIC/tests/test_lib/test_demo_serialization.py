@@ -163,7 +163,8 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         assert parameters.data["electron_diagnostic_selection"] == {"uz": [10.0, None]}
         assert parameters.data["laser_a0"] > 0.0
         assert parameters.data["flattop_length_m"] > 0.0
-        assert moments.selection == ("all_of_species", "e")
+        assert moments.target == ("all_of_species", "e")
+        assert moments.select is None
         assert moments.data == refreshed
         assert len(moments.data) == 33
         assert captured[-1].parameters[0].data == parameters.data
