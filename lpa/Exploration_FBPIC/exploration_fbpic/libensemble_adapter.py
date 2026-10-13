@@ -32,6 +32,9 @@ def run_fbpic_simulation(
     active_names: tuple[str, ...] = tuple(user["active_parameter_names"])
     run_id_offset = int(user.get("run_id_offset", 0))
     out = np.zeros(len(H), dtype=sim_specs["out"])
+    for name in out.dtype.names or ():
+        if name != "status_code" and np.issubdtype(out.dtype[name], np.floating):
+            out[name].fill(np.nan)
     for index, row in enumerate(H):
         proposal = {name: float(row[name]) for name in active_names}
         run_number = run_id_offset + (int(row["sim_id"]) if "sim_id" in H.dtype.names else index)

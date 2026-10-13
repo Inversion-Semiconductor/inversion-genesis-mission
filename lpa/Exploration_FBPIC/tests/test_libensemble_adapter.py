@@ -42,11 +42,15 @@ def test_adapter_uses_resource_set_gpu_matching_without_explicit_rank_count(
     mpi_executor = RecordingExecutor()
     history = np.array([(0, 24e-6)], dtype=[("sim_id", int), ("laser_spot_size_m", float)])
 
-    run_fbpic_simulation(
+    out, _ = run_fbpic_simulation(
         history,
         {},
         {
-            "out": [("status_code", int), ("total_beam_charge_pc", float)],
+            "out": [
+                ("status_code", int),
+                ("total_beam_charge_pc", float),
+                ("mean_kinetic_energy_MeV", float),
+            ],
             "user": {
                 "executor": campaign_executor,
                 "store": store,
@@ -62,3 +66,6 @@ def test_adapter_uses_resource_set_gpu_matching_without_explicit_rank_count(
     assert mpi_executor.submit_kwargs["extra_args"] == "--cpu-bind=none"
     assert "num_procs" not in mpi_executor.submit_kwargs
     assert "num_gpus" not in mpi_executor.submit_kwargs
+    assert out["status_code"][0] == 0
+    assert out["total_beam_charge_pc"][0] == 1.0
+    assert np.isnan(out["mean_kinetic_energy_MeV"][0])
