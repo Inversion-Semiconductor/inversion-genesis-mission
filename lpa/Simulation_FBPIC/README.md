@@ -75,7 +75,7 @@ density = build_gaussian_profile(sigma=3e-6, center_location=10e-6)
 
 ### Running FBPIC
 
-FBPIC can be run from Python once the environment is set up. Example simulation workflows are in `demos/demo_ionization_simulation/` and `demos/demo_downramp_simulation/`.
+FBPIC can be run from Python once the environment is set up. Example simulation workflows are in `demos/demo_ionization_simulation/`, `demos/demo_downramp_simulation/`, and `demos/demo_lasy_laser_simulation/` (LASY-built aberrated laser).
 
 
 ### Visualization with openPMD
@@ -151,6 +151,10 @@ After installing the package with `pip install -e .`, the commands below can be 
       The `runs/initial_sample/` directory contains an example run configuration
       and a seven-run sample dataset: one nominal case plus six single-parameter
       variations.
+
+      Beam charge is recorded as `total_beam_charge_pc` in picocoulombs. Older
+      datasets using `total_beam_charge_c` must be converted by multiplying the
+      stored value by `1e12` and renaming the key.
 
       `plot-phase-space-moments` creates a phase-space figure from a single
       openPMD particle diagnostic. It compares weighted particle projections with

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from ..density_core import _DensityProfile
 
+from abc import abstractmethod
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
 from typing import ClassVar, Literal
+import numpy as np
+import numpy.typing as npt
 
 SkewMode = Literal['auto', 'finite_supergaussian', 'exponential', 'saturated']
 
@@ -19,11 +22,11 @@ class _FiniteSkewedProfile(_DensityProfile):
         p_nr: (int) Number of macroparticles per gridcell along the radial direction.
         p_nt: (int) Number of macroparticles per gridcell along the angular direction.
         species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-            If None, the plasma is assumed to be fully ionized and no ionization is considered.
-            If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+            If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+            ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-            Defaults to unionized (ionization level 0).
+            Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
         p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -66,11 +69,11 @@ class _FiniteSkewedProfile(_DensityProfile):
             p_nr: (int) Number of macroparticles per gridcell along the radial direction.
             p_nt: (int) Number of macroparticles per gridcell along the angular direction.
             species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-                If None, the plasma is assumed to be fully ionized and no ionization is considered.
-                If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+                If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+                ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-                Defaults to unionized (ionization level 0).
+                Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
             p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -88,6 +91,12 @@ class _FiniteSkewedProfile(_DensityProfile):
     def get_r_extent(self) -> float | None:
         ...
     def build_density_function(self) -> DensityCallable:
+        ...
+    @abstractmethod
+    def _profile_half_extent(self) -> float:
+        ...
+    @abstractmethod
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         ...
 
 class GenericConicalTarget(_FiniteSkewedProfile):
@@ -108,11 +117,11 @@ class GenericConicalTarget(_FiniteSkewedProfile):
         p_nr: (int) Number of macroparticles per gridcell along the radial direction.
         p_nt: (int) Number of macroparticles per gridcell along the angular direction.
         species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-            If None, the plasma is assumed to be fully ionized and no ionization is considered.
-            If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+            If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+            ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-            Defaults to unionized (ionization level 0).
+            Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
         p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -186,11 +195,11 @@ class GenericConicalTarget(_FiniteSkewedProfile):
             p_nr: (int) Number of macroparticles per gridcell along the radial direction.
             p_nt: (int) Number of macroparticles per gridcell along the angular direction.
             species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-                If None, the plasma is assumed to be fully ionized and no ionization is considered.
-                If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+                If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+                ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-                Defaults to unionized (ionization level 0).
+                Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
             p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -213,6 +222,10 @@ class GenericConicalTarget(_FiniteSkewedProfile):
             fringe_center_offset: (float|None) [m] |OPTIONAL| Positive distance from the main center to each fringe center. Required when a fringe type is selected.
             fringe_relative_height: (float) |OPTIONAL| Amplitude of every fringe relative to the main profile. Fringe support is included where its amplitude relative to the unit main lobe is at or above the component cutoff. Defaults to 1.0.
             fringe_side: (Literal[str]) |OPTIONAL| Select ``left``, ``right``, or ``both`` fringes. Defaults to ``both``."""
+    def _profile_half_extent(self) -> float:
+        ...
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        ...
 
 class PowerLawFlattop(_FiniteSkewedProfile):
     """Finite flattop with a second-order-continuous power-law edge.
@@ -230,11 +243,11 @@ class PowerLawFlattop(_FiniteSkewedProfile):
         p_nr: (int) Number of macroparticles per gridcell along the radial direction.
         p_nt: (int) Number of macroparticles per gridcell along the angular direction.
         species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-            If None, the plasma is assumed to be fully ionized and no ionization is considered.
-            If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+            If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+            ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-            Defaults to unionized (ionization level 0).
+            Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
         p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -294,11 +307,11 @@ class PowerLawFlattop(_FiniteSkewedProfile):
             p_nr: (int) Number of macroparticles per gridcell along the radial direction.
             p_nt: (int) Number of macroparticles per gridcell along the angular direction.
             species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
-                If None, the plasma is assumed to be fully ionized and no ionization is considered.
-                If the gamma boost factor is used in the simulation, Hydrogen will be assumed if species is None.
+                If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+                ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
-                Defaults to unionized (ionization level 0).
+                Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
             p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
@@ -317,3 +330,7 @@ class PowerLawFlattop(_FiniteSkewedProfile):
             flattop_width: (float) [m] Full width of the constant-density central region.
             transition_length: (float) [m] Length of each power-law edge transition.
             transition_exponent: (float) Power-law exponent. Must be greater than 2."""
+    def _profile_half_extent(self) -> float:
+        ...
+    def _unskewed_density(self, shifted_z: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        ...

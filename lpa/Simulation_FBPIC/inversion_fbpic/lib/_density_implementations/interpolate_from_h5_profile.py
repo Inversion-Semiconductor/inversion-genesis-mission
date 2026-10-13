@@ -58,7 +58,7 @@ class InterpolateFromH5Profile(_DensityProfile):
         ``interpolation_points={"x_mm": 2.0, "pressure_bar": 1.0}``, or an oblique
         ``x_mm``-``z_m`` line with
         ``lineout_axis={"z_m": {"origin": 0.0, "coefficient": 1 / sqrt(2)},
-        "x_mm": {"origin": 2.0, "coefficient": 1.0e-3 / sqrt(2)}}`` and
+        "x_mm": {"origin": 2.0, "coefficient": 1.0e3 / sqrt(2)}}`` and
         ``interpolation_points={"pressure_bar": 1.0}``. The user is responsible for
         choosing coefficients with compatible units.
 

@@ -35,36 +35,54 @@ _SPECIES_IONIZATION_CASES: list[pytest.param] = [
         None,
         None,
         None,
-        0,
+        1,
         False,
         False,
         id="species_none-ionization_none",
     ),
     pytest.param(
         None,
-        -1,
-        "H",
+        0,
+        None,
         1,
         False,
-        True,
+        False,
+        id="species_none-ionization_zero_is_the_default",
+    ),
+    pytest.param(
+        None,
+        -1,
+        None,
+        1,
+        False,
+        False,
         id="species_none-ionization_fully_ionized",
     ),
     pytest.param(
         None,
+        1,
+        None,
+        1,
+        False,
+        False,
+        id="species_none-ionization_one_is_the_stored_form",
+    ),
+    pytest.param(
+        None,
         2,
-        "H",
+        None,
         None,
         True,
-        True,
+        False,
         id="species_none-ionization_2",
     ),
     pytest.param(
         None,
         _IONIZATION_TOO_LARGE,
-        "H",
+        None,
         None,
         True,
-        True,
+        False,
         id="species_none-ionization_too_large",
     ),
     pytest.param(
@@ -174,7 +192,7 @@ def test_species_ionization_outer_product(
 ) -> None:
     """Validate species/ionization normalization and error handling."""
     if expect_error:
-        with pytest.raises(ValueError, match="ionization levels"):
+        with pytest.raises(ValueError, match="ionization"):
             _build_profile(species, ionization)
         return
 
@@ -187,6 +205,13 @@ def test_species_ionization_outer_product(
         assert "assuming Hydrogen" in captured.out
     else:
         assert "assuming Hydrogen" not in captured.out
+
+
+def test_species_none_without_explicit_ionization_is_bare_electrons() -> None:
+    """The default `ionization` (0) must not make `species=None` raise."""
+    profile = ExampleDensityProfile(species=None, **_MINIMAL_PROFILE_KWARGS)
+    assert profile.species is None
+    assert profile.ionization == 1
 
 
 @pytest.mark.parametrize(
