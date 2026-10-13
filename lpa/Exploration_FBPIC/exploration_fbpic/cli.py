@@ -35,7 +35,6 @@ def main() -> None:
         args.output.write_text(json.dumps(points, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {len(points)} initial points to {args.output}")
     elif args.command == "evaluate":
-        explorer.require_fresh_run_root()
         point = json.loads(args.point)
         if args.run_id is None:
             result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id or f"sim_{explorer._next_run_number():06d}", args.stage, point)
