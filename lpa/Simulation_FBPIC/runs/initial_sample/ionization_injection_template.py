@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+import itertools
+import logging
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+import attrs
 import numpy as np
 
 from inversion_fbpic.utils.laser import HighOrderLasyLaser
@@ -18,6 +22,10 @@ from inversion_fbpic.lib import (
 )
 
 
+_MOVIE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fbpic-movies")
+_LOGGER = logging.getLogger(__name__)
+
+
 class IonizationInjectionSimulation:
     """Configure and run a LASY-driven nitrogen ionization-injection case.
 
@@ -26,6 +34,8 @@ class IonizationInjectionSimulation:
     execution settings. Laser-prefixed physical parameters are passed directly
     to :class:`HighOrderLasyLaser`.
     """
+
+    movie_future: Future[None] | None = None
 
     _PHYSICAL_PARAMETER_KEYS = frozenset(
         {
@@ -60,6 +70,7 @@ class IonizationInjectionSimulation:
             "uz": [10.0, None]
         },  # which particles are used for post-analysis
         "dump_fields": False,
+        "plot_movies": False,
         "number_dumps_lab": 100,
         "write_period": 50,
         "save_checkpoints": False,
@@ -80,8 +91,6 @@ class IonizationInjectionSimulation:
         "laser_hi_range": 8.0,
         "laser_center_and_remove_tilt": True,
         "laser_centering_angles": 72,
-        # NOTE: Add hyperparameters for...?
-        # - plotting/movies
     }
 
     def __init__(
@@ -95,7 +104,6 @@ class IonizationInjectionSimulation:
             **(hyperparameters or {}),
         }
         self._validate_parameters()
-        self.lasy_laser_file = self._laser_output_path()
 
     def _validate_parameters(self) -> None:
         missing_physical = self._PHYSICAL_PARAMETER_KEYS - set(self.physical_parameters)
@@ -116,9 +124,59 @@ class IonizationInjectionSimulation:
             )
         if not 0.0 <= self.physical_parameters["nitrogen_dopant_fraction"] <= 1.0:
             raise ValueError("nitrogen_dopant_fraction must be in the interval [0, 1].")
+        if (
+            self.hyperparameters["plot_movies"]
+            and not self.hyperparameters["dump_fields"]
+        ):
+            raise ValueError(
+                "dump_fields must be True if plot_movies is True, since movies "
+                "require field data."
+            )
+
+    @staticmethod
+    def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
+        try:
+            simulation.plot_movie(
+                field_name="rho",
+                vminmax=(1e15, 1e18),
+                cmap="magma",
+                scale="log",
+                save_path=save_path,
+            )
+            for field, component in itertools.product(["E", "B"], ["x", "y", "z"]):
+                simulation.plot_movie(
+                    field_name=field,
+                    component=component,
+                    vminmax="even",
+                    cmap="RdBu_r",
+                    save_path=save_path,
+                )
+            simulation.plot_movie(field_name=None, component="eme", save_path=save_path)
+        except Exception:
+            _LOGGER.exception("Movie generation failed for %s", save_path)
+            raise
+
+    def _queue_movies(
+        self, simulation: sm.Simulation, save_path: Path
+    ) -> Future[None] | None:
+        if not simulation.do_write_to_disk:
+            return None
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        movie_simulation = sm.Simulation.from_dict(simulation.to_dict())
+        movie_simulation.working_directory = simulation.working_directory
+        assert movie_simulation.hyparams is not None
+        movie_simulation.hyparams = attrs.evolve(
+            movie_simulation.hyparams, use_mpi=False
+        )
+        if not save_path.is_absolute():
+            save_path = simulation.working_directory / save_path
+        return _MOVIE_EXECUTOR.submit(self._plot_movies, movie_simulation, save_path)
 
     def run(self) -> None:
-        """Create the FBPIC simulation, run it, and save the results."""
+        """Run and save the simulation, then queue optional background movies."""
         hyperparameters = self.hyperparameters
         physical_parameters = self.physical_parameters
 
@@ -265,3 +323,8 @@ class IonizationInjectionSimulation:
                 overwrite=True,
             )  # contains just the parameters and analyzed diagnostics
             # NOTE: Easy to change filetypes here, we can use json or yaml for either of these
+
+        if hyperparameters["plot_movies"]:
+            self.movie_future = self._queue_movies(
+                sim, Path(hyperparameters["results_directory"])
+            )

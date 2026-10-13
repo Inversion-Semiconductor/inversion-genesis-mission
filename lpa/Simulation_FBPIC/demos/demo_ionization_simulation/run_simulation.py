@@ -13,8 +13,6 @@ from inversion_fbpic.utils.simulation_setup_tools import (
     calculate_acceleration_gradient,
     calculate_plasma_wavelength,
 )
-from inversion_fbpic.utils.plotting import plot_from_hdf5_series
-from inversion_fbpic.utils.make_movie import make_movie
 from inversion_fbpic.utils import analysis
 
 
@@ -185,15 +183,13 @@ def main() -> None:
 
         # plot some movies
         for field in ["rho", "eme"]:
-            stills_dir, prefix = plot_from_hdf5_series(
-                Path(DIAGS_DIR) / "hdf5",
-                PLOTS_DIR / "stills",
+            sim.plot_movie(
                 field_name=field if field == "rho" else None,
                 component=field if field == "eme" else None,
                 vminmax=(0, 1e18) if field == "rho" else None,
                 cmap="magma",
+                save_path=PLOTS_DIR,
             )
-            make_movie(stills_dir, prefix, filename=field, movie_dir=PLOTS_DIR)
 
         # do a beam analysis
         bd1 = analysis.load_beam_data(Path(DIAGS_DIR) / "hdf5", "electrons_He")

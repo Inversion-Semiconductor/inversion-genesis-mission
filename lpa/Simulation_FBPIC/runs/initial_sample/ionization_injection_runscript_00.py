@@ -33,6 +33,7 @@ HYPERPARAMETERS = {
     "diagnostic_select": {"uz": [10.0, None]},
     "openpmd_select": {"uz": [10.0, None]},
     "dump_fields": False,
+    "plot_movies": False,
     "number_dumps_lab": 50,
     "write_period": 50,
     "save_checkpoints": False,

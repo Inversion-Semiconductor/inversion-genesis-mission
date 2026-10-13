@@ -73,6 +73,42 @@ simulation.run_simulation()
 
 `setup_simulation()` resolves runtime paths, creates the FBPIC object, adds particle species and lasers, configures the moving window, diagnostics, checkpoints, and restart behavior. `run_simulation()` advances the derived interaction time. Setup and execution have filesystem side effects; the wrapper writes only from rank zero when MPI is enabled.
 
+## Delete Older Diagnostic Dumps
+
+After simulation, analysis, and plotting are complete, use
+`simulation.delete_dumps(n=2)` to permanently delete all but the last two
+FBPIC diagnostic dumps, ordered by iteration. Only `data<iteration>.h5` files
+in the resolved diagnostics `hdf5/` directory are deleted; checkpoints, other
+output, and the completion hash are preserved. The method can be called on
+all MPI ranks, but only the write rank accesses files. Setup is not required
+when cleaning existing output.
+
+`n` must be a non-negative integer. `n=0` deletes all dumps; keeping at least
+as many as exist, or cleaning missing/empty output, is a no-op. Pruning removes
+the full time series needed for some analyses; preserving the completion hash
+means a later run may still skip stepping unless `skip_if_hashed=False`.
+
+## Plot Diagnostic Movies
+
+After field diagnostics have been saved, call `Simulation.plot_movie()` to retain
+PNG frames in `plots/stills/` and create an MP4 in `plots/`, relative to the
+simulation's `working_directory`. Both steps are guarded by `do_write_to_disk`,
+so the method can be called on every MPI rank. It returns the movie path, or
+`None` on non-write ranks or if encoding fails. ffmpeg is required only on the
+write rank.
+
+```python
+simulation.plot_movie("rho", vminmax=(0, 1e18), cmap="magma")
+simulation.plot_movie(component="eme", cmap="magma")
+```
+
+Field selection and plotting options mirror `plot_from_hdf5_series`; unsupported
+components retain that helper's errors. Use `save_path` to change the output
+directory, `filename` to override the field/component-based movie name, and
+`framerate` to change the default 10 fps. Diagnostics are read from the resolved
+`SimulationHyperparameters.save_directory` under `hdf5/`; plotting existing
+output does not require FBPIC setup.
+
 ## Choose Physical And Runtime Parameters
 
 - `SimulationHyperparameters` controls the FBPIC grid, timestep, boundaries, boosted-frame settings, moving window, diagnostics, restart behavior, and random seed. Values use SI units. `nz` is checked for FFT-friendly factorization; `save_directory` is relative to `working_directory` unless absolute.
