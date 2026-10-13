@@ -1,5 +1,5 @@
 name: ionization_injection_nersc_smoke
-template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
+template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
 run_root: /pscratch/sd/c/cedoss/smoke_test/
 
 parameters:
