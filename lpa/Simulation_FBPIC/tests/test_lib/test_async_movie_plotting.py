@@ -187,8 +187,10 @@ def test_run_can_advance_while_movies_are_pending(
     physical.update(
         peak_neutral_density_cm3=1e18,
         nitrogen_dopant_fraction=0.03,
-        density_alpha_m=1e-3,
-        density_beta=2.0,
+        density_fwhm_left_m=1e-3,
+        density_fwhm_right_m=2e-3,
+        density_beta_left=2.0,
+        density_beta_right=4.0,
         density_center_location_m=2e-3,
         laser_energy_J=1.0,
         laser_wavelength_m=800e-9,
@@ -202,7 +204,11 @@ def test_run_can_advance_while_movies_are_pending(
     monkeypatch.setattr(template_module.sm, "MPI_RANK", 0)
     monkeypatch.setattr(template_module.sm.Simulation, "setup_simulation", Mock())
     run = Mock()
-    monkeypatch.setattr(template_module.sm.Simulation, "run_simulation", run)
+
+    def record_run(simulation):
+        run(simulation)
+
+    monkeypatch.setattr(template_module.sm.Simulation, "run_simulation", record_run)
     monkeypatch.setattr(template_module.sm.Simulation, "to_hdf5_file", Mock())
     monkeypatch.setattr(template_module.cc.ConfigContainer, "to_hdf5_file", Mock())
     started, release = Event(), Event()
@@ -231,6 +237,14 @@ def test_run_can_advance_while_movies_are_pending(
             assert not cases[0].movie_future.done()
         cases[1].run()
         assert run.call_count == 2
+        for recorded in run.call_args_list:
+            simulation = recorded.args[0]
+            assert [density.species for density in simulation.densities] == ["He", "N"]
+            for density in simulation.densities:
+                assert density.fwhm_left == physical["density_fwhm_left_m"]
+                assert density.fwhm_right == physical["density_fwhm_right_m"]
+                assert density.beta_left == physical["density_beta_left"]
+                assert density.beta_right == physical["density_beta_right"]
         if plot_movies:
             assert not cases[1].movie_future.done()
         else:

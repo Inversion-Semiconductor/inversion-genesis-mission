@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Literal
 
 import attrs
-import numpy as np
 
 from inversion_fbpic.utils.laser import HighOrderLasyLaser
 from inversion_fbpic.lib import (
@@ -35,7 +34,9 @@ class IonizationInjectionSimulation:
     ``physical_parameters`` contains flat, required laser and gas properties.
     ``hyperparameters`` holds FBPIC grid, particle-loading, diagnostic, and
     execution settings. Laser-prefixed physical parameters are passed directly
-    to :class:`HighOrderLasyLaser`.
+    to :class:`HighOrderLasyLaser`. Helium and nitrogen share the bilateral
+    density profile specified by ``density_fwhm_left_m``,
+    ``density_fwhm_right_m``, ``density_beta_left``, and ``density_beta_right``.
     """
 
     movie_future: Future[None] | None = None
@@ -44,8 +45,10 @@ class IonizationInjectionSimulation:
         {
             "peak_neutral_density_cm3",
             "nitrogen_dopant_fraction",
-            "density_alpha_m",
-            "density_beta",
+            "density_fwhm_left_m",
+            "density_fwhm_right_m",
+            "density_beta_left",
+            "density_beta_right",
             "density_center_location_m",
             *HighOrderLasyLaser.PHYSICAL_PARAMETER_KEYS,
         }
@@ -188,14 +191,10 @@ class IonizationInjectionSimulation:
             * 1e6
             * (1.0 - physical_parameters["nitrogen_dopant_fraction"])
             * 2.0,
-            fwhm_left=2.0
-            * physical_parameters["density_alpha_m"]
-            * np.log(2.0) ** (1.0 / physical_parameters["density_beta"]),
-            fwhm_right=2.0
-            * physical_parameters["density_alpha_m"]
-            * np.log(2.0) ** (1.0 / physical_parameters["density_beta"]),
-            beta_left=physical_parameters["density_beta"],
-            beta_right=physical_parameters["density_beta"],
+            fwhm_left=physical_parameters["density_fwhm_left_m"],
+            fwhm_right=physical_parameters["density_fwhm_right_m"],
+            beta_left=physical_parameters["density_beta_left"],
+            beta_right=physical_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
             p_nz=hyperparameters["p_nz"],
             p_nr=hyperparameters["p_nr"],
@@ -213,14 +212,10 @@ class IonizationInjectionSimulation:
             * 1e6
             * physical_parameters["nitrogen_dopant_fraction"]
             * 14.0,
-            fwhm_left=2.0
-            * physical_parameters["density_alpha_m"]
-            * np.log(2.0) ** (1.0 / physical_parameters["density_beta"]),
-            fwhm_right=2.0
-            * physical_parameters["density_alpha_m"]
-            * np.log(2.0) ** (1.0 / physical_parameters["density_beta"]),
-            beta_left=physical_parameters["density_beta"],
-            beta_right=physical_parameters["density_beta"],
+            fwhm_left=physical_parameters["density_fwhm_left_m"],
+            fwhm_right=physical_parameters["density_fwhm_right_m"],
+            beta_left=physical_parameters["density_beta_left"],
+            beta_right=physical_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
             p_nz=hyperparameters["p_nz"],
             p_nr=hyperparameters["p_nr"],
