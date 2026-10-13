@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextvars
 import copy
+import errno
 import functools
 import json
 import os
@@ -1276,6 +1277,9 @@ class SerializableConfig(ABC):
         overrides: dict[str, Any] | None = None,
     ) -> "SerializableConfig":
         token = _config_load_source.set(resolved)
+        # The explicit anchor selects the file to enter, not the base for that
+        # file's descendants. Restore it when this (possibly nested) load ends.
+        anchor_token = _config_path_anchor.set(resolved.parent)
         try:
             payload = resolved.read_text(encoding="utf-8")
             if format == "json":
@@ -1287,6 +1291,7 @@ class SerializableConfig(ABC):
             _set_instance_attr(obj, "source_file", resolved)
             return obj
         finally:
+            _config_path_anchor.reset(anchor_token)
             _config_load_source.reset(token)
 
     @classmethod
@@ -1393,10 +1398,16 @@ class SerializableConfig(ABC):
                 return cls.from_file(
                     value, relative_to=relative_to, overrides=overrides
                 )
-            except (ValueError, OSError):
-                return cls.from_dict(
-                    cls._resolve_string_as_dict(value), overrides=overrides
-                )
+            except ValueError:
+                pass
+            except OSError as exc:
+                # Serialized text may not be a legal filename. Do not mask
+                # unrelated filesystem errors such as denied read access.
+                if exc.errno not in (errno.ENAMETOOLONG, errno.EINVAL):
+                    raise
+            return cls.from_dict(
+                cls._resolve_string_as_dict(value), overrides=overrides
+            )
 
         raise TypeError(
             f"Cannot deserialize config from {type(value).__name__!r}; "

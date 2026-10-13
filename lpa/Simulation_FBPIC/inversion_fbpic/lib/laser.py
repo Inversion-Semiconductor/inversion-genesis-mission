@@ -14,7 +14,6 @@ import attrs
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
     from fbpic.lpa_utils.laser.laser_profiles import LaserProfile
-    from lasy.laser import Laser as LasyLaser
 
 import numpy as np
 import numpy.typing as npt
@@ -56,6 +55,27 @@ def _format_polarization(pol: "float | list | str") -> str:
 _DERIVED_YAML_KEYS = ("out_a0", "out_energy")
 
 
+def _gaussian_r_extent(
+    waist: float,
+    wavelength: float,
+    focal_position: float,
+    simulation_extent: tuple[float, float],
+    num_sigma: float,
+) -> float:
+    """Radial extent of a Gaussian beam over *simulation_extent*, from its Rayleigh length."""
+    rayleigh_length = pi * waist**2 / wavelength
+    waist_max = waist * np.sqrt(
+        1
+        + max(
+            abs(simulation_extent[1] - focal_position),
+            abs(focal_position - simulation_extent[0]),
+        )
+        ** 2
+        / rayleigh_length**2
+    )
+    return waist_max * num_sigma / 2.0
+
+
 @attrs.define(kw_only=True, slots=False, frozen=True)
 class _LaserPulse(SerializableConfig):
     """
@@ -68,7 +88,7 @@ class _LaserPulse(SerializableConfig):
 
     Args:
         energy: (float|None) [J] |OPTIONAL| Energy of the laser pulse in Joules. Provide this or a0, not both.
-        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both.
+        a0: (float|None) |OPTIONAL| Normalized laser amplitude parameter. Provide this or energy, not both. Not accepted by ``LasyLaserPulse``, which derives it numerically.
         z0: (float) [m] Position of the laser pulse within the simulation window in meters.
         method: (Literal["direct", "antenna"]|None) |OPTIONAL| Method to use for laser pulse propagation. If None, the laser pulse will be propagated using the direct method.
         z0_antenna: (float|None) [m] |OPTIONAL| Position of the antenna within the simulation window in meters. Required if method is "antenna".
@@ -79,7 +99,7 @@ class _LaserPulse(SerializableConfig):
         default=None, converter=attrs.converters.optional(float)
     )
     a0: float | None = attrs.field(
-        default=None, converter=attrs.converters.optional(float)
+        default=None, converter=attrs.converters.optional(float), hash=False
     )
     z0: float = attrs.field(converter=float)
     method: Literal["direct", "antenna"] | None = attrs.field(default=None)
@@ -90,9 +110,15 @@ class _LaserPulse(SerializableConfig):
         default=None, converter=attrs.converters.optional(float)
     )
 
-    _amplitude_source: Literal["energy", "a0"] = attrs.field(init=False, repr=False)
-    out_a0: float | None = attrs.field(init=False, default=None, repr=False)
-    out_energy: float | None = attrs.field(init=False, default=None, repr=False)
+    # Derived amplitude fields are excluded from the hash: ``LasyLaserPulse``
+    # fills ``a0``/``out_a0`` during ``prepare()``, after construction.
+    _amplitude_source: Literal["energy", "a0"] = attrs.field(
+        init=False, repr=False, hash=False
+    )
+    out_a0: float | None = attrs.field(init=False, default=None, repr=False, hash=False)
+    out_energy: float | None = attrs.field(
+        init=False, default=None, repr=False, hash=False
+    )
 
     # CONFIG_TYPE identifies this domain in the top-level registry held on
     # SerializableConfig. It is set on the domain base class (here) only;
@@ -128,12 +154,14 @@ class _LaserPulse(SerializableConfig):
         # Remove the undefined input and add in the derived output.
         if self._amplitude_source == "energy":
             params.pop("a0", None)
-            params["out_a0"] = self.out_a0
             params.pop("out_energy", None)
+            if self.out_a0 is not None or include_nones:
+                params["out_a0"] = self.out_a0
         else:
             params.pop("energy", None)
-            params["out_energy"] = self.out_energy
             params.pop("out_a0", None)
+            if self.out_energy is not None or include_nones:
+                params["out_energy"] = self.out_energy
         return payload
 
     @classmethod
@@ -150,6 +178,28 @@ class _LaserPulse(SerializableConfig):
             for key in _DERIVED_YAML_KEYS:
                 params.pop(key, None)
         return super().from_dict(payload, overrides=overrides)
+
+    def prepare(
+        self, comm: Any | None = None, *, relative_to: Path | str | None = None
+    ) -> None:
+        """
+        Perform one-time, possibly collective, setup before ``build_laser_profile``.
+
+        ``Simulation.setup_simulation`` calls this on every MPI rank before adding
+        the laser. The base implementation is a no-op; subclasses that need to
+        write files or run expensive precomputation (e.g. ``LasyLaserPulse``)
+        override it.
+
+        Args:
+            comm: (BoundaryCommunicator|mpi4py.MPI.Comm|None) Communicator for
+                collective setup. Accepts FBPIC's ``sim.comm``, an mpi4py
+                communicator such as ``MPI.COMM_WORLD``, or ``None`` when running
+                without MPI (everything happens on the calling process).
+            relative_to: (Path|str|None) Directory against which relative output paths
+                are resolved. ``Simulation`` passes its ``working_directory``; ``None``
+                means the current working directory.
+        """
+        return None
 
     def get_z_extent(self, num_sigma: float = 3.0) -> tuple[float, float]:
         """
@@ -199,7 +249,7 @@ class _LaserPulse(SerializableConfig):
         self, simulation_extent: tuple[float, float], num_sigma: float = 3.0
     ) -> float:
         """
-        Get the radial extent of the laser pulse in meters.
+        Get the radial extent of the laser pulse in meters. Assumes vacuum propagation.
 
         Args:
             simulation_extent: (tuple[float, float]) The extent of the full simulation in meters.
@@ -409,40 +459,6 @@ class _GaussianTemporalLaserPulse(_LaserPulse):
         return fig
 
 
-@attrs.define(kw_only=True, slots=False, init=False, frozen=True)
-class LasyLaserPulse(_LaserPulse):
-    """
-    Laser pulse from a `Lasy` profile.
-    This is not yet implemented!
-    """
-
-    SUBCLASS: ClassVar[str] = "lasy"
-
-    # In order for serialization to work we need to be able to serialize the lasy Laser object.
-    # Might need to be from a file and we store the path or something like that.
-    def __init__(self, lasy_profile: LasyLaser) -> None:
-        # use lazy import to avoid expensive imports (type checking import already done)
-        # from lasy.laser import Laser as LasyLaser
-        raise NotImplementedError("Not implemented yet.")
-
-    def get_r_extent(
-        self, simulation_extent: tuple[float, float], num_sigma: float = 3.0
-    ) -> float:
-        raise NotImplementedError("Not implemented yet.")
-
-    def get_z_extent(self, num_sigma: float = 3.0) -> tuple[float, float]:
-        raise NotImplementedError("Not implemented yet.")
-
-    def resolve_laser_energy(self) -> float:
-        raise NotImplementedError("Not implemented yet.")
-
-    def resolve_laser_a0(self) -> float:
-        raise NotImplementedError("Not implemented yet.")
-
-    def build_laser_profile(self) -> LaserProfile | list[LaserProfile]:
-        raise NotImplementedError("Not implemented yet.")
-
-
 @attrs.define(kw_only=True, slots=False, frozen=True)
 class GaussianLaserPulse(_GaussianTemporalLaserPulse):
     """
@@ -454,17 +470,13 @@ class GaussianLaserPulse(_GaussianTemporalLaserPulse):
     def get_r_extent(
         self, simulation_extent: tuple[float, float], num_sigma: float = 3.0
     ) -> float:
-        rayleigh_length = pi * self.waist**2 / self.wavelength
-        waist_max = self.waist * np.sqrt(
-            1
-            + max(
-                abs(simulation_extent[1] - self.focal_position),
-                abs(self.focal_position - simulation_extent[0]),
-            )
-            ** 2
-            / rayleigh_length**2
+        return _gaussian_r_extent(
+            self.waist,
+            self.wavelength,
+            self.focal_position,
+            simulation_extent,
+            num_sigma,
         )
-        return waist_max * num_sigma / 2.0
 
     def resolve_laser_energy(self) -> float:
         return calculate_laser_energy_from_a0(
@@ -538,3 +550,10 @@ class GaussianLaserPulse(_GaussianTemporalLaserPulse):
             return GaussianLaser(**base_params, a0=self.a0, theta_pol=self.polarization)
         else:
             raise ValueError("Invalid polarization type.")
+
+
+# Re-exported implementations live in a sub-package that imports ``_LaserPulse``
+# and helpers from this module, so they must be imported after those exist.
+from ._laser_implementations.lasy_laser import (  # noqa: E402
+    LasyLaserPulse as LasyLaserPulse,
+)
