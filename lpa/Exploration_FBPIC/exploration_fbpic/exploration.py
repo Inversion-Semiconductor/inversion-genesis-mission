@@ -110,6 +110,20 @@ class XoptFBPICExplorer:
             outputs[feature] = result.features.get(feature, float("nan"))
         return outputs
 
+    def require_fresh_run_root(self) -> None:
+        """Prevent non-continuation stages from reusing an existing run root."""
+        if self.campaign.config.stage_settings(self.stage).continuation:
+            return
+        previous_runs = sorted(
+            path.name for path in self.campaign.config.run_root.glob("sim_*") if path.is_dir()
+        )
+        if previous_runs:
+            raise FileExistsError(
+                f"stage {self.stage!r} has continuation disabled, but run root "
+                f"{self.campaign.config.run_root} already contains previous runs: "
+                f"{', '.join(previous_runs)}"
+            )
+
     def make_xopt(self):
         """Create a generator trained on compatible completed campaign rows."""
         try:

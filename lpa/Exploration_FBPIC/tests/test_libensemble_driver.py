@@ -44,6 +44,22 @@ def test_make_ensemble_validates_training_data_before_allocation(monkeypatch) ->
         make_ensemble(CONFIG, "smoke")
 
 
+def test_make_ensemble_rejects_existing_runs_without_continuation(tmp_path: Path) -> None:
+    source = SURROGATE_CONFIG.read_text(encoding="utf-8")
+    config_path = tmp_path / "campaign.yaml"
+    config_path.write_text(
+        source.replace(
+            "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
+            "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
+        ).replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}"),
+        encoding="utf-8",
+    )
+    (tmp_path / "runs" / "sim_000000").mkdir(parents=True)
+
+    with pytest.raises(FileExistsError, match="continuation disabled"):
+        make_ensemble(config_path, "surrogate_smoke")
+
+
 def test_next_run_id_offset_skips_existing_simulation_directories(tmp_path: Path) -> None:
     (tmp_path / "sim_000003").mkdir()
     (tmp_path / "sim_000011").mkdir()

@@ -123,6 +123,10 @@ budget but are excluded from GP training. Keep all numerical, analysis, template
 and parameter settings unchanged when resuming, since changing them changes the
 fingerprint and begins a new campaign.
 
+With `continuation: false`, both local evaluation and the libEnsemble driver refuse
+to start when `run_root` already contains a `sim_*` run directory. Use a new output
+directory for a fresh campaign or explicitly enable continuation to reuse one.
+
 Stages cannot be run in reverse: successful records from a later stage that vary a
 parameter inactive in the requested stage cause the driver to fail before it starts
 libEnsemble, regardless of that stage's `continuation` setting.
