@@ -24,8 +24,8 @@ includes Xopt, scalar storage, and the local single-run workflow.
 
 ## Campaign configuration
 
-[runs/initial_study/campaign.yaml](runs/initial_study/campaign.yaml) is the source of
-truth. It contains:
+[runs/initial_study/campaign.yaml](runs/initial_study/campaign.yaml) is the
+production campaign template. It contains:
 
 - every physical input accepted by `IonizationInjectionSimulation`;
 - nominal values and reviewed, conservative bounds;
@@ -89,11 +89,11 @@ on the libEnsemble manager and uses resource-set workers to launch FBPIC. It sta
 with the campaign's deterministic initial design, records the completed scalar
 outputs, then asks Xopt for later candidates as GPU resource sets become available.
 
-[runs/nersc_smoke/submit_nersc.sh](runs/nersc_smoke/submit_nersc.sh) is the
-reference Perlmutter launch. It starts one manager and eight simulation workers;
-the smoke campaign gives every worker a two-GPU resource set. Do not dispatch
-background `explore-fbpic evaluate` processes from the batch script: libEnsemble's
-`MPIExecutor` owns the FBPIC MPI launch and GPU binding.
+A production submission starts one manager and a configurable number of
+two-GPU simulation workers. Do not dispatch background `explore-fbpic evaluate`
+processes from the batch script: libEnsemble's `MPIExecutor` owns the FBPIC MPI
+launch and GPU binding. The reproducible NERSC smoke fixtures live under
+`tests/smoke_campaigns/`, not under `runs/`.
 
 Install the NERSC extra before running the driver:
 
@@ -106,6 +106,16 @@ Then submit from the campaign directory:
 ```bash
 sbatch submit_nersc.sh
 ```
+
+### Continuation
+
+Set `continuation: true` in a stage to resume an interrupted campaign from its
+existing `run_root`. The driver loads successful records with the same stage and
+campaign fingerprint into Xopt, skips the initial design, and dispatches only the
+unspent portion of `max_evaluations`. Failed and timed-out evaluations consume
+budget but are excluded from GP training. Keep all numerical, analysis, template,
+and parameter settings unchanged when resuming, since changing them changes the
+fingerprint and begins a new campaign.
 
 For the production driver, configure libEnsemble with:
 
