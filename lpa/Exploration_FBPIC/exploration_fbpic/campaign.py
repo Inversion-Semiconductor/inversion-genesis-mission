@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any, Mapping
@@ -133,6 +134,8 @@ class CampaignConfig:
                     values[key] = float(value) * scale
             values["linear_scale"] = scale
             parameters[name] = Parameter(name=name, **values)
+        for parameter in parameters.values():
+            parameter.validate(parameter.nominal)
         stages = {
             name: StageConfig(
                 active_parameters=tuple(values["active_parameters"]),
@@ -151,7 +154,7 @@ class CampaignConfig:
             name=data["name"],
             template_script=(path.parent / data["template_script"]).resolve(),
             template_class=str(data.get("template_class", "IonizationInjectionSimulation")),
-            run_root=(path.parent / data["run_root"]).resolve(),
+            run_root=Path(os.path.expandvars(str(path.parent / data["run_root"]))).resolve(),
             parameters=parameters,
             stages=stages,
             analysis=dict(data["analysis"]),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -92,7 +92,7 @@ class FBPICRunExecutor:
             result = EvaluationResult(run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started)
         else:
             result = EvaluationResult(run_id, "ok", features, run_directory, wall_s=time.perf_counter() - started)
-        self._write_result(run_directory, manifest, result)
+        self.finalize(run_directory, manifest, result)
         return result
 
     def _write_entrypoint(self, run_directory: Path, manifest: RunManifest) -> None:
@@ -169,10 +169,10 @@ if __name__ == "__main__":
         return features
 
     @staticmethod
-    def _write_result(run_directory: Path, manifest: RunManifest, result: EvaluationResult) -> None:
+    def finalize(run_directory: Path, manifest: RunManifest, result: EvaluationResult) -> None:
         record = {
             "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "manifest": manifest.__dict__,
+            "manifest": asdict(manifest),
             "result": result.as_dict(),
         }
         (run_directory / "result.json").write_text(

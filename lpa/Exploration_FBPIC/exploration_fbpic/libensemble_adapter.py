@@ -85,7 +85,7 @@ def run_fbpic_simulation(
             result = EvaluationResult(
                 run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started
             )
-        executor._write_result(run_directory, manifest, result)
+        executor.finalize(run_directory, manifest, result)
         store.append(result)
         out["status_code"][index] = 0 if result.status == "ok" else 1
         for feature in result.features:

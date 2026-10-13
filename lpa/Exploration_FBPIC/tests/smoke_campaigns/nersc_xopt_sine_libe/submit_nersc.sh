@@ -24,4 +24,4 @@ srun --ntasks=9 --cpu-bind=none python ../../toy_xopt_libe.py campaign.yaml
 # One transferable artifact containing campaign metadata, libEnsemble logs,
 # inputs, results, GPU mappings, timings, and posterior uncertainty snapshots.
 tar -czf xopt_sine_libe_bundle.tar.gz campaign.yaml submit_nersc.sh ensemble.log \
-	libE_stats.txt -C /pscratch/sd/c/cedoss/xopt_sine_libe_gpu_validation .
+	libE_stats.txt -C "${PSCRATCH}/exploration_fbpic_xopt_sine_libe" .

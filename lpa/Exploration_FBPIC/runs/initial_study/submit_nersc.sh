@@ -6,27 +6,19 @@
 #SBATCH --time 04:00:00
 # Four simultaneous eight-GPU FBPIC cases: 32 GPUs total on Perlmutter.
 #SBATCH --nodes 8
-#SBATCH --ntasks-per-node 4
-#SBATCH --gpus-per-node 4
 
 set -euo pipefail
 
-module load python cudatoolkit
+module load PrgEnv-gnu cpe-cuda cudatoolkit python
 source activate fbpic
 
 # Install this once per environment or replace with a managed package path.
-# python -m pip install -e ../../Simulation_FBPIC
+# python -m pip install -e ../../../Simulation_FBPIC
 # python -m pip install -e ../..'[nersc,dev]'
 
 export MPICH_GPU_SUPPORT_ENABLED=0
 export FBPIC_ENABLE_GPUDIRECT=0
 
-# campaign.yaml is the source of truth for the stage GPU contract: 8 GPUs per
-# simulation, 32 GPUs total, and 4 concurrent simulations. Keep these Slurm
-# directives synchronized with that contract.
-# A production driver should call libEnsemble with one persistent manager and
-# GPU-bound workers, using exploration_fbpic.libensemble_adapter.run_fbpic_simulation.
-# This command intentionally generates and audits the Stage 1 initial design
-# before consuming allocation time with FBPIC.
-explore-fbpic campaign.yaml --stage stage_1 initial-design \
-  --count 24 --seed 0 --output initial_design.json
+# One manager-hosted Xopt generator and four eight-GPU libEnsemble workers.
+srun --ntasks=5 --cpu-bind=none python -m exploration_fbpic.libensemble_driver \
+  campaign.yaml --stage stage_1

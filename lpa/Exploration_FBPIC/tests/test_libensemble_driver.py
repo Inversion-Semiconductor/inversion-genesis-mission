@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import numpy as np
 from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
@@ -131,10 +132,10 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
         manifest = campaign.make_manifest(run_id, "surrogate_smoke")
         manifest.write(directory)
         manifest_path = directory / "run_manifest.json"
-        record = __import__("json").loads(manifest_path.read_text(encoding="utf-8"))
+        record = json.loads(manifest_path.read_text(encoding="utf-8"))
         record["stage"] = stage
         record["campaign_fingerprint"] = fingerprint
-        manifest_path.write_text(__import__("json").dumps(record), encoding="utf-8")
+        manifest_path.write_text(json.dumps(record), encoding="utf-8")
         store.append(EvaluationResult(run_id, "ok", {"total_beam_charge_pc": 1.0, "mean_kinetic_energy_MeV": 1.0}, directory))
 
     ensemble = make_ensemble(config_path, "surrogate_smoke")

@@ -9,7 +9,7 @@ initial_points:
   - {amplitude: 1.25, phase_rad: -1.5707963267948966}
   - {amplitude: 1.25, phase_rad: 3.141592653589793}
 max_evaluations: 53
-run_root: /pscratch/sd/c/cedoss/xopt_sine_libe_gpu_validation
+run_root: ${PSCRATCH}/exploration_fbpic_xopt_sine_libe
 timeout_s: 20
 resources:
   gpus_per_simulation: 2

@@ -55,7 +55,7 @@ def test_adapter_uses_resource_set_gpu_matching_without_explicit_rank_count(
     campaign_executor.extract_features = lambda _: {"total_beam_charge_pc": 1.0}  # type: ignore[attr-defined]
 
     monkeypatch.setattr(
-        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor._write_result",
+        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor.finalize",
         lambda *args: None,
     )
     store = type("Store", (), {"append": lambda *_: None})()
@@ -84,7 +84,7 @@ def test_adapter_records_unexpected_extraction_error(tmp_path: Path, monkeypatch
     campaign_executor.extract_features = lambda _: (_ for _ in ()).throw(KeyError("nitrogen_electrons"))  # type: ignore[attr-defined]
     written = []
     monkeypatch.setattr(
-        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor._write_result",
+        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor.finalize",
         lambda *args: written.append(args[-1]),
     )
     stored = []

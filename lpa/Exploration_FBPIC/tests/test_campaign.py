@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from exploration_fbpic.campaign import Campaign
 
 
@@ -59,3 +61,31 @@ def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) ->
     )
 
     assert relocated.fingerprint() == campaign.config.fingerprint()
+
+
+def test_campaign_rejects_nominal_outside_bounds(tmp_path: Path) -> None:
+        config = tmp_path / "campaign.yaml"
+        config.write_text(
+                """\
+name: invalid
+template_script: template.py
+run_root: runs
+parameters:
+    x: {nominal: 2.0, lower: 0.0, upper: 1.0}
+stages:
+    stage_1:
+        active_parameters: [x]
+        max_evaluations: 1
+        initial_design_size: 1
+        gpus_per_simulation: 1
+        total_gpus: 1
+        concurrent_simulations: 1
+analysis:
+    exploration_features: [f]
+execution: {hyperparameters: {}}
+""",
+                encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="outside"):
+                Campaign.from_file(config)

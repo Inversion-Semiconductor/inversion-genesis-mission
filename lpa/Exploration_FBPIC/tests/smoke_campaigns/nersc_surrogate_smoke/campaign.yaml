@@ -1,7 +1,7 @@
 name: ionization_injection_nersc_surrogate_smoke
 template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
 template_class: IonizationInjectionSimulation
-run_root: /pscratch/sd/c/cedoss/surrogate_smoke_test
+run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke
 
 parameters:
   peak_plasma_density_cm3: {nominal: 4.0e18}
