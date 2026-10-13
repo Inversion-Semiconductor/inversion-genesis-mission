@@ -141,6 +141,21 @@ class XoptFBPICExplorer:
         data = data.loc[data["campaign_fingerprint"] == self.campaign.config.fingerprint()]
         if data.empty:
             return data
+        active_names = {parameter.name for parameter in self.parameters}
+        for name, parameter in self.campaign.config.parameters.items():
+            if name in active_names:
+                continue
+            column = f"p:{name}"
+            if column not in data:
+                return pd.DataFrame()
+            if isinstance(parameter.nominal, (int, float)):
+                nominal_slice = np.isclose(data[column], float(parameter.nominal))
+            else:
+                nominal_slice = data[column] == parameter.nominal
+            if not nominal_slice.all():
+                raise ValueError(
+                    f"cannot train {self.stage!r} from records that vary inactive parameter {name!r}"
+                )
         required = [f"p:{parameter.name}" for parameter in self.parameters]
         feature_columns = [f"f:{feature}" for feature in self.feature_names]
         available = [column for column in feature_columns if column in data]

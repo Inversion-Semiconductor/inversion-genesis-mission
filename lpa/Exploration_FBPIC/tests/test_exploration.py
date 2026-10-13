@@ -54,6 +54,34 @@ def test_stage_two_training_data_reuses_compatible_stage_one_records(monkeypatch
     assert explorer.completed_evaluation_count() == 0
 
 
+def test_stage_one_training_data_rejects_off_nominal_later_stage_rows(monkeypatch) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    explorer = XoptFBPICExplorer(campaign, "stage_1")
+    parameters = campaign.config.complete_parameters("stage_2")
+    fingerprint = campaign.config.fingerprint()
+    compatible = {
+        "run_id": "sim_000000",
+        "stage": "stage_1",
+        "campaign_fingerprint": fingerprint,
+        "status": "ok",
+        **{f"p:{name}": value for name, value in parameters.items()},
+        "f:total_beam_charge_pc": 100.0,
+        "f:mean_uz": 200.0,
+        "f:cov_x_x": 1.0,
+        "f:cov_y_y": 2.0,
+        "f:cov_uz_uz": 3.0,
+    }
+    later_stage = compatible | {
+        "run_id": "sim_000001",
+        "stage": "stage_2",
+        "p:density_peak": 1.3,
+    }
+    monkeypatch.setattr(explorer.store, "load", lambda: pd.DataFrame([compatible, later_stage]))
+
+    with pytest.raises(ValueError, match="vary inactive parameter 'density_peak'"):
+        explorer.training_data()
+
+
 def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
     campaign = Campaign.from_file(CONFIG)
     config = campaign.config.__class__(
