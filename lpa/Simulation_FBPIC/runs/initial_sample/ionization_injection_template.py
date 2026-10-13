@@ -228,8 +228,6 @@ class IonizationInjectionSimulation:
             elec_select=hyperparameters["diagnostic_select"],
         )
 
-        # NOTE: add plots of the density profiles?
-
         laser = ls.LasyLaserPulse(
             energy=physical_parameters["laser_energy_J"],
             z0=0.0,  # only used for plotting
