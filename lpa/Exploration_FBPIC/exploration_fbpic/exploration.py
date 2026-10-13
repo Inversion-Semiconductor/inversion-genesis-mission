@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Mapping
 
@@ -111,17 +112,39 @@ class XoptFBPICExplorer:
         return outputs
 
     def require_fresh_run_root(self) -> None:
-        """Prevent non-continuation stages from reusing any populated run root."""
-        if self.campaign.config.stage_settings(self.stage).continuation:
-            return
+        """Require non-continuation stages to start in an empty run root."""
+        run_root = self.campaign.config.run_root
         previous_runs = sorted(
-            path.name for path in self.campaign.config.run_root.glob("sim_*") if path.is_dir()
+            path for path in run_root.glob("sim_*") if path.is_dir()
         )
-        if previous_runs:
+        if not self.campaign.config.stage_settings(self.stage).continuation and previous_runs:
             raise FileExistsError(
                 f"stage {self.stage!r} has continuation disabled, but run root "
-                f"{self.campaign.config.run_root} already contains previous runs: "
-                f"{', '.join(previous_runs)}"
+                f"{run_root} already contains previous runs: "
+                f"{', '.join(path.name for path in previous_runs)}"
+            )
+
+    def require_compatible_run_root(self) -> None:
+        """Require every available run manifest to belong to this campaign."""
+        run_root = self.campaign.config.run_root
+        previous_runs = sorted(
+            path for path in run_root.glob("sim_*") if path.is_dir()
+        )
+        expected_fingerprint = self.campaign.config.fingerprint()
+        incompatible = []
+        for run_directory in previous_runs:
+            manifest_path = run_directory / "run_manifest.json"
+            if not manifest_path.is_file():
+                continue
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("campaign_fingerprint") != expected_fingerprint:
+                incompatible.append(run_directory.name)
+        if incompatible:
+            names = ", ".join(incompatible[:5])
+            suffix = ", ..." if len(incompatible) > 5 else ""
+            raise ValueError(
+                f"run root {run_root} contains runs from a different campaign "
+                f"(fingerprint != {expected_fingerprint}): {names}{suffix}"
             )
 
     def make_xopt(self):

@@ -166,7 +166,7 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
             "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
             "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
         )
-        .replace("run_root: /pscratch/sd/c/cedoss/surrogate_smoke_test", f"run_root: {tmp_path / 'runs'}")
+        .replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}")
         .replace("continuation: false", "continuation: true"),
         encoding="utf-8",
     )
@@ -176,7 +176,6 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
     for run_id, stage, fingerprint in [
         ("sim_000000", "surrogate_smoke", campaign.config.fingerprint()),
         ("sim_000001", "other_stage", campaign.config.fingerprint()),
-        ("sim_000002", "surrogate_smoke", "different-fingerprint"),
     ]:
         directory = run_root / run_id
         directory.mkdir(parents=True)
@@ -193,3 +192,28 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
 
     assert ensemble.exit_criteria.sim_max == 17
     assert ensemble.gen_specs.user["initial_points"] == []
+
+
+def test_continuation_rejects_runs_from_a_different_campaign(tmp_path: Path) -> None:
+    source = SURROGATE_CONFIG.read_text(encoding="utf-8")
+    config_path = tmp_path / "campaign.yaml"
+    config_path.write_text(
+        source.replace(
+            "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
+            "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
+        )
+        .replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}")
+        .replace("continuation: false", "continuation: true"),
+        encoding="utf-8",
+    )
+    campaign = Campaign.from_file(config_path)
+    run_directory = campaign.config.run_root / "sim_000000"
+    run_directory.mkdir(parents=True)
+    manifest = campaign.make_manifest("sim_000000", "surrogate_smoke")
+    manifest_path = manifest.write(run_directory)
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record["campaign_fingerprint"] = "different-fingerprint"
+    manifest_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="runs from a different campaign"):
+        make_ensemble(config_path, "surrogate_smoke")

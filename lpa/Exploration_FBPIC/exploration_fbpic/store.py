@@ -28,11 +28,10 @@ class CampaignStore:
         self.root.mkdir(parents=True, exist_ok=True)
         with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            current, rebuilt = self._load_locked()
+            current, _ = self._load_locked()
             if not current.empty and result.run_id in set(current["run_id"]):
-                if rebuilt or (result.run_directory / "result.json").is_file():
-                    return
-                raise ValueError(f"duplicate run id: {result.run_id}")
+                # Run directories are unique, and finalize writes result.json before append.
+                return
             self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))
 
     def rebuild(self) -> pd.DataFrame:

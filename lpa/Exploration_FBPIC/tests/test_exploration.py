@@ -1,5 +1,6 @@
 from pathlib import Path
 from dataclasses import replace
+import json
 
 import numpy as np
 import pandas as pd
@@ -112,6 +113,22 @@ def test_non_continuation_stage_rejects_any_existing_run_directory(tmp_path: Pat
 
     with pytest.raises(FileExistsError, match="continuation disabled"):
         explorer.require_fresh_run_root()
+
+
+def test_compatible_run_root_rejects_foreign_campaign_manifest(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    config = replace(campaign.config, run_root=tmp_path)
+    explorer = XoptFBPICExplorer(Campaign(config), "stage_1")
+    run_directory = tmp_path / "sim_000001"
+    run_directory.mkdir()
+    manifest = Campaign(config).make_manifest("sim_000001", "stage_1")
+    manifest_path = manifest.write(run_directory)
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record["campaign_fingerprint"] = "different-fingerprint"
+    manifest_path.write_text(json.dumps(record), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="runs from a different campaign"):
+        explorer.require_compatible_run_root()
 
 
 def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:

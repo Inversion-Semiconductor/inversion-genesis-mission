@@ -121,7 +121,7 @@ campaign fingerprint into Xopt, skips the initial design, and dispatches only th
 unspent portion of `max_evaluations`. Failed and timed-out evaluations consume
 budget but are excluded from GP training. Keep all numerical, analysis, template,
 and parameter settings unchanged when resuming, since changing them changes the
-fingerprint and begins a new campaign.
+fingerprint and prevents continuation in that run root.
 
 With `continuation: false`, the libEnsemble driver refuses to start when `run_root`
 already contains any `sim_*` run directory. This prevents different campaigns from
