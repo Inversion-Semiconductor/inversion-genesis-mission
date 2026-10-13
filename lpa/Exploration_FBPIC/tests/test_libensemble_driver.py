@@ -14,6 +14,7 @@ from exploration_fbpic.executor import EvaluationResult
 
 CONFIG = Path(__file__).parent / "smoke_campaigns" / "nersc_smoke" / "campaign.yaml"
 SURROGATE_CONFIG = Path(__file__).parent / "smoke_campaigns" / "nersc_surrogate_smoke" / "campaign.yaml"
+INITIAL_CONFIG = Path(__file__).parents[1] / "runs" / "initial_study" / "campaign.yaml"
 
 
 def test_smoke_driver_assigns_eight_two_gpu_resource_sets() -> None:
@@ -54,10 +55,33 @@ def test_make_ensemble_rejects_existing_runs_without_continuation(tmp_path: Path
         ).replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}"),
         encoding="utf-8",
     )
-    (tmp_path / "runs" / "sim_000000").mkdir(parents=True)
+    campaign = Campaign.from_file(config_path)
+    run_directory = campaign.config.run_root / "sim_000000"
+    run_directory.mkdir(parents=True)
+    campaign.make_manifest("sim_000000", "surrogate_smoke").write(run_directory)
 
     with pytest.raises(FileExistsError, match="continuation disabled"):
         make_ensemble(config_path, "surrogate_smoke")
+
+
+def test_stage_two_continues_with_stage_one_history(tmp_path: Path) -> None:
+    source = INITIAL_CONFIG.read_text(encoding="utf-8")
+    config_path = tmp_path / "campaign.yaml"
+    config_path.write_text(
+        source.replace(
+            "template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
+            "template_script: " + str((INITIAL_CONFIG.parents[3] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
+        ).replace("run_root: ../../data/ionization_injection_exploration", f"run_root: {tmp_path / 'runs'}"),
+        encoding="utf-8",
+    )
+    campaign = Campaign.from_file(config_path)
+    run_directory = campaign.config.run_root / "sim_000000"
+    run_directory.mkdir(parents=True)
+    campaign.make_manifest("sim_000000", "stage_1").write(run_directory)
+
+    ensemble = make_ensemble(config_path, "stage_2")
+
+    assert ensemble.exit_criteria.sim_max == 600
 
 
 def test_next_run_id_offset_skips_existing_simulation_directories(tmp_path: Path) -> None:

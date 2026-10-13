@@ -124,8 +124,9 @@ and parameter settings unchanged when resuming, since changing them changes the
 fingerprint and begins a new campaign.
 
 With `continuation: false`, both local evaluation and the libEnsemble driver refuse
-to start when `run_root` already contains a `sim_*` run directory. Use a new output
-directory for a fresh campaign or explicitly enable continuation to reuse one.
+to start when `run_root` already contains any `sim_*` run directory. This prevents
+different campaigns from accidentally sharing output. The provided `stage_2` uses
+`continuation: true`, which permits it to reuse the Stage 1 run root and data.
 
 Stages cannot be run in reverse: successful records from a later stage that vary a
 parameter inactive in the requested stage cause the driver to fail before it starts

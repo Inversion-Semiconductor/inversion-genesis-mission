@@ -100,11 +100,15 @@ def test_stage_one_training_data_ignores_failed_later_stage_rows(monkeypatch) ->
     assert explorer.training_data().empty
 
 
-def test_non_continuation_stage_rejects_existing_run_directories(tmp_path: Path) -> None:
+def test_non_continuation_stage_rejects_any_existing_run_directory(tmp_path: Path) -> None:
     campaign = Campaign.from_file(CONFIG)
-    config = replace(campaign.config, run_root=tmp_path)
-    explorer = XoptFBPICExplorer(Campaign(config), "stage_1")
-    (tmp_path / "sim_000001").mkdir()
+    stages = dict(campaign.config.stages)
+    stages["stage_2"] = replace(stages["stage_2"], continuation=False)
+    config = replace(campaign.config, run_root=tmp_path, stages=stages)
+    explorer = XoptFBPICExplorer(Campaign(config), "stage_2")
+    run_directory = tmp_path / "sim_000001"
+    run_directory.mkdir()
+    Campaign(config).make_manifest("sim_000001", "stage_1").write(run_directory)
 
     with pytest.raises(FileExistsError, match="continuation disabled"):
         explorer.require_fresh_run_root()

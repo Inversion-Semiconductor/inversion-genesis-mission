@@ -111,7 +111,7 @@ class XoptFBPICExplorer:
         return outputs
 
     def require_fresh_run_root(self) -> None:
-        """Prevent non-continuation stages from reusing an existing run root."""
+        """Prevent non-continuation stages from reusing any populated run root."""
         if self.campaign.config.stage_settings(self.stage).continuation:
             return
         previous_runs = sorted(

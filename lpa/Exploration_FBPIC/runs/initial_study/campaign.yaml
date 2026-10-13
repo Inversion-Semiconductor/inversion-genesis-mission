@@ -59,6 +59,7 @@ stages:
       - laser_focal_position_m
   stage_2:
     # Includes all Stage 1 data reused at the nominal values of new inputs.
+    continuation: true
     max_evaluations: 600
     initial_design_size: 0
     gpus_per_simulation: 8
