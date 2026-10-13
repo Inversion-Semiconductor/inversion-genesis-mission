@@ -56,11 +56,13 @@ HYPERPARAMETERS = {
 
 # Physical laser and gas parameters.
 PHYSICAL_PARAMETERS = {
-    "peak_neutral_density_cm3": 2.0e18,
+    "peak_neutral_density_cm3": 1.5e18,
     "nitrogen_dopant_fraction": 0.03,
-    "density_alpha_m": 1.1e-3,
-    "density_beta": 1.1,
-    "density_center_location_m": 2.3e-3,
+    "density_fwhm_left_m": 1e-3,
+    "density_fwhm_right_m": 1e-3,
+    "density_beta_left": 1.5,
+    "density_beta_right": 1.5,
+    "density_center_location_m": 4e-3,
     "laser_wavelength_m": 800e-9,
     "laser_energy_J": 2.5,
     "laser_pulse_duration_fwhm_s": 30e-15,
