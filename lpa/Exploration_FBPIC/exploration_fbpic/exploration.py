@@ -102,10 +102,7 @@ class XoptFBPICExplorer:
         data = self.store.load()
         if data.empty:
             return data
-        data = data.loc[
-            (data["stage"] == self.stage)
-            & (data["campaign_fingerprint"] == self.campaign.config.fingerprint())
-        ]
+        data = data.loc[data["campaign_fingerprint"] == self.campaign.config.fingerprint()]
         if data.empty:
             return data
         required = [f"p:{parameter.name}" for parameter in self.parameters]
