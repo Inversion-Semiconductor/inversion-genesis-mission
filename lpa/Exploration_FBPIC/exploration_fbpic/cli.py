@@ -25,6 +25,7 @@ def main() -> None:
     evaluate.add_argument("--point", required=True, help="JSON mapping of active parameter values")
     evaluate.add_argument("--run-id", help="explicit run ID; required for concurrent dispatch")
     status = subparsers.add_parser("status", help="show reusable successful evaluations")
+    subparsers.add_parser("rebuild-store", help="rebuild campaign_runs.parquet from per-run result.json files")
     args = parser.parse_args()
 
     explorer = XoptFBPICExplorer(Campaign.from_file(args.config), args.stage)
@@ -41,6 +42,9 @@ def main() -> None:
             result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id, args.stage, point)
             CampaignStore(explorer.campaign.config.run_root).append(result)
             print(json.dumps(result.as_dict(), indent=2))
+    elif args.command == "rebuild-store":
+        rebuilt = CampaignStore(explorer.campaign.config.run_root).rebuild()
+        print(json.dumps({"rebuilt_rows": len(rebuilt)}, indent=2))
     else:
         data = explorer.training_data()
         print(
