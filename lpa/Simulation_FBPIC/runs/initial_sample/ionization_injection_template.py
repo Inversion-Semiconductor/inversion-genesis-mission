@@ -271,8 +271,6 @@ class IonizationInjectionSimulation:
             ],
         )
 
-        # NOTE: add plots of the laser profile?
-
         hyp = sm.SimulationHyperparameters(
             zmin=hyperparameters["zmin"],
             zmax=hyperparameters["zmax"],
