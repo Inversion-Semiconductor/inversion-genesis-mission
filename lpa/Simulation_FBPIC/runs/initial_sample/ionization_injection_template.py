@@ -54,6 +54,7 @@ class IonizationInjectionSimulation:
         "p_nz": 4,
         "p_nr": 4,
         "p_nt": 30,
+        "r_boundary": "reflective",
         "number_dumps_lab": 100,
         "write_period": 50,
         "save_checkpoints": False,
@@ -75,7 +76,6 @@ class IonizationInjectionSimulation:
         "laser_center_and_remove_tilt": True,
         "laser_centering_angles": 72,
         # NOTE: Add hyperparameters for...?
-        # - r_boundary
         # - plotting/movies
         # - beam minimum energy/select
     }
@@ -230,7 +230,7 @@ class IonizationInjectionSimulation:
             track_electrons=hyperparameters["track_electrons"],
             n_order_mpi=hyperparameters["n_order"],
             random_seed=hyperparameters["random_seed"],
-            r_boundary="reflective",  # NOTE: Parameterize?
+            r_boundary=hyperparameters["r_boundary"],
         )
 
         datapoint = cc.ConfigContainer(

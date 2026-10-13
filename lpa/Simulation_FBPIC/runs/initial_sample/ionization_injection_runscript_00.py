@@ -29,6 +29,7 @@ HYPERPARAMETERS = {
     "p_nz": 2,
     "p_nr": 2,
     "p_nt": 15,
+    "r_boundary": "reflective",
     "number_dumps_lab": 50,
     "write_period": 50,
     "save_checkpoints": False,
