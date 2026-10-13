@@ -64,3 +64,34 @@ def test_store_load_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -> 
 
     assert len(repaired) == 1
     assert pd.read_parquet(store.path).iloc[0]["f:total_beam_charge_pc"] == 5.0
+
+
+def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    store = CampaignStore(tmp_path)
+    first_directory = tmp_path / "sim_000001"
+    first_directory.mkdir()
+    first_manifest = campaign.make_manifest("sim_000001", "stage_1")
+    first_manifest.write(first_directory)
+    first_result = EvaluationResult("sim_000001", "ok", {"total_beam_charge_pc": 5.0}, first_directory)
+    (first_directory / "result.json").write_text(
+        json.dumps({"manifest": first_manifest.__dict__, "result": first_result.as_dict()}, default=str),
+        encoding="utf-8",
+    )
+    store.append(first_result)
+    store.path.write_bytes(b"corrupt")
+
+    second_directory = tmp_path / "sim_000002"
+    second_directory.mkdir()
+    second_manifest = campaign.make_manifest("sim_000002", "stage_1")
+    second_manifest.write(second_directory)
+    second_result = EvaluationResult("sim_000002", "ok", {"total_beam_charge_pc": 6.0}, second_directory)
+    store.append(second_result)
+    (second_directory / "result.json").write_text(
+        json.dumps({"manifest": second_manifest.__dict__, "result": second_result.as_dict()}, default=str),
+        encoding="utf-8",
+    )
+
+    repaired = store.load()
+
+    assert set(repaired["run_id"]) == {"sim_000001", "sim_000002"}

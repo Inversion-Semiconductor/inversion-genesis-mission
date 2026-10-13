@@ -28,7 +28,7 @@ class CampaignStore:
         self.root.mkdir(parents=True, exist_ok=True)
         with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            current = pd.read_parquet(self.path) if self.path.exists() else pd.DataFrame()
+            current = self._load_locked()
             if not current.empty and result.run_id in set(current["run_id"]):
                 raise ValueError(f"duplicate run id: {result.run_id}")
             self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))
@@ -64,6 +64,19 @@ class CampaignStore:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def _load_locked(self) -> pd.DataFrame:
+        """Read the aggregate table or rebuild it while the caller holds the lock."""
+        if not self.path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_parquet(self.path)
+        except Exception:
+            rebuilt = self._rebuild_data()
+            if rebuilt.empty:
+                raise
+            self._publish(rebuilt)
+            return rebuilt
+
     def load(self) -> pd.DataFrame:
         if not self.path.exists():
             return pd.DataFrame()
@@ -76,8 +89,7 @@ class CampaignStore:
             self.root.mkdir(parents=True, exist_ok=True)
             with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                self._publish(rebuilt)
-            return rebuilt
+                return self._load_locked()
 
     def _rebuild_data(self) -> pd.DataFrame:
         rows = []
