@@ -86,11 +86,11 @@ def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -
     second_manifest = campaign.make_manifest("sim_000002", "stage_1")
     second_manifest.write(second_directory)
     second_result = EvaluationResult("sim_000002", "ok", {"total_beam_charge_pc": 6.0}, second_directory)
-    store.append(second_result)
     (second_directory / "result.json").write_text(
         json.dumps({"manifest": second_manifest.__dict__, "result": second_result.as_dict()}, default=str),
         encoding="utf-8",
     )
+    store.append(second_result)
 
     repaired = store.load()
 
