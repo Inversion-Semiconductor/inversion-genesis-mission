@@ -25,6 +25,11 @@ def next_run_id_offset(run_root: str | Path) -> int:
     return max(numbers, default=-1) + 1
 
 
+def fallback_design(explorer: XoptFBPICExplorer, offset: int, count: int) -> list[dict[str, float]]:
+    """Return a non-overlapping deterministic design slice when GP training has no data."""
+    return explorer.initial_design(offset + count, seed=0)[offset:]
+
+
 def persistent_xopt(
     _: np.ndarray,
     persis_info: dict[str, Any],
@@ -42,6 +47,7 @@ def persistent_xopt(
     feature_names: tuple[str, ...] = tuple(user["feature_names"])
     initial_points: list[dict[str, float]] = user["initial_points"]
     sim_max = int(user["sim_max"])
+    fallback_offset = int(user.get("fallback_offset", 0))
     support = PersistentSupport(libE_info, EVAL_GEN_TAG)
     submitted = 0
     pending = list(initial_points)
@@ -55,7 +61,10 @@ def persistent_xopt(
             count = min(int(user["batch_size"]), sim_max - submitted)
             if count <= 0:
                 break
-            generated = xopt.generator.generate(count)
+            if xopt.data is None or xopt.data.empty:
+                generated = fallback_design(explorer, fallback_offset + submitted, count)
+            else:
+                generated = xopt.generator.generate(count)
         candidates = np.zeros(len(generated), dtype=gen_specs["out"])
         for index, point in enumerate(generated):
             for name in variable_names:
@@ -128,6 +137,7 @@ def make_ensemble(config_path: str | Path, stage: str):
             "initial_points": explorer.initial_design(initial_count),
             "sim_max": remaining_evaluations,
             "batch_size": settings.concurrent_simulations,
+            "fallback_offset": completed_count,
         },
     )
     ensemble.alloc_specs = AllocSpecs(

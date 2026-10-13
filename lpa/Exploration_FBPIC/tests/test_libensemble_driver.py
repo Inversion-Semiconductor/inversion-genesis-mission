@@ -4,7 +4,8 @@ import numpy as np
 from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
 
 from exploration_fbpic.campaign import Campaign
-from exploration_fbpic.libensemble_driver import make_ensemble, next_run_id_offset, persistent_xopt
+from exploration_fbpic.exploration import XoptFBPICExplorer
+from exploration_fbpic.libensemble_driver import fallback_design, make_ensemble, next_run_id_offset, persistent_xopt
 from exploration_fbpic.store import CampaignStore
 from exploration_fbpic.executor import EvaluationResult
 
@@ -94,6 +95,15 @@ def test_persistent_driver_accepts_empty_final_result(monkeypatch, tmp_path: Pat
     )
 
     assert tag == FINISHED_PERSISTENT_GEN_TAG
+
+
+def test_fallback_design_advances_past_initial_anchors() -> None:
+    explorer = XoptFBPICExplorer(Campaign.from_file(SURROGATE_CONFIG), "surrogate_smoke")
+
+    points = fallback_design(explorer, offset=6, count=6)
+
+    assert len(points) == 6
+    assert all(point not in explorer.initial_design(6) for point in points)
 
 
 def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) -> None:
