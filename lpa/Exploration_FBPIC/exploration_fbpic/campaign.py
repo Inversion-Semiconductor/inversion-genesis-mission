@@ -150,11 +150,14 @@ class CampaignConfig:
         }
         for stage, settings in stages.items():
             settings.validate(stage, parameters)
+        run_root = Path(os.path.expandvars(str(data["run_root"]))).expanduser()
+        if not run_root.is_absolute():
+            run_root = path.parent / run_root
         return cls(
             name=data["name"],
             template_script=(path.parent / data["template_script"]).resolve(),
             template_class=str(data.get("template_class", "IonizationInjectionSimulation")),
-            run_root=Path(os.path.expandvars(str(path.parent / data["run_root"]))).resolve(),
+            run_root=run_root.resolve(),
             parameters=parameters,
             stages=stages,
             analysis=dict(data["analysis"]),

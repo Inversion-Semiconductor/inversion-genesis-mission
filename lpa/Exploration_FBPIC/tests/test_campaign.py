@@ -89,3 +89,33 @@ execution: {hyperparameters: {}}
 
         with pytest.raises(ValueError, match="outside"):
                 Campaign.from_file(config)
+
+
+def test_campaign_expands_absolute_environment_run_root(tmp_path: Path, monkeypatch) -> None:
+        config = tmp_path / "campaign.yaml"
+        config.write_text(
+                """\
+name: test
+template_script: template.py
+run_root: ${PSCRATCH}/campaign
+parameters:
+    x: {nominal: 0.5, lower: 0.0, upper: 1.0}
+stages:
+    stage_1:
+        active_parameters: [x]
+        max_evaluations: 1
+        initial_design_size: 1
+        gpus_per_simulation: 1
+        total_gpus: 1
+        concurrent_simulations: 1
+analysis:
+    exploration_features: [f]
+execution: {hyperparameters: {}}
+""",
+                encoding="utf-8",
+        )
+        monkeypatch.setenv("PSCRATCH", str(tmp_path / "scratch"))
+
+        campaign = Campaign.from_file(config)
+
+        assert campaign.config.run_root == (tmp_path / "scratch" / "campaign").resolve()
