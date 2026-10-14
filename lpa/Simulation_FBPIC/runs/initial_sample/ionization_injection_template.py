@@ -15,7 +15,6 @@ from inversion_fbpic.lib import (
     density_profiles as dn,
     laser as ls,
     simulation as sm,
-    diagnostics as dg,
     datapoint as dp,
     config_container as cc,
 )
@@ -72,9 +71,6 @@ class IonizationInjectionSimulation:
         "p_nt": 30,
         "r_boundary": "reflective",
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
-        "openpmd_select": {
-            "uz": [10.0, None]
-        },  # which particles are used for post-analysis
         "dump_fields": False,
         "plot_movies": False,
         "number_dumps_lab": 100,
@@ -295,10 +291,6 @@ class IonizationInjectionSimulation:
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
-                dg.MomentDescriptorDiagnostic(
-                    target=("all_of_species", "e"),
-                    select=hyperparameters["openpmd_select"],
-                ),
             ]
         )
 
@@ -317,7 +309,7 @@ class IonizationInjectionSimulation:
             # contains only the simulation parameters and processed results
             datapoint.to_file(
                 Path(hyperparameters["results_directory"])
-                / f"datapoint.{_PARAMETERS_FORMAT}",
+                / f"parameters.{_PARAMETERS_FORMAT}",
                 _PARAMETERS_FORMAT,
                 group_path="/results",
                 overwrite=True,

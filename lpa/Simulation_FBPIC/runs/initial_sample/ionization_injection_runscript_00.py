@@ -31,7 +31,6 @@ HYPERPARAMETERS = {
     "p_nt": 15,
     "r_boundary": "reflective",
     "diagnostic_select": {"uz": [10.0, None]},
-    "openpmd_select": {"uz": [10.0, None]},
     "dump_fields": False,
     "plot_movies": False,
     "number_dumps_lab": 50,
