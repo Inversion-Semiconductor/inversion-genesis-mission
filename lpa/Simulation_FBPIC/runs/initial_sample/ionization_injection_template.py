@@ -137,11 +137,7 @@ class IonizationInjectionSimulation:
 
     @staticmethod
     def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
-        """Render movies even if optional profile plots fail.
-
-        Profile errors are logged, and successfully created figures are closed.
-        Movie errors still propagate to the background job's future.
-        """
+        """Render density and laser profile plots as well as movies of the fields."""
         import matplotlib.pyplot as plt
 
         try:
