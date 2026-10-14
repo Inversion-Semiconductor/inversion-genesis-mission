@@ -203,8 +203,8 @@ class IonizationInjectionSimulation:
             save_path = simulation.working_directory / save_path
         return _MOVIE_EXECUTOR.submit(self._plot_movies, movie_simulation, save_path)
 
-    def run(self) -> None:
-        """Run and save the simulation, then queue optional background movies."""
+    def build_simulation(self) -> sm.Simulation:
+        """Build the configured simulation without setting it up or running it."""
         hyperparameters = self.hyperparameters
         physical_parameters = self.physical_parameters
 
@@ -320,8 +320,20 @@ class IonizationInjectionSimulation:
             ]
         )
 
-        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
+        return sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
 
+    def run(self) -> None:
+        """Run and save the simulation, then queue optional background movies."""
+        hyperparameters = self.hyperparameters
+        sim = self.build_simulation()
+        parameters = cc.ConfigContainer(
+            configs=[
+                dp.Parameters(label="hyperparameters", data=hyperparameters),
+                dp.Parameters(
+                    label="physical_parameters", data=self.physical_parameters
+                ),
+            ]
+        )
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
