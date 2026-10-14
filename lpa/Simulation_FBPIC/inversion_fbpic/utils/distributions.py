@@ -97,7 +97,7 @@ def crop_central_particles(
     particles, weights = _validate_particles(particles, weights)
     mean = np.average(particles, axis=0, weights=weights)
     distances = np.abs(particles - mean)
-    limits = np.quantile(distances, central_fraction, axis=0)
+    limits = weighted_quantile(distances, weights, central_fraction, axis=0)
     retained = np.all(distances <= limits, axis=1)
     if retained.sum() < 2:
         raise ValueError("fewer than two particles remain after central crop")
@@ -123,6 +123,42 @@ def _validate_particles(
     if len(particles) < 2 or not np.any(weights > 0):
         raise ValueError("fewer than two usable particles remain")
     return particles, weights
+
+
+def weighted_quantile(
+    values: npt.ArrayLike,
+    weights: npt.ArrayLike,
+    quantiles: float | npt.ArrayLike,
+    *,
+    axis: int | None = None,
+) -> np.ndarray:
+    """Return quantiles whose cumulative distribution is weighted by macro-charge."""
+    values = np.asarray(values, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64).reshape(-1)
+    quantiles = np.asarray(quantiles, dtype=np.float64)
+    if np.any((quantiles < 0) | (quantiles > 1)):
+        raise ValueError("quantiles must be between zero and one")
+    if axis is None:
+        sorted_indices = np.argsort(values)
+        sorted_values = values[sorted_indices]
+        sorted_weights = weights[sorted_indices]
+        cumulative_weights = np.cumsum(sorted_weights) / sorted_weights.sum()
+        return np.interp(quantiles, cumulative_weights, sorted_values)
+    if axis != 0:
+        raise ValueError("weighted quantile supports only axis=0")
+    if values.shape[0] != len(weights):
+        raise ValueError("values and weights have different lengths")
+    sorted_indices = np.argsort(values, axis=0)
+    sorted_values = np.take_along_axis(values, sorted_indices, axis=0)
+    sorted_weights = weights[sorted_indices]
+    cumulative_weights = np.cumsum(sorted_weights, axis=0)
+    cumulative_weights /= cumulative_weights[-1]
+    return np.asarray(
+        [
+            np.interp(quantiles, cumulative_weights[:, index], sorted_values[:, index])
+            for index in range(values.shape[1])
+        ]
+    ).T
 
 
 def weighted_mean_cov(
@@ -203,7 +239,7 @@ def longitudinal_slice_profile(
     x, w = _validate_particles(particles, weights)
     z_mean = np.average(x[:, 4], weights=w)
     z_centered = x[:, 4] - z_mean
-    edges = np.quantile(z_centered, np.linspace(0, 1, bins + 1))
+    edges = weighted_quantile(z_centered, w, np.linspace(0, 1, bins + 1))
     edges[0] -= np.finfo(np.float64).eps
     edges[-1] += np.finfo(np.float64).eps
     bin_index = np.clip(np.digitize(z_centered, edges) - 1, 0, bins - 1)
