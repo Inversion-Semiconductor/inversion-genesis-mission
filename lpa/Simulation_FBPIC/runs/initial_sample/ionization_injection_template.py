@@ -137,23 +137,35 @@ class IonizationInjectionSimulation:
 
     @staticmethod
     def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
-        """Save and close profile figures, then render diagnostic movies."""
+        """Render movies even if optional profile plots fail.
+
+        Profile errors are logged, and successfully created figures are closed.
+        Movie errors still propagate to the background job's future.
+        """
         import matplotlib.pyplot as plt
 
         try:
             save_path.mkdir(parents=True, exist_ok=True)
-            fig = simulation.plot_densities()
             try:
-                fig.savefig(save_path / "densities.png")
-            finally:
-                plt.close(fig)
-
-            for i, las in enumerate(simulation.lasers):
-                fig = las.plot()
+                fig = simulation.plot_densities()
                 try:
-                    fig.savefig(save_path / f"laser_{i}.png")
+                    fig.savefig(save_path / "densities.png")
                 finally:
                     plt.close(fig)
+            except Exception:
+                _LOGGER.exception("Density profile generation failed for %s", save_path)
+
+            for i, las in enumerate(simulation.lasers):
+                try:
+                    fig = las.plot()
+                    try:
+                        fig.savefig(save_path / f"laser_{i}.png")
+                    finally:
+                        plt.close(fig)
+                except Exception:
+                    _LOGGER.exception(
+                        "Laser profile %d generation failed for %s", i, save_path
+                    )
 
             # plot movies of fields
             simulation.plot_movie(

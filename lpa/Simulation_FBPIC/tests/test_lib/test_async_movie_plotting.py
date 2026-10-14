@@ -181,7 +181,12 @@ def test_movie_batches_are_serialized(
 
 @pytest.mark.parametrize("failing_profile", [None, "densities.png", "laser_0.png"])
 def test_profile_figures_are_closed_even_when_saving_fails(
-    movie_case, minimal_simulation_elements, tmp_path, monkeypatch, failing_profile
+    movie_case,
+    minimal_simulation_elements,
+    tmp_path,
+    monkeypatch,
+    failing_profile,
+    caplog,
 ):
     import matplotlib.pyplot as plt
     from matplotlib.figure import Figure
@@ -208,17 +213,60 @@ def test_profile_figures_are_closed_even_when_saving_fails(
     monkeypatch.setattr(type(simulation), "plot_movie", movies)
     output = tmp_path / "nested" / "results"
     try:
-        if failing_profile is None:
+        with caplog.at_level(logging.ERROR):
             movie_case._plot_movies(simulation, output)
-            assert (output / "densities.png").is_file()
-            assert (output / "laser_0.png").is_file()
-            assert len(figures) == 2
-            assert movies.call_count == 8
-        else:
-            with pytest.raises(OSError, match="profile save failed"):
-                movie_case._plot_movies(simulation, output)
-            assert figures
-            movies.assert_not_called()
+        assert len(figures) == 2
+        assert movies.call_count == 8
+        for filename in ["densities.png", "laser_0.png"]:
+            assert (output / filename).is_file() == (filename != failing_profile)
+        if failing_profile is not None:
+            assert "profile save failed" in caplog.text
+        assert all(not plt.fignum_exists(fig.number) for fig in figures)
+    finally:
+        for fig in figures:
+            plt.close(fig)
+
+
+@pytest.mark.parametrize("failing_profile", ["density", "laser"])
+def test_profile_plot_failures_do_not_cancel_movies(
+    movie_case,
+    minimal_simulation_elements,
+    tmp_path,
+    monkeypatch,
+    failing_profile,
+    caplog,
+):
+    import matplotlib.pyplot as plt
+
+    simulation = minimal_simulation_elements
+    simulation = type(simulation)(elements=[*simulation.elements, simulation.lasers[0]])
+    figures = []
+
+    def profile_plot(*args, **kwargs):
+        fig = plt.figure()
+        figures.append(fig)
+        return fig
+
+    density_plot = Mock(side_effect=profile_plot)
+    laser_plot = Mock(side_effect=profile_plot)
+    if failing_profile == "density":
+        density_plot.side_effect = ValueError("density plot failed")
+    else:
+        laser_plot.side_effect = [ValueError("laser plot failed"), profile_plot()]
+    monkeypatch.setattr(type(simulation), "plot_densities", density_plot)
+    monkeypatch.setattr(type(simulation.lasers[0]), "plot", laser_plot)
+    movies = Mock()
+    monkeypatch.setattr(type(simulation), "plot_movie", movies)
+    try:
+        with caplog.at_level(logging.ERROR):
+            future = movie_case._queue_movies(simulation, tmp_path)
+            assert future is not None
+            assert future.result(timeout=5) is None
+        density_plot.assert_called_once_with()
+        assert laser_plot.call_count == 2
+        assert movies.call_count == 8
+        assert (tmp_path / "laser_1.png").is_file()
+        assert f"{failing_profile} plot failed" in caplog.text
         assert all(not plt.fignum_exists(fig.number) for fig in figures)
     finally:
         for fig in figures:
