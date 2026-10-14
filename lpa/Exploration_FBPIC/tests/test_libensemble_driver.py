@@ -7,13 +7,23 @@ from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
 
 from exploration_fbpic.campaign import Campaign
 from exploration_fbpic.exploration import XoptFBPICExplorer
-from exploration_fbpic.libensemble_driver import fallback_design, make_ensemble, next_run_id_offset, persistent_xopt
+from exploration_fbpic.libensemble_driver import (
+    fallback_design,
+    make_ensemble,
+    next_run_id_offset,
+    persistent_xopt,
+)
 from exploration_fbpic.store import CampaignStore
 from exploration_fbpic.executor import EvaluationResult
 
 
 CONFIG = Path(__file__).parent / "smoke_campaigns" / "nersc_smoke" / "campaign.yaml"
-SURROGATE_CONFIG = Path(__file__).parent / "smoke_campaigns" / "nersc_surrogate_smoke" / "campaign.yaml"
+SURROGATE_CONFIG = (
+    Path(__file__).parent
+    / "smoke_campaigns"
+    / "nersc_surrogate_smoke"
+    / "campaign.yaml"
+)
 INITIAL_CONFIG = Path(__file__).parents[1] / "runs" / "initial_study" / "campaign.yaml"
 
 
@@ -45,14 +55,25 @@ def test_make_ensemble_validates_training_data_before_allocation(monkeypatch) ->
         make_ensemble(CONFIG, "smoke")
 
 
-def test_make_ensemble_rejects_existing_runs_without_continuation(tmp_path: Path) -> None:
+def test_make_ensemble_rejects_existing_runs_without_continuation(
+    tmp_path: Path,
+) -> None:
     source = SURROGATE_CONFIG.read_text(encoding="utf-8")
     config_path = tmp_path / "campaign.yaml"
     config_path.write_text(
         source.replace(
             "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
-            "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
-        ).replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}"),
+            "template_script: "
+            + str(
+                (
+                    SURROGATE_CONFIG.parents[4]
+                    / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py"
+                ).resolve()
+            ),
+        ).replace(
+            "run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke",
+            f"run_root: {tmp_path / 'runs'}",
+        ),
         encoding="utf-8",
     )
     campaign = Campaign.from_file(config_path)
@@ -70,8 +91,17 @@ def test_stage_two_continues_with_stage_one_history(tmp_path: Path) -> None:
     config_path.write_text(
         source.replace(
             "template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
-            "template_script: " + str((INITIAL_CONFIG.parents[3] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
-        ).replace("run_root: ../../data/ionization_injection_exploration", f"run_root: {tmp_path / 'runs'}"),
+            "template_script: "
+            + str(
+                (
+                    INITIAL_CONFIG.parents[3]
+                    / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py"
+                ).resolve()
+            ),
+        ).replace(
+            "run_root: ../../data/ionization_injection_exploration",
+            f"run_root: {tmp_path / 'runs'}",
+        ),
         encoding="utf-8",
     )
     campaign = Campaign.from_file(config_path)
@@ -84,7 +114,9 @@ def test_stage_two_continues_with_stage_one_history(tmp_path: Path) -> None:
     assert ensemble.exit_criteria.sim_max == 600
 
 
-def test_next_run_id_offset_skips_existing_simulation_directories(tmp_path: Path) -> None:
+def test_next_run_id_offset_skips_existing_simulation_directories(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "sim_000003").mkdir()
     (tmp_path / "sim_000011").mkdir()
     (tmp_path / "smoke_000").mkdir()
@@ -105,11 +137,15 @@ def test_surrogate_smoke_bootstraps_with_six_initial_points() -> None:
 
 
 def test_surrogate_smoke_uses_full_physics_seed_validation() -> None:
-    campaign = make_ensemble(SURROGATE_CONFIG, "surrogate_smoke").sim_specs.user["executor"].campaign
+    campaign = (
+        make_ensemble(SURROGATE_CONFIG, "surrogate_smoke")
+        .sim_specs.user["executor"]
+        .campaign
+    )
     parameters = campaign.config.parameters
     hyperparameters = campaign.config.execution["hyperparameters"]
 
-    assert parameters["density_alpha_m"].nominal == 1.1e-3
+    assert parameters["density_fwhm_left_m"].nominal == 1.1e-3
     assert parameters["density_center_location_m"].nominal == 2.3e-3
     assert parameters["laser_focal_position_m"].nominal == 3.5e-3
     assert parameters["laser_focal_position_m"].lower == 2.5e-3
@@ -120,7 +156,9 @@ def test_surrogate_smoke_uses_full_physics_seed_validation() -> None:
     assert hyperparameters["zmin"] == -150e-6
 
 
-def test_persistent_driver_accepts_empty_final_result(monkeypatch, tmp_path: Path) -> None:
+def test_persistent_driver_accepts_empty_final_result(
+    monkeypatch, tmp_path: Path
+) -> None:
     class StopAfterSend:
         def __init__(self, *_: object) -> None:
             pass
@@ -128,13 +166,17 @@ def test_persistent_driver_accepts_empty_final_result(monkeypatch, tmp_path: Pat
         def send_recv(self, _: object) -> tuple[int, None, None]:
             return STOP_TAG, None, None
 
-    monkeypatch.setattr("libensemble.tools.persistent_support.PersistentSupport", StopAfterSend)
+    monkeypatch.setattr(
+        "libensemble.tools.persistent_support.PersistentSupport", StopAfterSend
+    )
     user = {
         "config_path": str(SURROGATE_CONFIG),
         "stage": "surrogate_smoke",
         "variable_names": ("laser_spot_size_m", "laser_focal_position_m"),
         "feature_names": ("total_beam_charge_pc", "mean_kinetic_energy_MeV"),
-        "initial_points": [{"laser_spot_size_m": 24e-6, "laser_focal_position_m": 3.5e-3}],
+        "initial_points": [
+            {"laser_spot_size_m": 24e-6, "laser_focal_position_m": 3.5e-3}
+        ],
         "sim_max": 1,
         "batch_size": 1,
     }
@@ -142,7 +184,10 @@ def test_persistent_driver_accepts_empty_final_result(monkeypatch, tmp_path: Pat
     _, _, tag = persistent_xopt(
         np.empty(0),
         {},
-        {"user": user, "out": [("laser_spot_size_m", float), ("laser_focal_position_m", float)]},
+        {
+            "user": user,
+            "out": [("laser_spot_size_m", float), ("laser_focal_position_m", float)],
+        },
         {"comm": object()},
     )
 
@@ -150,7 +195,9 @@ def test_persistent_driver_accepts_empty_final_result(monkeypatch, tmp_path: Pat
 
 
 def test_fallback_design_advances_past_initial_anchors() -> None:
-    explorer = XoptFBPICExplorer(Campaign.from_file(SURROGATE_CONFIG), "surrogate_smoke")
+    explorer = XoptFBPICExplorer(
+        Campaign.from_file(SURROGATE_CONFIG), "surrogate_smoke"
+    )
 
     points = fallback_design(explorer, offset=6, count=6)
 
@@ -164,9 +211,18 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
     config_path.write_text(
         source.replace(
             "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
-            "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
+            "template_script: "
+            + str(
+                (
+                    SURROGATE_CONFIG.parents[4]
+                    / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py"
+                ).resolve()
+            ),
         )
-        .replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}")
+        .replace(
+            "run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke",
+            f"run_root: {tmp_path / 'runs'}",
+        )
         .replace("continuation: false", "continuation: true"),
         encoding="utf-8",
     )
@@ -186,7 +242,14 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
         record["stage"] = stage
         record["campaign_fingerprint"] = fingerprint
         manifest_path.write_text(json.dumps(record), encoding="utf-8")
-        store.append(EvaluationResult(run_id, "ok", {"total_beam_charge_pc": 1.0, "mean_kinetic_energy_MeV": 1.0}, directory))
+        store.append(
+            EvaluationResult(
+                run_id,
+                "ok",
+                {"total_beam_charge_pc": 1.0, "mean_kinetic_energy_MeV": 1.0},
+                directory,
+            )
+        )
 
     ensemble = make_ensemble(config_path, "surrogate_smoke")
 
@@ -200,9 +263,18 @@ def test_continuation_rejects_runs_from_a_different_campaign(tmp_path: Path) -> 
     config_path.write_text(
         source.replace(
             "template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py",
-            "template_script: " + str((SURROGATE_CONFIG.parents[4] / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py").resolve()),
+            "template_script: "
+            + str(
+                (
+                    SURROGATE_CONFIG.parents[4]
+                    / "Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py"
+                ).resolve()
+            ),
         )
-        .replace("run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke", f"run_root: {tmp_path / 'runs'}")
+        .replace(
+            "run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke",
+            f"run_root: {tmp_path / 'runs'}",
+        )
         .replace("continuation: false", "continuation: true"),
         encoding="utf-8",
     )

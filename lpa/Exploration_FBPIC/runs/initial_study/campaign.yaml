@@ -11,11 +11,11 @@ run_root: ../../data/ionization_injection_exploration
 parameters:
   peak_neutral_density_cm3: {nominal: 1.4, lower: 0.5, upper: 8.0, unit: 1e18 cm^-3, linear_scale: 1e18} # nominal density profile values for 3 mm distance, 20 bar pressure, (sim: shape, exp: peak density)
   nitrogen_dopant_fraction: {nominal: 0.03, lower: 0.01, upper: 0.06, unit: fraction}
-  density_fwhm_left: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
-  density_fwhm_right: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
+  density_fwhm_left_m: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
+  density_fwhm_right_m: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
   density_beta_left: {nominal: 2.0, lower: 1.0, upper: 3.0}
   density_beta_right: {nominal: 2.0, lower: 1.0, upper: 3.0}
-  density_center_location_m: {nominal: 2.3, lower: 1.5, upper: 3.2, unit: mm, linear_scale: 1e-3} # NOTE: this should scale with "density_fwhm_left" & "density_beta_left", or be fixed, not be treated as an optimization parameter
+  density_center_location_m: {nominal: 2.3, lower: 1.5, upper: 3.2, unit: mm, linear_scale: 1e-3} # NOTE: this should scale with "density_fwhm_left_m" & "density_beta_left", or be fixed, not be treated as an optimization parameter
   laser_wavelength_m: {nominal: 800e-9, unit: m, description: Fixed laser central wavelength.}
   laser_energy_J: {nominal: 2.5, lower: 1.5, upper: 3.5, unit: J}
   laser_pulse_duration_fwhm_s: {nominal: 30.0, lower: 20.0, upper: 45.0, unit: fs, linear_scale: 1e-15}
@@ -50,9 +50,9 @@ stages:
     total_gpus: 32
     concurrent_simulations: 4
     active_parameters:
-      - peak_plasma_density_cm3
+      - peak_neutral_density_cm3
       - nitrogen_dopant_fraction
-      - density_alpha_m
+      - density_fwhm_left_m
       - density_center_location_m
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
@@ -67,11 +67,12 @@ stages:
     total_gpus: 32
     concurrent_simulations: 4
     active_parameters:
-      - peak_plasma_density_cm3
+      - peak_neutral_density_cm3
       - nitrogen_dopant_fraction
-      - density_peak
-      - density_alpha_m
-      - density_beta
+      - density_fwhm_left_m
+      - density_fwhm_right_m
+      - density_beta_left
+      - density_beta_right
       - density_center_location_m
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
@@ -101,7 +102,6 @@ analysis:
 # by the executor and are intentionally not listed here.
 execution:
   hyperparameters:
-    use_cuda: true
     n_order: 32
     gamma_boost: 1.5
     nz: 1500

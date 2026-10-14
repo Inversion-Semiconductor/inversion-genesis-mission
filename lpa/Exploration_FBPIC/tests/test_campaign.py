@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib.util
 
 import pytest
 
@@ -6,6 +7,36 @@ from exploration_fbpic.campaign import Campaign
 
 
 CONFIG = Path(__file__).parents[1] / "runs" / "initial_study" / "campaign.yaml"
+FBPIC_CONFIGS = (
+    CONFIG,
+    Path(__file__).parent / "smoke_campaigns" / "nersc_smoke" / "campaign.yaml",
+    Path(__file__).parent
+    / "smoke_campaigns"
+    / "nersc_surrogate_smoke"
+    / "campaign.yaml",
+)
+
+
+@pytest.mark.parametrize("config_path", FBPIC_CONFIGS)
+def test_campaign_parameters_match_the_simulation_template(config_path: Path) -> None:
+    campaign = Campaign.from_file(config_path)
+    specification = importlib.util.spec_from_file_location(
+        "campaign_template", campaign.config.template_script
+    )
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    template = getattr(module, campaign.config.template_class)
+    accepted = (
+        template._PHYSICAL_PARAMETER_KEYS | template._OPTIONAL_PHYSICAL_PARAMETER_KEYS
+    )
+
+    assert set(campaign.config.parameters) <= accepted
+    assert template._PHYSICAL_PARAMETER_KEYS <= set(campaign.config.parameters)
+    template(
+        campaign.config.complete_parameters(next(iter(campaign.config.stages))),
+        campaign.config.execution["hyperparameters"],
+    )
 
 
 def test_stage_one_keeps_all_physical_parameters() -> None:
@@ -31,7 +62,10 @@ def test_stage_resource_settings_are_consistent() -> None:
 
     assert settings.max_evaluations == 200
     assert settings.initial_design_size == 24
-    assert settings.total_gpus == settings.gpus_per_simulation * settings.concurrent_simulations
+    assert (
+        settings.total_gpus
+        == settings.gpus_per_simulation * settings.concurrent_simulations
+    )
 
 
 def test_stage_one_rejects_inactive_parameters() -> None:
@@ -64,9 +98,9 @@ def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) ->
 
 
 def test_campaign_rejects_nominal_outside_bounds(tmp_path: Path) -> None:
-        config = tmp_path / "campaign.yaml"
-        config.write_text(
-                """\
+    config = tmp_path / "campaign.yaml"
+    config.write_text(
+        """\
 name: invalid
 template_script: template.py
 run_root: runs
@@ -84,17 +118,19 @@ analysis:
     exploration_features: [f]
 execution: {hyperparameters: {}}
 """,
-                encoding="utf-8",
-        )
+        encoding="utf-8",
+    )
 
-        with pytest.raises(ValueError, match="outside"):
-                Campaign.from_file(config)
+    with pytest.raises(ValueError, match="outside"):
+        Campaign.from_file(config)
 
 
-def test_campaign_expands_absolute_environment_run_root(tmp_path: Path, monkeypatch) -> None:
-        config = tmp_path / "campaign.yaml"
-        config.write_text(
-                """\
+def test_campaign_expands_absolute_environment_run_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = tmp_path / "campaign.yaml"
+    config.write_text(
+        """\
 name: test
 template_script: template.py
 run_root: ${PSCRATCH}/campaign
@@ -112,10 +148,10 @@ analysis:
     exploration_features: [f]
 execution: {hyperparameters: {}}
 """,
-                encoding="utf-8",
-        )
-        monkeypatch.setenv("PSCRATCH", str(tmp_path / "scratch"))
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PSCRATCH", str(tmp_path / "scratch"))
 
-        campaign = Campaign.from_file(config)
+    campaign = Campaign.from_file(config)
 
-        assert campaign.config.run_root == (tmp_path / "scratch" / "campaign").resolve()
+    assert campaign.config.run_root == (tmp_path / "scratch" / "campaign").resolve()

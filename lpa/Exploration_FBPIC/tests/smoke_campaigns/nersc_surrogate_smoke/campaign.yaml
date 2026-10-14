@@ -6,8 +6,8 @@ run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke
 parameters:
   peak_neutral_density_cm3: {nominal: 2.0e18}
   nitrogen_dopant_fraction: {nominal: 0.03}
-  density_fwhm_left: {nominal: 1.1e-3}
-  density_fwhm_right: {nominal: 1.1e-3}
+  density_fwhm_left_m: {nominal: 1.1e-3}
+  density_fwhm_right_m: {nominal: 1.1e-3}
   density_beta_left: {nominal: 1.1}
   density_beta_right: {nominal: 1.1}
   density_center_location_m: {nominal: 2.3e-3}
@@ -64,7 +64,6 @@ analysis:
 
 execution:
   hyperparameters:
-    use_cuda: true
     n_order: 32
     gamma_boost: 3.0
     nz: 3000
