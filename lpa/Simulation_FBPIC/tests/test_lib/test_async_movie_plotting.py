@@ -33,6 +33,18 @@ def movie_case(template_module):
     )
 
 
+@pytest.fixture(autouse=True)
+def lasy_plot(monkeypatch):
+    """Keep concurrency tests independent of expensive LASY pulse preparation."""
+    import matplotlib.pyplot as plt
+
+    from inversion_fbpic.lib.laser import LasyLaserPulse
+
+    plot = Mock(side_effect=lambda: plt.figure())
+    monkeypatch.setattr(LasyLaserPulse, "plot", plot)
+    return plot
+
+
 def test_non_write_rank_does_not_queue_movies(movie_case, template_module, monkeypatch):
     from_dict = Mock()
     monkeypatch.setattr(template_module.sm.Simulation, "from_dict", from_dict)
@@ -42,7 +54,12 @@ def test_non_write_rank_does_not_queue_movies(movie_case, template_module, monke
 
 
 def test_movie_job_returns_before_rendering_and_drops_solver_state(
-    movie_case, template_module, minimal_simulation_elements, tmp_path, monkeypatch
+    movie_case,
+    template_module,
+    minimal_simulation_elements,
+    tmp_path,
+    monkeypatch,
+    lasy_plot,
 ):
     from inversion_fbpic.lib.laser import LasyLaserPulse
     from inversion_fbpic.lib.simulation import Simulation
@@ -108,6 +125,9 @@ def test_movie_job_returns_before_rendering_and_drops_solver_state(
             future.result(timeout=5)
 
     output = tmp_path / "results"
+    assert (output / "densities.png").is_file()
+    assert (output / "laser_0.png").is_file()
+    lasy_plot.assert_called_once_with()
     assert len(calls) == 8
     assert calls[0] == call(
         field_name="rho",
@@ -157,6 +177,52 @@ def test_movie_batches_are_serialized(
         if second is not None:
             second.result(timeout=5)
     assert second_started.is_set()
+
+
+@pytest.mark.parametrize("failing_profile", [None, "densities.png", "laser_0.png"])
+def test_profile_figures_are_closed_even_when_saving_fails(
+    movie_case, minimal_simulation_elements, tmp_path, monkeypatch, failing_profile
+):
+    import matplotlib.pyplot as plt
+    from matplotlib.figure import Figure
+
+    simulation = minimal_simulation_elements
+    figures = []
+
+    def profile_plot(*args, **kwargs):
+        fig = plt.figure()
+        figures.append(fig)
+        return fig
+
+    savefig = Figure.savefig
+
+    def save_profile(fig, path, *args, **kwargs):
+        if Path(path).name == failing_profile:
+            raise OSError("profile save failed")
+        return savefig(fig, path, *args, **kwargs)
+
+    monkeypatch.setattr(type(simulation), "plot_densities", profile_plot)
+    monkeypatch.setattr(type(simulation.lasers[0]), "plot", profile_plot)
+    monkeypatch.setattr(Figure, "savefig", save_profile)
+    movies = Mock()
+    monkeypatch.setattr(type(simulation), "plot_movie", movies)
+    output = tmp_path / "nested" / "results"
+    try:
+        if failing_profile is None:
+            movie_case._plot_movies(simulation, output)
+            assert (output / "densities.png").is_file()
+            assert (output / "laser_0.png").is_file()
+            assert len(figures) == 2
+            assert movies.call_count == 8
+        else:
+            with pytest.raises(OSError, match="profile save failed"):
+                movie_case._plot_movies(simulation, output)
+            assert figures
+            movies.assert_not_called()
+        assert all(not plt.fignum_exists(fig.number) for fig in figures)
+    finally:
+        for fig in figures:
+            plt.close(fig)
 
 
 def test_movie_failures_are_logged_and_reported_by_future(

@@ -1,4 +1,4 @@
-from typing import ClassVar, Literal, List, Any
+from typing import TYPE_CHECKING, ClassVar, Literal, List, Any
 from scipy.constants import c, e, epsilon_0, m_e, pi
 import hashlib
 import json
@@ -7,6 +7,9 @@ from pathlib import Path
 import logging
 import time
 import attrs
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from inversion_fbpic.lib.config_container import ConfigContainer
@@ -377,6 +380,55 @@ class Simulation(SerializableConfig):
             if maxz is None or c_maxz > maxz:
                 maxz = c_maxz
         return minz, maxz
+
+    def plot_densities(
+        self,
+        ax: "plt.Axes | None" = None,
+        *,
+        num: int = 600,
+        z_padding_fraction: float = 0.0,
+        neutral_density: bool = False,
+    ) -> "plt.Figure":
+        """Overlay all constituent on-axis density profiles on the same axes.
+
+        Each profile is labeled with its concrete ``SUBCLASS`` and species.
+        No FBPIC setup is required, and the figure is not shown automatically.
+
+        Args:
+            ax: Existing axes to plot on. If None, create a new figure and axes.
+            num: Number of sampling points per profile.
+            z_padding_fraction: Fractional padding on each side of each profile.
+            neutral_density: Plot neutral rather than fully ionized electron density.
+
+        Returns:
+            matplotlib.figure.Figure: The figure containing the overlay.
+        """
+        import matplotlib.pyplot as plt
+
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.get_figure()
+
+        for density in self.densities:
+            density.plot_z_profile(
+                ax,
+                num=num,
+                z_scale=1e3,
+                density_scale=1e-6,
+                z_padding_fraction=z_padding_fraction,
+                neutral_density=neutral_density,
+                label=f"{density.SUBCLASS} ({density.species})",
+            )
+
+        ax.set_xlabel("z (mm)")
+        ax.set_ylabel(
+            f"{'Neutral' if neutral_density else 'Electron'}"
+            + r" Density ($\mathrm{cm}^{-3}$)"
+        )
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        return fig
 
     @property
     def do_write_to_disk(self) -> bool:

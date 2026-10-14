@@ -137,7 +137,25 @@ class IonizationInjectionSimulation:
 
     @staticmethod
     def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
+        """Save and close profile figures, then render diagnostic movies."""
+        import matplotlib.pyplot as plt
+
         try:
+            save_path.mkdir(parents=True, exist_ok=True)
+            fig = simulation.plot_densities()
+            try:
+                fig.savefig(save_path / "densities.png")
+            finally:
+                plt.close(fig)
+
+            for i, las in enumerate(simulation.lasers):
+                fig = las.plot()
+                try:
+                    fig.savefig(save_path / f"laser_{i}.png")
+                finally:
+                    plt.close(fig)
+
+            # plot movies of fields
             simulation.plot_movie(
                 field_name="rho",
                 vminmax=(1e15, 1e18),

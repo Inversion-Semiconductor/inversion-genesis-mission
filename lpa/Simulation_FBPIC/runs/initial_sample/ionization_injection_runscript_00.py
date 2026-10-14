@@ -2,7 +2,7 @@
 This script is a simple launch script for the template in the same directory.
 
 Demonstrates configuring and launching one ionization-injection simulation.
-Use ``plot-phase-space-moments`` after the run completes
+Use ``compute_moment_descriptor`` and ``plot-phase-space-moments`` after the run completes
 to inspect the resulting phase space.
 """
 
