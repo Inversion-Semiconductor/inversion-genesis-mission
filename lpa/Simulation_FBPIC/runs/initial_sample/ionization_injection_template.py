@@ -317,14 +317,14 @@ class IonizationInjectionSimulation:
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
-            # contains all simulation parameters, results, element metadata
+            # contains all simulation parameters and element metadata
             sim.to_file(
                 Path(hyperparameters["results_directory"])
                 / f"simulation.{_SERIALIZATION_FORMAT}",
                 _SERIALIZATION_FORMAT,
                 overwrite=True,
             )
-            # contains only the simulation parameters and processed results
+            # contains only the simulation parameters
             datapoint.to_file(
                 Path(hyperparameters["results_directory"])
                 / f"parameters.{_PARAMETERS_FORMAT}",
