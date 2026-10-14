@@ -305,14 +305,14 @@ class IonizationInjectionSimulation:
             r_boundary=hyperparameters["r_boundary"],
         )
 
-        datapoint = cc.ConfigContainer(
+        parameters = cc.ConfigContainer(
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
             ]
         )
 
-        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
+        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
 
         sim.setup_simulation()
         sim.run_simulation()
@@ -325,7 +325,7 @@ class IonizationInjectionSimulation:
                 overwrite=True,
             )
             # contains only the simulation parameters
-            datapoint.to_file(
+            parameters.to_file(
                 Path(hyperparameters["results_directory"])
                 / f"parameters.{_PARAMETERS_FORMAT}",
                 _PARAMETERS_FORMAT,
