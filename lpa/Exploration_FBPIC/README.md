@@ -87,6 +87,20 @@ This creates an isolated run directory, writes the full physical vector to
 `run_manifest.json`, launches `run_fbpic.py`, and extracts the final particle
 diagnostic. It is expected to consume normal FBPIC resources.
 
+## Inspecting density ramps
+
+Plot the four lower/upper combinations of `density_fwhm_left_m` and
+`density_beta_left` without running FBPIC. All other physical parameters remain
+at their campaign nominal values. `--simulation-half-length` is in metres and
+sets `density_center_location_m`, so the figure spans the left half of the
+simulation from zero to the density peak:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml plot-density-ramps \
+  --simulation-half-length 5e-3 \
+  --output density-ramp-extremes.png
+```
+
 ## NERSC/libEnsemble
 
 Use a single Slurm allocation and let libEnsemble assign one GPU or GPU/MPI team per
