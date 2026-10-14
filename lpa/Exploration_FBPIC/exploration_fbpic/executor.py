@@ -14,8 +14,6 @@ import numpy as np
 from scipy.constants import c, e, m_e
 
 from inversion_fbpic.utils.distributions import (
-    MOMENTS,
-    OFF,
     SPLINE,
     compute_moment_descriptor,
     crop_central_particles,
@@ -83,15 +81,49 @@ class FBPICRunExecutor:
             self._execute(run_directory)
             features = self.extract_features(run_directory)
         except subprocess.TimeoutExpired as error:
-            result = EvaluationResult(run_id, "timeout", {}, run_directory, str(error), time.perf_counter() - started)
+            result = EvaluationResult(
+                run_id,
+                "timeout",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except subprocess.CalledProcessError as error:
-            result = EvaluationResult(run_id, "fbpic_error", {}, run_directory, str(error), time.perf_counter() - started)
+            result = EvaluationResult(
+                run_id,
+                "fbpic_error",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except (FileNotFoundError, ValueError, OSError) as error:
-            result = EvaluationResult(run_id, "analysis_error", {}, run_directory, str(error), time.perf_counter() - started)
+            result = EvaluationResult(
+                run_id,
+                "analysis_error",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except Exception as error:
-            result = EvaluationResult(run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started)
+            result = EvaluationResult(
+                run_id,
+                "error",
+                {},
+                run_directory,
+                repr(error),
+                time.perf_counter() - started,
+            )
         else:
-            result = EvaluationResult(run_id, "ok", features, run_directory, wall_s=time.perf_counter() - started)
+            result = EvaluationResult(
+                run_id,
+                "ok",
+                features,
+                run_directory,
+                wall_s=time.perf_counter() - started,
+            )
         self.finalize(run_directory, manifest, result)
         return result
 
@@ -118,9 +150,10 @@ if __name__ == "__main__":
     def _execute(self, run_directory: Path) -> None:
         command = [*self.config.execution.get("launcher", ["python"]), "run_fbpic.py"]
         timeout_s = float(self.config.execution.get("timeout_s", 21600))
-        with (run_directory / "stdout.log").open("w", encoding="utf-8") as stdout, (
-            run_directory / "stderr.log"
-        ).open("w", encoding="utf-8") as stderr:
+        with (
+            (run_directory / "stdout.log").open("w", encoding="utf-8") as stdout,
+            (run_directory / "stderr.log").open("w", encoding="utf-8") as stderr,
+        ):
             subprocess.run(
                 command,
                 cwd=run_directory,
@@ -132,44 +165,35 @@ if __name__ == "__main__":
             )
 
     def extract_features(self, run_directory: Path) -> dict[str, float]:
-        """Extract the complete scalar schema from the final particle diagnostic."""
+        """Extract spline descriptors and kinetic energy from the final diagnostic."""
         analysis = self.config.analysis
         diagnostics = sorted((run_directory / "lab_diags" / "hdf5").glob("data*.h5"))
         if not diagnostics:
             raise FileNotFoundError("no particle diagnostic produced by FBPIC")
-        particles, weights = load_openpmd_particles(diagnostics[-1], analysis["species"])
-        particles, weights = select_by_uz(particles, weights, uz_min=float(analysis["uz_min"]))
+        particles, weights = load_openpmd_particles(
+            diagnostics[-1], analysis["species"]
+        )
+        particles, weights = select_by_uz(
+            particles, weights, uz_min=float(analysis["uz_min"])
+        )
         particles, weights = crop_central_particles(
             particles, weights, central_fraction=float(analysis["central_fraction"])
         )
         features = compute_moment_descriptor(
             particles,
             weights,
-            longitudinal_mode=OFF,
+            longitudinal_mode=SPLINE,
             longitudinal_bins=int(analysis["longitudinal_bins"]),
-            include_higher_moments=True,
         )
-        features.update(
-            compute_moment_descriptor(
-                particles,
-                weights,
-                longitudinal_mode=MOMENTS,
-                longitudinal_bins=int(analysis["longitudinal_bins"]),
-            )
+        features["mean_kinetic_energy_MeV"] = mean_kinetic_energy_mev(
+            particles, weights
         )
-        features.update(
-            compute_moment_descriptor(
-                particles,
-                weights,
-                longitudinal_mode=SPLINE,
-                longitudinal_bins=int(analysis["longitudinal_bins"]),
-            )
-        )
-        features["mean_kinetic_energy_MeV"] = mean_kinetic_energy_mev(particles, weights)
         return features
 
     @staticmethod
-    def finalize(run_directory: Path, manifest: RunManifest, result: EvaluationResult) -> None:
+    def finalize(
+        run_directory: Path, manifest: RunManifest, result: EvaluationResult
+    ) -> None:
         record = {
             "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "manifest": asdict(manifest),
