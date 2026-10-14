@@ -1,6 +1,7 @@
 """Movie plotting and MPI write-rank behavior for Simulation."""
 
 from pathlib import Path
+import logging
 import shutil
 import sys
 from types import SimpleNamespace
@@ -154,6 +155,42 @@ def test_plot_movie_non_write_rank_does_not_import_or_write(
     monkeypatch.setitem(sys.modules, "inversion_fbpic.utils.make_movie", None)
 
     assert simulation.plot_movie("rho") is None
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("use_mpi", [False, True])
+def test_plot_movie_without_ffmpeg_warns_and_returns_none(
+    minimal_simulation_elements,
+    movie_helpers,
+    tmp_path,
+    monkeypatch,
+    caplog,
+    use_mpi,
+):
+    from inversion_fbpic.lib import simulation as simulation_module
+
+    simulation = minimal_simulation_elements
+    simulation.working_directory = tmp_path
+    simulation.hyparams = attrs.evolve(simulation.hyparams, use_mpi=use_mpi)
+    monkeypatch.setattr(simulation_module, "MPI_RANK", 0)
+    monkeypatch.delitem(sys.modules, "inversion_fbpic.utils.make_movie")
+    which = MagicMock(return_value=None)
+    monkeypatch.setattr(shutil, "which", which)
+    plot, movie = movie_helpers
+
+    assert simulation.plot_movie("rho") is None
+
+    which.assert_called_once_with("ffmpeg")
+    assert caplog.record_tuples == [
+        (
+            "Simulation",
+            logging.WARNING,
+            "Movie generation requires ffmpeg. Install ffmpeg and ensure it is in your PATH.",
+        )
+    ]
+    assert caplog.records[0].exc_info is None
+    plot.assert_not_called()
+    movie.assert_not_called()
     assert not list(tmp_path.iterdir())
 
 

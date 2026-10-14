@@ -1083,7 +1083,7 @@ class Simulation(SerializableConfig):
 
         try:
             from inversion_fbpic.utils.make_movie import make_movie
-        except ImportError:
+        except (ImportError, RuntimeError):
             self._logger.warning(
                 "Movie generation requires ffmpeg. Install ffmpeg and ensure it is in your PATH."
             )
