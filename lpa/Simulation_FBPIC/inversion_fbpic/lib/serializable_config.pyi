@@ -188,6 +188,23 @@ class SerializableConfig:
         Returns:
             The path to the written YAML file."""
         ...
+    def to_file(self, path: str | Path, filetype: str, **kwargs: Any) -> Path:
+        """Serialize this configuration using the requested file type.
+
+        Args:
+            path: The destination file path. Its suffix does not select the format.
+            filetype: ``h5``/``hdf5``, ``yaml``/``yml``, or ``json``/``jsn``
+                (case-insensitive).
+            **kwargs: Options forwarded to the selected ``to_*_file`` method.
+                Unsupported options are ignored unless that method accepts
+                arbitrary keyword arguments, in which case all are forwarded.
+
+        Returns:
+            The path returned by the selected file writer.
+
+        Raises:
+            ValueError: If *filetype* is unsupported."""
+        ...
     @classmethod
     def resolving_paths_relative_to(cls, directory: str | Path):
         """Resolve nested config path strings relative to *directory* within the block."""

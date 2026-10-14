@@ -1,4 +1,5 @@
 """Particle-distribution loading, selection, and descriptor calculations."""
+
 from __future__ import annotations
 
 import re
@@ -21,7 +22,11 @@ LONGITUDINAL_PROFILE_BINS = 4
 
 
 def load_openpmd_particles(
-    h5_path: str | Path, species: str, iteration: int | None = None
+    h5_path: str | Path,
+    species: str,
+    iteration: int | None = None,
+    *,
+    select: dict[str, list[float | None]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Load a particle species from an openPMD HDF5 diagnostic.
 
@@ -29,6 +34,9 @@ def load_openpmd_particles(
         h5_path: Path to an ``data########.h5`` diagnostic file.
         species: openPMD particle-species name.
         iteration: Iteration to load. When omitted, infer it from the filename.
+        select: Additional openPMD-viewer filters mapping x, y, z (in meters)
+            or ux, uy, uz (normalized momenta) to [minimum, maximum] ranges.
+            None bounds are unbounded. None or an empty dict does not filter.
 
     Returns:
         A ``(N, 6)`` array ordered as ``x, ux, y, uy, z, uz`` and its macro-weights.
@@ -51,6 +59,7 @@ def load_openpmd_particles(
         var_list=["x", "ux", "y", "uy", "z", "uz", "w"],
         iteration=iteration,
         species=species,
+        select=select,
     )
     return np.column_stack([x, ux, y, uy, z, uz]).astype(np.float64), np.asarray(
         weights, dtype=np.float64
@@ -160,13 +169,20 @@ def longitudinal_shape_features(
         raise ValueError("longitudinal coordinate has zero weighted RMS size")
     z_normalized = z_delta / z_rms
     design = np.column_stack([z_normalized**2, z_normalized, np.ones(len(z))])
-    normalized, *_ = np.linalg.lstsq(design * np.sqrt(w)[:, None], uz * np.sqrt(w), rcond=None)
+    normalized, *_ = np.linalg.lstsq(
+        design * np.sqrt(w)[:, None], uz * np.sqrt(w), rcond=None
+    )
     coefficients = normalized.copy()
     coefficients[0] /= z_rms**2
     coefficients[1] /= z_rms
     fitted_uz = np.polynomial.polynomial.polyval(z_delta, coefficients[::-1])
     residual_rms = np.sqrt(np.average((uz - fitted_uz) ** 2, weights=w))
-    return np.asarray([mixed_z2_uz, mixed_z3_uz, coefficients[0]]), coefficients, np.asarray([z_mean, uz_mean]), residual_rms
+    return (
+        np.asarray([mixed_z2_uz, mixed_z3_uz, coefficients[0]]),
+        coefficients,
+        np.asarray([z_mean, uz_mean]),
+        residual_rms,
+    )
 
 
 def longitudinal_slice_profile(
@@ -204,7 +220,9 @@ def longitudinal_slice_profile(
         bin_mean_uz = np.average(bin_uz, weights=bin_weights)
         centers.append(bin_center)
         mean_uz.append(bin_mean_uz)
-        rms_uz.append(np.sqrt(np.average((bin_uz - bin_mean_uz) ** 2, weights=bin_weights)))
+        rms_uz.append(
+            np.sqrt(np.average((bin_uz - bin_mean_uz) ** 2, weights=bin_weights))
+        )
     return {
         "z_centered": np.asarray(centers, dtype=np.float64),
         "mean_uz": np.asarray(mean_uz, dtype=np.float64),
@@ -226,7 +244,9 @@ def longitudinal_profile_density(
     z_mean = np.average(x[:, 4], weights=w)
     z_values = z_grid - z_mean
     knots = profile["z_centered"]
-    mean_spline = CubicSpline(knots, profile["mean_uz"], bc_type="natural", extrapolate=False)
+    mean_spline = CubicSpline(
+        knots, profile["mean_uz"], bc_type="natural", extrapolate=False
+    )
     log_spread_spline = CubicSpline(
         knots, np.log(profile["rms_uz"]), bc_type="natural", extrapolate=False
     )
@@ -267,22 +287,80 @@ def gram_charlier_projection_density(
     a, b = standardized_grid[..., 0], standardized_grid[..., 1]
 
     def central_moment(power_a: int, power_b: int) -> float:
-        return float(np.average(whitened[:, 0] ** power_a * whitened[:, 1] ** power_b, weights=w))
+        return float(
+            np.average(whitened[:, 0] ** power_a * whitened[:, 1] ** power_b, weights=w)
+        )
 
-    third = {(3, 0): central_moment(3, 0), (2, 1): central_moment(2, 1), (1, 2): central_moment(1, 2), (0, 3): central_moment(0, 3)}
-    fourth = {(4, 0): central_moment(4, 0) - 3, (3, 1): central_moment(3, 1), (2, 2): central_moment(2, 2) - 1, (1, 3): central_moment(1, 3), (0, 4): central_moment(0, 4) - 3}
-    fifth = {(5, 0): central_moment(5, 0) - 10 * central_moment(3, 0), (4, 1): central_moment(4, 1) - 6 * central_moment(2, 1), (3, 2): central_moment(3, 2) - 3 * central_moment(1, 2) - central_moment(3, 0), (2, 3): central_moment(2, 3) - 3 * central_moment(2, 1) - central_moment(0, 3), (1, 4): central_moment(1, 4) - 6 * central_moment(1, 2), (0, 5): central_moment(0, 5) - 10 * central_moment(0, 3)}
-    hermite3 = {(3, 0): a**3 - 3 * a, (2, 1): (a**2 - 1) * b, (1, 2): a * (b**2 - 1), (0, 3): b**3 - 3 * b}
-    hermite4 = {(4, 0): a**4 - 6 * a**2 + 3, (3, 1): (a**3 - 3 * a) * b, (2, 2): (a**2 - 1) * (b**2 - 1), (1, 3): a * (b**3 - 3 * b), (0, 4): b**4 - 6 * b**2 + 3}
-    hermite5 = {(5, 0): a**5 - 10 * a**3 + 15 * a, (4, 1): (a**4 - 6 * a**2 + 3) * b, (3, 2): (a**3 - 3 * a) * (b**2 - 1), (2, 3): (a**2 - 1) * (b**3 - 3 * b), (1, 4): a * (b**4 - 6 * b**2 + 3), (0, 5): b**5 - 10 * b**3 + 15 * b}
+    third = {
+        (3, 0): central_moment(3, 0),
+        (2, 1): central_moment(2, 1),
+        (1, 2): central_moment(1, 2),
+        (0, 3): central_moment(0, 3),
+    }
+    fourth = {
+        (4, 0): central_moment(4, 0) - 3,
+        (3, 1): central_moment(3, 1),
+        (2, 2): central_moment(2, 2) - 1,
+        (1, 3): central_moment(1, 3),
+        (0, 4): central_moment(0, 4) - 3,
+    }
+    fifth = {
+        (5, 0): central_moment(5, 0) - 10 * central_moment(3, 0),
+        (4, 1): central_moment(4, 1) - 6 * central_moment(2, 1),
+        (3, 2): central_moment(3, 2) - 3 * central_moment(1, 2) - central_moment(3, 0),
+        (2, 3): central_moment(2, 3) - 3 * central_moment(2, 1) - central_moment(0, 3),
+        (1, 4): central_moment(1, 4) - 6 * central_moment(1, 2),
+        (0, 5): central_moment(0, 5) - 10 * central_moment(0, 3),
+    }
+    hermite3 = {
+        (3, 0): a**3 - 3 * a,
+        (2, 1): (a**2 - 1) * b,
+        (1, 2): a * (b**2 - 1),
+        (0, 3): b**3 - 3 * b,
+    }
+    hermite4 = {
+        (4, 0): a**4 - 6 * a**2 + 3,
+        (3, 1): (a**3 - 3 * a) * b,
+        (2, 2): (a**2 - 1) * (b**2 - 1),
+        (1, 3): a * (b**3 - 3 * b),
+        (0, 4): b**4 - 6 * b**2 + 3,
+    }
+    hermite5 = {
+        (5, 0): a**5 - 10 * a**3 + 15 * a,
+        (4, 1): (a**4 - 6 * a**2 + 3) * b,
+        (3, 2): (a**3 - 3 * a) * (b**2 - 1),
+        (2, 3): (a**2 - 1) * (b**3 - 3 * b),
+        (1, 4): a * (b**4 - 6 * b**2 + 3),
+        (0, 5): b**5 - 10 * b**3 + 15 * b,
+    }
     correction = 1.0
     if order >= 3:
-        correction += third[(3, 0)] * hermite3[(3, 0)] / 6 + third[(2, 1)] * hermite3[(2, 1)] / 2 + third[(1, 2)] * hermite3[(1, 2)] / 2 + third[(0, 3)] * hermite3[(0, 3)] / 6
+        correction += (
+            third[(3, 0)] * hermite3[(3, 0)] / 6
+            + third[(2, 1)] * hermite3[(2, 1)] / 2
+            + third[(1, 2)] * hermite3[(1, 2)] / 2
+            + third[(0, 3)] * hermite3[(0, 3)] / 6
+        )
     if order >= 4:
-        correction += fourth[(4, 0)] * hermite4[(4, 0)] / 24 + fourth[(3, 1)] * hermite4[(3, 1)] / 6 + fourth[(2, 2)] * hermite4[(2, 2)] / 4 + fourth[(1, 3)] * hermite4[(1, 3)] / 6 + fourth[(0, 4)] * hermite4[(0, 4)] / 24
+        correction += (
+            fourth[(4, 0)] * hermite4[(4, 0)] / 24
+            + fourth[(3, 1)] * hermite4[(3, 1)] / 6
+            + fourth[(2, 2)] * hermite4[(2, 2)] / 4
+            + fourth[(1, 3)] * hermite4[(1, 3)] / 6
+            + fourth[(0, 4)] * hermite4[(0, 4)] / 24
+        )
     if order >= 5:
-        correction += fifth[(5, 0)] * hermite5[(5, 0)] / 120 + fifth[(4, 1)] * hermite5[(4, 1)] / 24 + fifth[(3, 2)] * hermite5[(3, 2)] / 12 + fifth[(2, 3)] * hermite5[(2, 3)] / 12 + fifth[(1, 4)] * hermite5[(1, 4)] / 24 + fifth[(0, 5)] * hermite5[(0, 5)] / 120
-    gaussian = np.exp(-0.5 * (a**2 + b**2)) / (2 * np.pi * np.sqrt(np.linalg.det(covariance)))
+        correction += (
+            fifth[(5, 0)] * hermite5[(5, 0)] / 120
+            + fifth[(4, 1)] * hermite5[(4, 1)] / 24
+            + fifth[(3, 2)] * hermite5[(3, 2)] / 12
+            + fifth[(2, 3)] * hermite5[(2, 3)] / 12
+            + fifth[(1, 4)] * hermite5[(1, 4)] / 24
+            + fifth[(0, 5)] * hermite5[(0, 5)] / 120
+        )
+    gaussian = np.exp(-0.5 * (a**2 + b**2)) / (
+        2 * np.pi * np.sqrt(np.linalg.det(covariance))
+    )
     return np.maximum(gaussian * correction, 0.0)
 
 

@@ -45,14 +45,17 @@ class Parameters(_Datapoint):
     values through ``data`` rather than through configuration attributes.
 
     Args:
+        label: (str) A short string label for this parameter set.
         data: (dict[str, Any]) The user-provided dictionary, retained without
             copying. Required for Python construction; omitted serialized
             dictionaries use the standard empty-dictionary loading fallback."""
     SUBCLASS: ClassVar[str]
+    label: str
     data: dict[str, Any]
     def __init__(
         self,
         *,
+        label: str = '',
         data: dict[str, Any],
     ) -> None:
         """Store a curated set of user-provided input parameters.
@@ -62,6 +65,7 @@ class Parameters(_Datapoint):
         values through ``data`` rather than through configuration attributes.
 
         Args:
+            label: (str) A short string label for this parameter set.
             data: (dict[str, Any]) The user-provided dictionary, retained without
                 copying. Required for Python construction; omitted serialized
                 dictionaries use the standard empty-dictionary loading fallback."""
