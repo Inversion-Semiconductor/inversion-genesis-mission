@@ -310,8 +310,8 @@ class IonizationInjectionSimulation:
             # contains all simulation parameters, results, element metadata
             sim.to_file(
                 Path(hyperparameters["results_directory"])
-                / f"simulation.{_PARAMETERS_FORMAT}",
-                _PARAMETERS_FORMAT,
+                / f"simulation.{_SERIALIZATION_FORMAT}",
+                _SERIALIZATION_FORMAT,
                 overwrite=True,
             )
             # contains only the simulation parameters and processed results
