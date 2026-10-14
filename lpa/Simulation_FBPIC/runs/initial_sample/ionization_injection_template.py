@@ -2,35 +2,30 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
+import itertools
+import logging
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Literal
 
-import numpy as np
-from scipy.constants import c, e, m_e, m_p
+import attrs
 
-from fbpic.lpa_utils.boosted_frame import BoostConverter
-from fbpic.lpa_utils.laser import FromLasyFileLaser, add_laser_pulse
-from fbpic.main import Simulation
-from fbpic.openpmd_diag import (
-    BackTransformedFieldDiagnostic,
-    BackTransformedParticleDiagnostic,
-    restart_from_checkpoint,
-    set_periodic_checkpoint,
+from inversion_fbpic.utils.laser import HighOrderLasyLaser
+from inversion_fbpic.lib import (
+    density_profiles as dn,
+    laser as ls,
+    simulation as sm,
+    diagnostics as dg,
+    datapoint as dp,
+    config_container as cc,
 )
-from fbpic.utils.random_seed import set_random_seed
 
-try:
-    from inversion_fbpic.density_profiles.downramp_injection import (
-        build_generalized_gaussian_profile,
-    )
-    from inversion_fbpic.utils.input_params import InputParameters
-    from inversion_fbpic.utils.laser import HighOrderLasyLaser
-    from inversion_fbpic.utils.simulation_setup_tools import start_simulation_single
-except ImportError:
-    from downramp_injection import build_generalized_gaussian_profile  # type: ignore
-    from input_params import InputParameters  # type: ignore
-    from laser import HighOrderLasyLaser  # type: ignore
-    from simulation_setup_tools import start_simulation_single  # type: ignore
+
+_MOVIE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fbpic-movies")
+_LOGGER = logging.getLogger(__name__)
+
+_SERIALIZATION_FORMAT: Literal["json", "yaml", "h5"] = "json"
+_PARAMETERS_FORMAT: Literal["json", "yaml", "h5"] = "json"
 
 
 class IonizationInjectionSimulation:
@@ -39,16 +34,21 @@ class IonizationInjectionSimulation:
     ``physical_parameters`` contains flat, required laser and gas properties.
     ``hyperparameters`` holds FBPIC grid, particle-loading, diagnostic, and
     execution settings. Laser-prefixed physical parameters are passed directly
-    to :class:`HighOrderLasyLaser`.
+    to :class:`HighOrderLasyLaser`. Helium and nitrogen share the bilateral
+    density profile specified by ``density_fwhm_left_m``,
+    ``density_fwhm_right_m``, ``density_beta_left``, and ``density_beta_right``.
     """
+
+    movie_future: Future[None] | None = None
 
     _PHYSICAL_PARAMETER_KEYS = frozenset(
         {
-            "peak_plasma_density_cm3",
+            "peak_neutral_density_cm3",
             "nitrogen_dopant_fraction",
-            "density_peak",
-            "density_alpha_m",
-            "density_beta",
+            "density_fwhm_left_m",
+            "density_fwhm_right_m",
+            "density_beta_left",
+            "density_beta_right",
             "density_center_location_m",
             *HighOrderLasyLaser.PHYSICAL_PARAMETER_KEYS,
         }
@@ -57,7 +57,6 @@ class IonizationInjectionSimulation:
         HighOrderLasyLaser.OPTIONAL_PHYSICAL_PARAMETER_KEYS
     )
     _HYPERPARAMETER_DEFAULTS: dict[str, Any] = {
-        "use_cuda": True,
         "n_order": 32,
         "gamma_boost": 3.0,
         "nz": 2500,
@@ -71,6 +70,13 @@ class IonizationInjectionSimulation:
         "p_nz": 4,
         "p_nr": 4,
         "p_nt": 30,
+        "r_boundary": "reflective",
+        "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
+        "openpmd_select": {
+            "uz": [10.0, None]
+        },  # which particles are used for post-analysis
+        "dump_fields": False,
+        "plot_movies": False,
         "number_dumps_lab": 100,
         "write_period": 50,
         "save_checkpoints": False,
@@ -84,6 +90,7 @@ class IonizationInjectionSimulation:
         "laser_peak_delay_from_file_start_s": 200e-15,
         "laser_maximum_pulse_duration_fwhm_s": 200e-15,
         "lab_diagnostic_directory": "lab_diags",
+        "results_directory": "results",
         "laser_polarization": (1, 0),
         "laser_n_azimuthal_modes": 5,
         "laser_num_points": (600, 900),
@@ -103,7 +110,6 @@ class IonizationInjectionSimulation:
             **(hyperparameters or {}),
         }
         self._validate_parameters()
-        self.lasy_laser_file = self._laser_output_path()
 
     def _validate_parameters(self) -> None:
         missing_physical = self._PHYSICAL_PARAMETER_KEYS - set(self.physical_parameters)
@@ -124,259 +130,200 @@ class IonizationInjectionSimulation:
             )
         if not 0.0 <= self.physical_parameters["nitrogen_dopant_fraction"] <= 1.0:
             raise ValueError("nitrogen_dopant_fraction must be in the interval [0, 1].")
-    def _laser_output_path(self) -> Path:
-        requested_path = Path(self.hyperparameters["lasy_file"])
-        return requested_path.parent / f"{requested_path.stem}_00000.h5"
-
-    def _prepare_laser(self, sim: Simulation) -> Path:
-        """Build the LASY file once, then synchronize ranks before loading it."""
-        if sim.comm.rank == 0:
-            high_order_laser = HighOrderLasyLaser(
-                {
-                    key: self.physical_parameters[key]
-                    for key in (
-                        HighOrderLasyLaser.PHYSICAL_PARAMETER_KEYS
-                        | HighOrderLasyLaser.OPTIONAL_PHYSICAL_PARAMETER_KEYS
-                    )
-                    if key in self.physical_parameters
-                },
-                {
-                    "polarization": self.hyperparameters["laser_polarization"],
-                    "n_azimuthal_modes": self.hyperparameters[
-                        "laser_n_azimuthal_modes"
-                    ],
-                    "num_points": self.hyperparameters["laser_num_points"],
-                    "hi_range": self.hyperparameters["laser_hi_range"],
-                    "center_and_remove_tilt": self.hyperparameters[
-                        "laser_center_and_remove_tilt"
-                    ],
-                    "centering_angles": self.hyperparameters[
-                        "laser_centering_angles"
-                    ],
-                    "peak_delay_from_file_start_s": self.hyperparameters[
-                        "laser_peak_delay_from_file_start_s"
-                    ],
-                    "maximum_pulse_duration_fwhm_s": self.hyperparameters[
-                        "laser_maximum_pulse_duration_fwhm_s"
-                    ],
-                },
-            )
-            self.lasy_laser_file = high_order_laser.save(
-                self.hyperparameters["lasy_file"]
+        if (
+            self.hyperparameters["plot_movies"]
+            and not self.hyperparameters["dump_fields"]
+        ):
+            raise ValueError(
+                "dump_fields must be True if plot_movies is True, since movies "
+                "require field data."
             )
 
-        if sim.comm.mpi_comm is not None:
-            sim.comm.mpi_comm.barrier()
-        if not self.lasy_laser_file.is_file():
-            raise FileNotFoundError(
-                f"LASY laser file was not created: {self.lasy_laser_file}"
+    @staticmethod
+    def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
+        try:
+            simulation.plot_movie(
+                field_name="rho",
+                vminmax=(1e15, 1e18),
+                cmap="magma",
+                scale="log",
+                save_path=save_path,
             )
-        return self.lasy_laser_file
+            for field, component in itertools.product(["E", "B"], ["x", "y", "z"]):
+                simulation.plot_movie(
+                    field_name=field,
+                    component=component,
+                    vminmax="even",
+                    cmap="RdBu_r",
+                    save_path=save_path,
+                )
+            simulation.plot_movie(field_name=None, component="eme", save_path=save_path)
+        except Exception:
+            _LOGGER.exception("Movie generation failed for %s", save_path)
+            raise
 
-    def setup_simulation(self) -> tuple[Simulation, float]:
-        """Create the FBPIC simulation and return it with its interaction time."""
-        hyperparameters = self.hyperparameters
-        physical_parameters = self.physical_parameters
-        boost = BoostConverter(hyperparameters["gamma_boost"])
-        dt = min(
-            hyperparameters["rmax"] / (2 * boost.gamma0 * hyperparameters["nr"]) / c,
-            (hyperparameters["zmax"] - hyperparameters["zmin"]) / hyperparameters["nz"] / c,
-        )
-        n_plasma = physical_parameters["peak_plasma_density_cm3"] * 1.0e6
-        n_gas = n_plasma / 2.0
-        v_window = c * (
-            1.0
-            - 0.5
-            * physical_parameters["peak_plasma_density_cm3"]
-            / 2.0
-            * 1e6
-            / 1.75e27
-        )
-        v_comoving = -c * np.sqrt(1.0 - 1.0 / boost.gamma0**2)
-        density = build_generalized_gaussian_profile(
-            gauss_peak=physical_parameters["density_peak"],
-            gauss_alpha=physical_parameters["density_alpha_m"],
-            gauss_beta=physical_parameters["density_beta"],
-            gauss_z0=physical_parameters["density_center_location_m"],
-        )
-        interaction_length = (
-            2.8 * physical_parameters["density_alpha_m"]
-            + physical_parameters["density_center_location_m"]
-        )
-        interaction_time = boost.interaction_time(
-            interaction_length,
-            (hyperparameters["zmax"] - hyperparameters["zmin"]),
-            v_window,
-        )
+    def _queue_movies(
+        self, simulation: sm.Simulation, save_path: Path
+    ) -> Future[None] | None:
+        if not simulation.do_write_to_disk:
+            return None
 
-        set_random_seed(hyperparameters["random_seed"])
-        sim = Simulation(
-            hyperparameters["nz"],
-            hyperparameters["zmax"],
-            hyperparameters["nr"],
-            hyperparameters["rmax"],
-            hyperparameters["n_azimuthal_modes"],
-            dt,
-            zmin=hyperparameters["zmin"],
-            v_comoving=v_comoving,
-            gamma_boost=boost.gamma0,
-            n_order=hyperparameters["n_order"],
-            use_cuda=hyperparameters["use_cuda"],
-            boundaries={"z": "open", "r": "reflective"},
-        )
-        atoms_he = sim.add_new_species(
-            q=0,
-            m=4.0 * m_p,
-            n=n_gas * (1.0 - physical_parameters["nitrogen_dopant_fraction"]),
-            dens_func=density,
-            boost_positions_in_dens_func=True,
-            p_nz=hyperparameters["p_nz"],
-            p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
-            p_zmin=hyperparameters["p_zmin"],
-            p_rmax=hyperparameters["p_rmax"],
-        )
-        atoms_n = sim.add_new_species(
-            q=0,
-            m=14.0 * m_p,
-            n=n_gas * physical_parameters["nitrogen_dopant_fraction"],
-            dens_func=density,
-            boost_positions_in_dens_func=True,
-            p_nz=hyperparameters["p_nz"],
-            p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
-            p_zmin=hyperparameters["p_zmin"],
-            p_rmax=hyperparameters["p_rmax"],
-        )
-        elec_he = sim.add_new_species(q=-e, m=m_e)
-        elec_n = sim.add_new_species(q=-e, m=m_e)
-        atoms_he.make_ionizable("He", target_species=elec_he, level_start=0)
-        atoms_n.make_ionizable("N", target_species=elec_n, level_start=0)
+        import matplotlib
 
-        laser_file = self._prepare_laser(sim)
-        laser_profile = FromLasyFileLaser(
-            str(laser_file),
-            t_start=hyperparameters["lasy_t_start"],
+        matplotlib.use("Agg")
+        movie_simulation = sm.Simulation.from_dict(simulation.to_dict())
+        movie_simulation.working_directory = simulation.working_directory
+        assert movie_simulation.hyparams is not None
+        movie_simulation.hyparams = attrs.evolve(
+            movie_simulation.hyparams, use_mpi=False
         )
-        add_laser_pulse(
-            sim,
-            laser_profile,
-            gamma_boost=boost.gamma0,
-            method="antenna",
-            z0_antenna=hyperparameters["lasy_antenna_position"],
-        )
-
-        if hyperparameters["use_restart"]:
-            restart_from_checkpoint(sim)
-        elif hyperparameters["track_electrons"]:
-            elec_n.track(sim.comm)
-
-        (v_window_boosted,) = boost.velocity([v_window])
-        sim.set_moving_window(v=v_window_boosted)
-        self._configure_diagnostics(
-            sim,
-            elec_n,
-            v_window,
-            interaction_length,
-            boost,
-        )
-        if hyperparameters["save_checkpoints"]:
-            set_periodic_checkpoint(sim, hyperparameters["checkpoint_period"])
-        if sim.comm.rank == 0:
-            self._save_input_parameters(dt)
-        return sim, interaction_time
-
-    def _configure_diagnostics(
-        self,
-        sim: Simulation,
-        nitrogen_electrons: Any,
-        v_window: float,
-        interaction_length: float,
-        boost: BoostConverter,
-    ) -> None:
-        hyperparameters = self.hyperparameters
-        dt_lab_diag_period = (
-            (interaction_length + (hyperparameters["zmax"] - hyperparameters["zmin"]))
-            / v_window
-            / (hyperparameters["number_dumps_lab"] - 1)
-        )
-        sim.diags = [
-            BackTransformedParticleDiagnostic(
-                hyperparameters["zmin"],
-                hyperparameters["zmax"],
-                v_window,
-                dt_lab_diag_period,
-                hyperparameters["number_dumps_lab"],
-                boost.gamma0,
-                hyperparameters["write_period"],
-                sim.fld,
-                select={"uz": [10.0, None]},
-                species={"nitrogen_electrons": nitrogen_electrons},
-                comm=sim.comm,
-                write_dir=hyperparameters["lab_diagnostic_directory"],
-            ),
-            BackTransformedFieldDiagnostic(
-                hyperparameters["zmin"],
-                hyperparameters["zmax"],
-                v_window,
-                dt_lab_diag_period,
-                hyperparameters["number_dumps_lab"],
-                boost.gamma0,
-                fieldtypes=["rho", "E", "B"],
-                period=hyperparameters["write_period"],
-                fldobject=sim.fld,
-                comm=sim.comm,
-                write_dir=hyperparameters["lab_diagnostic_directory"],
-            ),
-        ]
-
-    def _save_input_parameters(self, dt: float) -> None:
-        """Persist the resolved laser, gas, and FBPIC settings beside diagnostics."""
-        hyperparameters = self.hyperparameters
-        physical_parameters = self.physical_parameters
-        InputParameters.clear()
-        InputParameters.add("PhysicalParameters", physical_parameters)
-        InputParameters.add(
-            "Laser",
-            {
-                "lasy_file": str(self.lasy_laser_file),
-                "lasy_t_start_s": hyperparameters["lasy_t_start"],
-                "antenna_position_m": hyperparameters["lasy_antenna_position"],
-                "azimuthal_modes": hyperparameters["n_azimuthal_modes"],
-                **{
-                    key: physical_parameters[key]
-                    for key in HighOrderLasyLaser.PHYSICAL_PARAMETER_KEYS
-                },
-            },
-        )
-        InputParameters.add(
-            "Gas",
-            {
-                "peak_plasma_density_cm-3": physical_parameters["peak_plasma_density_cm3"],
-                "nitrogen_dopant_fraction": physical_parameters["nitrogen_dopant_fraction"],
-                "profile": "generalized_gaussian",
-                "gaussian_peak": physical_parameters["density_peak"],
-                "gaussian_alpha_m": physical_parameters["density_alpha_m"],
-                "gaussian_beta": physical_parameters["density_beta"],
-                "gaussian_center_m": physical_parameters["density_center_location_m"],
-            },
-        )
-        InputParameters.add(
-            "Simulation",
-            {
-                "gamma_boost": hyperparameters["gamma_boost"],
-                "nz": hyperparameters["nz"],
-                "dz": (hyperparameters["zmax"] - hyperparameters["zmin"])
-                / hyperparameters["nz"],
-                "nr": hyperparameters["nr"],
-                "dr": hyperparameters["rmax"] / hyperparameters["nr"],
-                "dt": dt,
-            },
-        )
-        InputParameters.save_to_ini(
-            Path(hyperparameters["lab_diagnostic_directory"]).parent
-        )
+        if not save_path.is_absolute():
+            save_path = simulation.working_directory / save_path
+        return _MOVIE_EXECUTOR.submit(self._plot_movies, movie_simulation, save_path)
 
     def run(self) -> None:
-        """Launch the configured simulation through the shared FBPIC runner."""
-        start_simulation_single(simulation_setup=self.setup_simulation)
+        """Run and save the simulation, then queue optional background movies."""
+        hyperparameters = self.hyperparameters
+        physical_parameters = self.physical_parameters
+
+        density_he = dn.BilateralSuperGaussian(
+            nominal_density=physical_parameters["peak_neutral_density_cm3"]
+            * 1e6
+            * (1.0 - physical_parameters["nitrogen_dopant_fraction"])
+            * 2.0,
+            fwhm_left=physical_parameters["density_fwhm_left_m"],
+            fwhm_right=physical_parameters["density_fwhm_right_m"],
+            beta_left=physical_parameters["density_beta_left"],
+            beta_right=physical_parameters["density_beta_right"],
+            center=physical_parameters["density_center_location_m"],
+            p_nz=hyperparameters["p_nz"],
+            p_nr=hyperparameters["p_nr"],
+            p_nt=hyperparameters["p_nt"],
+            p_zmin=hyperparameters["p_zmin"],
+            p_rmax=hyperparameters["p_rmax"],
+            species="He",
+            ionization=0,
+            elec_name="electrons_he",
+            elec_select=hyperparameters["diagnostic_select"],
+        )
+
+        density_n2 = dn.BilateralSuperGaussian(
+            nominal_density=physical_parameters["peak_neutral_density_cm3"]
+            * 1e6
+            * physical_parameters["nitrogen_dopant_fraction"]
+            * 14.0,
+            fwhm_left=physical_parameters["density_fwhm_left_m"],
+            fwhm_right=physical_parameters["density_fwhm_right_m"],
+            beta_left=physical_parameters["density_beta_left"],
+            beta_right=physical_parameters["density_beta_right"],
+            center=physical_parameters["density_center_location_m"],
+            p_nz=hyperparameters["p_nz"],
+            p_nr=hyperparameters["p_nr"],
+            p_nt=hyperparameters["p_nt"],
+            p_zmin=hyperparameters["p_zmin"],
+            p_rmax=hyperparameters["p_rmax"],
+            species="N",
+            ionization=0,
+            elec_name="electrons_n2",
+            elec_select=hyperparameters["diagnostic_select"],
+        )
+
+        laser = ls.LasyLaserPulse(
+            energy=physical_parameters["laser_energy_J"],
+            z0=0.0,  # only used for plotting
+            z0_antenna=hyperparameters["lasy_antenna_position"],
+            t_start=hyperparameters["lasy_t_start"],
+            lasy_file=hyperparameters["lasy_file"],
+            wavelength=physical_parameters["laser_wavelength_m"],
+            tau_fwhm=physical_parameters["laser_pulse_duration_fwhm_s"],
+            waist=physical_parameters["laser_spot_size_m"],
+            focal_position=physical_parameters["laser_focal_position_m"],
+            super_gaussian_order=physical_parameters["laser_super_gaussian_order"],
+            zernike_coefficients={
+                key.removeprefix("zernike_"): physical_parameters[key]
+                for key in physical_parameters.keys()
+                if key.startswith("zernike_")
+            },
+            spectral_bandwidth=physical_parameters.get(
+                "laser_spectral_bandwidth_rad_s", None
+            ),
+            cep=physical_parameters.get("laser_cep_phase_rad", None),
+            gdd=physical_parameters.get("laser_gdd_s2", None),
+            tod=physical_parameters.get("laser_tod_s3", None),
+            fod=physical_parameters.get("laser_fod_s4", None),
+            gdd_relative=physical_parameters.get("laser_gdd_relative", None),
+            tod_relative=physical_parameters.get("laser_tod_relative", None),
+            polarization=hyperparameters["laser_polarization"],
+            n_azimuthal_modes=hyperparameters["laser_n_azimuthal_modes"],
+            num_points=hyperparameters["laser_num_points"],
+            hi_range=hyperparameters["laser_hi_range"],
+            center_and_remove_tilt=hyperparameters["laser_center_and_remove_tilt"],
+            centering_angles=hyperparameters["laser_centering_angles"],
+            peak_delay_from_file_start=hyperparameters[
+                "laser_peak_delay_from_file_start_s"
+            ],
+            maximum_pulse_duration_fwhm=hyperparameters[
+                "laser_maximum_pulse_duration_fwhm_s"
+            ],
+        )
+
+        hyp = sm.SimulationHyperparameters(
+            zmin=hyperparameters["zmin"],
+            zmax=hyperparameters["zmax"],
+            rmax=hyperparameters["rmax"],
+            nz=hyperparameters["nz"],
+            nr=hyperparameters["nr"],
+            nm=hyperparameters["n_azimuthal_modes"],
+            use_mpi=True,
+            number_dumps=hyperparameters["number_dumps_lab"],
+            gamma_boost=hyperparameters["gamma_boost"],
+            field_diagnostics=(
+                ["rho", "E", "B"] if hyperparameters["dump_fields"] else None
+            ),
+            save_directory=Path(hyperparameters["lab_diagnostic_directory"]),
+            save_checkpoints=hyperparameters["save_checkpoints"],
+            checkpoint_period=hyperparameters["checkpoint_period"],
+            write_period=hyperparameters["write_period"],
+            use_restart=hyperparameters["use_restart"],
+            track_electrons=hyperparameters["track_electrons"],
+            n_order_mpi=hyperparameters["n_order"],
+            random_seed=hyperparameters["random_seed"],
+            r_boundary=hyperparameters["r_boundary"],
+        )
+
+        datapoint = cc.ConfigContainer(
+            configs=[
+                dp.Parameters(label="hyperparameters", data=hyperparameters),
+                dp.Parameters(label="physical_parameters", data=physical_parameters),
+                dg.MomentDescriptorDiagnostic(
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["openpmd_select"],
+                ),
+            ]
+        )
+
+        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
+
+        sim.setup_simulation()
+        sim.run_simulation()
+        if sim.do_write_to_disk:  # MPI guard
+            # contains all simulation parameters, results, element metadata
+            sim.to_file(
+                Path(hyperparameters["results_directory"])
+                / f"simulation.{_SERIALIZATION_FORMAT}",
+                _SERIALIZATION_FORMAT,
+                overwrite=True,
+            )
+            # contains only the simulation parameters and processed results
+            datapoint.to_file(
+                Path(hyperparameters["results_directory"])
+                / f"datapoint.{_PARAMETERS_FORMAT}",
+                _PARAMETERS_FORMAT,
+                group_path="/results",
+                overwrite=True,
+            )
+
+        if hyperparameters["plot_movies"]:
+            self.movie_future = self._queue_movies(
+                sim, Path(hyperparameters["results_directory"])
+            )

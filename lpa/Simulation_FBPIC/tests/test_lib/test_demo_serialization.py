@@ -10,7 +10,7 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 matplotlib.use("Agg")
 
@@ -132,10 +132,8 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
     refreshed = {**expected, "mean_uz": expected["mean_uz"] + 1.0}
     calculate = Mock(side_effect=[expected, refreshed])
     monkeypatch.setattr(MomentDescriptorDiagnostic, "_analyze", calculate)
-    monkeypatch.setattr(
-        demo, "plot_from_hdf5_series", Mock(return_value=(output, "frame"))
-    )
-    monkeypatch.setattr(demo, "make_movie", Mock())
+    plot_movie = Mock()
+    monkeypatch.setattr(simulation_module.Simulation, "plot_movie", plot_movie)
     monkeypatch.setattr(
         demo.analysis,
         "load_beam_data",
@@ -149,6 +147,26 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         demo.main()
         skip_current = skip_run
         demo.main()
+        assert (
+            plot_movie.call_args_list
+            == [
+                call(
+                    field_name="rho",
+                    component=None,
+                    vminmax=(0, 1e18),
+                    cmap="magma",
+                    save_path=output / "plots",
+                ),
+                call(
+                    field_name=None,
+                    component="eme",
+                    vminmax=None,
+                    cmap="magma",
+                    save_path=output / "plots",
+                ),
+            ]
+            * 2
+        )
         assert calculate.call_count == 2
         path = output / "results.h5"
         loaded = SerializableConfig.from_file(path)
@@ -163,7 +181,8 @@ def test_ionization_demo_exports_physical_inputs_and_beam_results(
         assert parameters.data["electron_diagnostic_selection"] == {"uz": [10.0, None]}
         assert parameters.data["laser_a0"] > 0.0
         assert parameters.data["flattop_length_m"] > 0.0
-        assert moments.selection == ("all_of_species", "e")
+        assert moments.target == ("all_of_species", "e")
+        assert moments.select is None
         assert moments.data == refreshed
         assert len(moments.data) == 33
         assert captured[-1].parameters[0].data == parameters.data
@@ -189,9 +208,12 @@ def test_ionization_demo_does_not_export_on_nonwriting_rank(
     monkeypatch.setattr(simulation_module, "MPI_RANK", 1)
     monkeypatch.setattr(simulation_module.Simulation, "setup_simulation", Mock())
     monkeypatch.setattr(simulation_module.Simulation, "run_simulation", Mock())
+    plot_movie = Mock()
+    monkeypatch.setattr(simulation_module.Simulation, "plot_movie", plot_movie)
     calculate = Mock(side_effect=AssertionError("Nonwriting ranks must not analyze"))
     monkeypatch.setattr(MomentDescriptorDiagnostic, "_analyze", calculate)
     demo.main()
     calculate.assert_not_called()
+    plot_movie.assert_not_called()
     assert not (tmp_path / "results.h5").exists()
     assert not (tmp_path / "cfgs").exists()

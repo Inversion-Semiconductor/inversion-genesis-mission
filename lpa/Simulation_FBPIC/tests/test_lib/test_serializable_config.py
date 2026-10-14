@@ -567,6 +567,86 @@ def test_yaml_minimal_load_roundtrip_from_temp_file(
     assert no_nones_path.is_file()
 
 
+@pytest.mark.parametrize("filetype", ["h5", "hdf5", "yaml", "yml", "json", "jsn"])
+@pytest.mark.parametrize("uppercase", [False, True])
+def test_to_file_roundtrip(
+    minimal_density, tmp_path: Path, filetype, uppercase
+) -> None:
+    from inversion_fbpic.lib.serializable_config import SerializableConfig
+
+    path = tmp_path / "nested" / "config.dat"
+    result = minimal_density.to_file(
+        str(path),
+        filetype=filetype.upper() if uppercase else filetype,
+        include_nones=False,
+        indent=4,
+        comments=False,
+        round_trip_comments=False,
+        nested_flow_style=False,
+        group_path="/metadata/config",
+        overwrite=True,
+        unrelated_option=True,
+    )
+    assert result == path.resolve()
+    if filetype in ("h5", "hdf5"):
+        loaded = SerializableConfig.from_hdf5_file(path, group_path="/metadata/config")
+    else:
+        payload = path.read_text(encoding="utf-8")
+        if filetype in ("json", "jsn"):
+            assert '\n    "config_type"' in payload
+            loaded = SerializableConfig.from_json(payload)
+        else:
+            assert "#" not in payload
+            assert "\n    nominal_density:" in payload
+            loaded = SerializableConfig.from_yaml(payload)
+        assert "null" not in payload.split("parameters", 1)[1]
+    assert loaded.to_dict(include_nones=False) == minimal_density.to_dict(
+        include_nones=False
+    )
+
+
+@pytest.mark.parametrize("filetype", ["h5", "yaml", "json"])
+def test_to_file_forwards_all_kwargs_to_variadic_writer(
+    monkeypatch, minimal_density, tmp_path: Path, filetype
+) -> None:
+    from inversion_fbpic.lib.serializable_config import SerializableConfig
+
+    path = tmp_path / "config"
+    calls = []
+
+    def writer(self, path, **kwargs):
+        calls.append((self, path, kwargs))
+        return path.resolve()
+
+    method = {"h5": "to_hdf5_file", "yaml": "to_yaml_file", "json": "to_json_file"}[
+        filetype
+    ]
+    monkeypatch.setattr(SerializableConfig, method, writer)
+    options = {"include_nones": False, "custom_option": "value"}
+    assert minimal_density.to_file(path, filetype, **options) == path.resolve()
+    assert calls == [(minimal_density, path, options)]
+
+
+@pytest.mark.parametrize("filetype", ["xml", "", ".json"])
+def test_to_file_rejects_unsupported_type(
+    minimal_density, tmp_path: Path, filetype
+) -> None:
+    path = tmp_path / "config.json"
+    with pytest.raises(ValueError, match="Unsupported file type"):
+        minimal_density.to_file(path, filetype)
+    assert not path.exists()
+
+
+def test_to_file_preserves_hdf5_overwrite_policy(
+    minimal_density, tmp_path: Path
+) -> None:
+    path = tmp_path / "config.h5"
+    minimal_density.to_file(path, "h5")
+    with pytest.raises(ValueError, match="Refusing to replace occupied HDF5 group"):
+        minimal_density.to_file(path, "hdf5")
+    assert minimal_density.to_file(path, "hdf5", overwrite=True) == path.resolve()
+
+
 def test_round_trip_yaml_string(yaml_out: Path) -> None:
     from inversion_fbpic.lib.density_profiles import ExampleDensityProfile
     from inversion_fbpic.lib.serializable_config import SerializableConfig

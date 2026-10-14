@@ -30,11 +30,11 @@ else:
 logger = logging.getLogger(__name__)
 
 
-def _selection_tuple(value: Any) -> tuple[Any, ...]:
+def _target_tuple(value: Any) -> tuple[Any, ...]:
     if not isinstance(value, (tuple, list)):
-        raise TypeError("selection must be a (kind, value) tuple or serialized list.")
+        raise TypeError("target must be a (kind, value) tuple or serialized list.")
     if len(value) != 2:
-        raise ValueError("selection must contain exactly a kind and a value.")
+        raise ValueError("target must contain exactly a kind and a value.")
     return tuple(value)
 
 
@@ -140,35 +140,45 @@ class _ParticleDiagnostic(_Diagnostic):
     At analysis time, select the highest-numbered ``data########.h5`` file in
     the attached simulation's resolved save directory under ``hdf5``. The file
     need not exist at construction or attachment time. ``load_particles()``
-    resolves the selector against attached density profiles and concatenates
+    resolves ``target`` against attached density profiles and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
-    are loaded only once; no extra selection or cropping is applied.
+    are loaded only once. ``select`` applies additional openPMD-viewer particle
+    filtering to each recording before concatenation.
 
     Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
     to obtain the input for their calculation. This base has no concrete tag.
 
     Args:
-        selection: (tuple) Select recorded particles using ("elec_name", name
+        target: (tuple) Select recorded particles using ("elec_name", name
             or list of names), ("ion_name", name or list of names), or
             ("all_of_species", species). The species "e" selects all recorded
             electrons; an atomic symbol such as "He" selects recorded ions
             of that species. Names must be configured on the attached
             simulation's densities.
+        select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+            mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+            [minimum, maximum] ranges; None bounds are unbounded. For example,
+            {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+            no further filtering.
     """
 
-    selection: (
+    target: (
         tuple[Literal["elec_name", "ion_name"], str | list[str]]
         | tuple[Literal["all_of_species"], str]
-    ) = attrs.field(converter=_selection_tuple)
+    ) = attrs.field(converter=_target_tuple)
+    select: dict[str, list[float | None]] | None = attrs.field(
+        default=None,
+        validator=attrs.validators.optional(attrs.validators.instance_of(dict)),
+    )
 
-    @selection.validator
-    def _validate_selection(
+    @target.validator
+    def _validate_target(
         self, attribute: attrs.Attribute, value: tuple[Any, ...]
     ) -> None:
         kind, selected = value
         if kind not in ("elec_name", "ion_name", "all_of_species"):
             raise ValueError(
-                "selection kind must be elec_name, ion_name, or all_of_species."
+                "target kind must be elec_name, ion_name, or all_of_species."
             )
         if kind == "all_of_species":
             if not isinstance(selected, str) or not selected:
@@ -186,7 +196,7 @@ class _ParticleDiagnostic(_Diagnostic):
             )
 
     def _selected_recordings(self) -> list[str]:
-        kind, selected = self.selection
+        kind, selected = self.target
         densities = self.attached_simulation.densities
         if kind == "all_of_species":
             if selected == "e":
@@ -200,9 +210,7 @@ class _ParticleDiagnostic(_Diagnostic):
                     if density.species == selected and density.ion_name
                 ]
             if not names:
-                raise ValueError(
-                    f"No recorded particles match selection {self.selection!r}."
-                )
+                raise ValueError(f"No recorded particles match target {self.target!r}.")
         else:
             names = [selected] if isinstance(selected, str) else selected
             available = {
@@ -212,11 +220,14 @@ class _ParticleDiagnostic(_Diagnostic):
             }
             missing = [name for name in names if name not in available]
             if missing:
-                raise ValueError(f"Unknown recorded {kind} selection: {missing!r}.")
+                raise ValueError(f"Unknown recorded {kind} target: {missing!r}.")
         return list(dict.fromkeys(names))
 
     def load_particles(self) -> tuple[ParticleArray, WeightArray]:
         """Load and concatenate selected particles and weights from the latest dump.
+
+        ``select`` is passed to openPMD-viewer's ``get_particle(select=...)``
+        for each recording identified by ``target``.
 
         Returns:
             A float64 particle array of shape (N, 6), ordered x, ux, y, uy, z,
@@ -239,7 +250,10 @@ class _ParticleDiagnostic(_Diagnostic):
                 f"No openPMD particle diagnostic files found in {directory}."
             )
         _, last_file = max(diagnostic_files, key=lambda item: item[0])
-        distributions = [load_openpmd_particles(last_file, name) for name in names]
+        distributions = [
+            load_openpmd_particles(last_file, name, select=self.select)
+            for name in names
+        ]
         particles = np.concatenate(
             [distribution[0] for distribution in distributions], axis=0
         )

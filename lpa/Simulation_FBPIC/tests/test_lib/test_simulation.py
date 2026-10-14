@@ -407,7 +407,7 @@ class TestSupportingElements:
 
         hyperparameters, density, laser = _make_simulation_elements()
         data = {"config_type": "not_a_config", "label": "scan"}
-        parameters = Parameters(data=data)
+        parameters = Parameters(label="scan inputs", data=data)
         container = ConfigContainer(
             configs=[
                 hyperparameters,
@@ -420,8 +420,11 @@ class TestSupportingElements:
         assert simulation.densities == [density]
         assert simulation.lasers == [laser]
         assert simulation.parameters[0] is parameters
+        assert simulation.parameters[0].label == "scan inputs"
         data["label"] = "changed"
         assert simulation.parameters[0].data["label"] == "changed"
+        parameters.label = "updated inputs"
+        assert simulation.parameters[0].label == "updated inputs"
         assert simulation.config_hash() == _make_simulation().config_hash()
 
     def test_container_paths_are_resolved_once_at_construction(
@@ -643,7 +646,7 @@ class TestAttachedAnalysis:
         from inversion_fbpic.utils.distributions import compute_moment_descriptor
 
         simulation, _, _, events = analysis_simulation
-        diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+        diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
         simulation.densities = [
             attrs.evolve(simulation.densities[0], elec_name="electrons")
         ]
@@ -665,7 +668,7 @@ class TestAttachedAnalysis:
         monkeypatch.setattr(module, "load_openpmd_particles", loader)
         simulation.simulation.step.side_effect = finish_step
         simulation.run_simulation(record_hash=False)
-        loader.assert_called_once_with(latest, "electrons")
+        loader.assert_called_once_with(latest, "electrons", select=None)
         assert diagnostic.data == compute_moment_descriptor(particles, weights)
         assert diagnostic.analysis_complete
 
@@ -754,8 +757,8 @@ class TestAttachedAnalysis:
         assert before.calls == after.calls == (1 if rank == 0 else 0)
 
     @pytest.mark.parametrize("phase", ["before", "after"])
-    def test_analysis_failure_preserves_successful_stepping_hash(
-        self, analysis_simulation, tmp_path, monkeypatch, phase
+    def test_analysis_failure_is_logged_and_preserves_successful_stepping_hash(
+        self, analysis_simulation, tmp_path, monkeypatch, caplog, phase
     ) -> None:
         simulation, before, after, _ = analysis_simulation
         diagnostic = before if phase == "before" else after
@@ -766,19 +769,24 @@ class TestAttachedAnalysis:
             raise RuntimeError("analysis failed")
 
         monkeypatch.setattr(diagnostic, "_analyze", fail)
-        if phase == "before":
-            with pytest.raises(RuntimeError, match="analysis failed"):
-                simulation.setup_simulation(working_directory=tmp_path)
-            assert not simulation.is_setup
-        else:
-            simulation.setup_simulation(working_directory=tmp_path)
-            with pytest.raises(RuntimeError, match="analysis failed"):
-                simulation.run_simulation()
-        assert not diagnostic.analysis_complete
+        simulation.setup_simulation(working_directory=tmp_path)
+        assert simulation.is_setup
         if phase == "before":
             save_hash.assert_not_called()
-        else:
-            save_hash.assert_called_once_with()
+        simulation.run_simulation()
+        assert not diagnostic.analysis_complete
+        assert (after if phase == "before" else before).analysis_complete
+        save_hash.assert_called_once_with()
+        errors = [
+            record for record in caplog.records if record.levelno == logging.ERROR
+        ]
+        assert len(errors) == 1
+        assert errors[0].getMessage() == (
+            f"Error running diagnostic {type(diagnostic).__name__}: analysis failed"
+        )
+        assert errors[0].exc_info is not None
+        assert errors[0].exc_info[0] is RuntimeError
+        assert "Traceback (most recent call last)" in caplog.text
 
     def test_failed_post_analysis_retry_does_not_repeat_simulation(
         self, analysis_simulation, analysis_classes, tmp_path, monkeypatch
@@ -793,8 +801,8 @@ class TestAttachedAnalysis:
             raise RuntimeError("post-analysis failed")
 
         monkeypatch.setattr(after, "_analyze", fail)
-        with pytest.raises(RuntimeError, match="post-analysis failed"):
-            simulation.run_simulation()
+        simulation.run_simulation()
+        assert not after.analysis_complete
         assert simulation._hash_path.is_file()
         assert simulation._is_hashed()
         assert events.count("step") == 1
@@ -828,9 +836,39 @@ class TestAttachedAnalysis:
         monkeypatch.setattr(
             after, "_analyze", MagicMock(side_effect=RuntimeError("analysis failed"))
         )
-        with pytest.raises(RuntimeError, match="analysis failed"):
-            simulation.run_simulation(record_hash=False)
+        simulation.run_simulation(record_hash=False)
+        assert not after.analysis_complete
+        simulation.simulation.step.assert_called_once()
         assert not simulation._hash_path.exists()
+
+    @pytest.mark.parametrize("before_simulation", [False, True])
+    @pytest.mark.parametrize("cached", [False, True])
+    def test_analysis_failure_does_not_skip_remaining_diagnostics(
+        self,
+        analysis_simulation,
+        analysis_classes,
+        tmp_path,
+        monkeypatch,
+        before_simulation,
+        cached,
+    ) -> None:
+        simulation, before, after, _ = analysis_simulation
+        before_class, after_class = analysis_classes
+        diagnostic = before if before_simulation else after
+        following = (before_class if before_simulation else after_class)()
+        simulation._sort_component(following)
+        monkeypatch.setattr(
+            diagnostic,
+            "_analyze",
+            MagicMock(side_effect=RuntimeError("analysis failed")),
+        )
+        if cached:
+            monkeypatch.setattr(simulation, "_is_hashed", lambda: True)
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(record_hash=False)
+        assert not diagnostic.analysis_complete
+        assert following.analysis_complete
+        assert following.calls == 1
 
     def test_hash_save_failure_does_not_start_analysis(
         self, analysis_simulation, tmp_path, monkeypatch

@@ -6,7 +6,7 @@ from ..density_core import _DensityProfile
 
 from abc import abstractmethod
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
-from typing import ClassVar, Literal
+from typing import Callable, ClassVar, Literal
 import numpy as np
 import numpy.typing as npt
 
@@ -27,7 +27,10 @@ class _FiniteSkewedProfile(_DensityProfile):
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
             Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
             The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
@@ -51,7 +54,10 @@ class _FiniteSkewedProfile(_DensityProfile):
         p_nt: int,
         species: str | None = 'H',
         ionization: int | None = 0,
+        p_rmin: float | None = None,
         p_rmax: float | None = None,
+        p_zmin: float | None = None,
+        p_zmax: float | None = None,
         elec_name: str | None = None,
         elec_select: dict[str, list[float | None]] | None = None,
         ion_name: str | None = None,
@@ -74,7 +80,10 @@ class _FiniteSkewedProfile(_DensityProfile):
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
                 Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+            p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
@@ -86,9 +95,9 @@ class _FiniteSkewedProfile(_DensityProfile):
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
                 Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
                 Defaults to None."""
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         ...
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         ...
     def build_density_function(self) -> DensityCallable:
         ...
@@ -122,7 +131,10 @@ class GenericConicalTarget(_FiniteSkewedProfile):
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
             Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
             The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
@@ -162,7 +174,10 @@ class GenericConicalTarget(_FiniteSkewedProfile):
         p_nt: int,
         species: str | None = 'H',
         ionization: int | None = 0,
+        p_rmin: float | None = None,
         p_rmax: float | None = None,
+        p_zmin: float | None = None,
+        p_zmax: float | None = None,
         elec_name: str | None = None,
         elec_select: dict[str, list[float | None]] | None = None,
         ion_name: str | None = None,
@@ -200,7 +215,10 @@ class GenericConicalTarget(_FiniteSkewedProfile):
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
                 Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+            p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
@@ -248,7 +266,10 @@ class PowerLawFlattop(_FiniteSkewedProfile):
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
             Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
         elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
         elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
             The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
@@ -280,7 +301,10 @@ class PowerLawFlattop(_FiniteSkewedProfile):
         p_nt: int,
         species: str | None = 'H',
         ionization: int | None = 0,
+        p_rmin: float | None = None,
         p_rmax: float | None = None,
+        p_zmin: float | None = None,
+        p_zmax: float | None = None,
         elec_name: str | None = None,
         elec_select: dict[str, list[float | None]] | None = None,
         ion_name: str | None = None,
@@ -312,7 +336,10 @@ class PowerLawFlattop(_FiniteSkewedProfile):
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
                 Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+            p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
             elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
             elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.

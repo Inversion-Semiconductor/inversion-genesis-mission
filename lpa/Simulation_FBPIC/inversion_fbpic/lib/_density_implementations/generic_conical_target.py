@@ -422,7 +422,7 @@ class _FiniteSkewedProfile(_DensityProfile):
         left_span, _ = self._profile_support_spans()
         object.__setattr__(self, "centroid", self.start_position + left_span)
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         left_span, right_span = self._profile_support_spans()
         # Skew is applied after these (unskewed) spans are derived, and can
         # shift the density at either nominal edge far from what the shape's
@@ -450,7 +450,7 @@ class _FiniteSkewedProfile(_DensityProfile):
             )
         return (self.centroid - corrected_left, self.centroid + corrected_right)
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:

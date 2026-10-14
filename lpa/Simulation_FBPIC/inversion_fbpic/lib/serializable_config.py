@@ -11,6 +11,7 @@ import contextvars
 import copy
 import errno
 import functools
+import inspect
 import json
 import os
 from collections.abc import Mapping
@@ -1198,6 +1199,55 @@ class SerializableConfig(ABC):
         finally:
             _config_serialize_relative_to.reset(token)
         return output_path
+
+    def to_file(self, path: str | Path, filetype: str, **kwargs: Any) -> Path:
+        """Serialize this configuration using the requested file type.
+
+        Args:
+            path: The destination file path. Its suffix does not select the format.
+            filetype: ``h5``/``hdf5``, ``yaml``/``yml``, or ``json``/``jsn``
+                (case-insensitive).
+            **kwargs: Options forwarded to the selected ``to_*_file`` method.
+                Unsupported options are ignored unless that method accepts
+                arbitrary keyword arguments, in which case all are forwarded.
+
+        Returns:
+            The path returned by the selected file writer.
+
+        Raises:
+            ValueError: If *filetype* is unsupported.
+        """
+        writers = {
+            "h5": self.to_hdf5_file,
+            "hdf5": self.to_hdf5_file,
+            "yaml": self.to_yaml_file,
+            "yml": self.to_yaml_file,
+            "json": self.to_json_file,
+            "jsn": self.to_json_file,
+        }
+        try:
+            writer = writers[filetype.lower()]
+        except KeyError:
+            raise ValueError(
+                f"Unsupported file type: {filetype!r}. "
+                "Must be h5, hdf5, yaml, yml, json, or jsn (case-insensitive)."
+            ) from None
+        parameters = inspect.signature(writer).parameters
+        if not any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            kwargs = {
+                name: value
+                for name, value in kwargs.items()
+                if name in parameters
+                and parameters[name].kind
+                in (
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.KEYWORD_ONLY,
+                )
+            }
+        return writer(path, **kwargs)
 
     @classmethod
     def _nested_path_relative_to(cls) -> Path | None:

@@ -87,7 +87,8 @@ class Simulation(SerializableConfig):
 
         Analysis runs on the write rank after FBPIC setup completes. A matching
         completion hash skips FBPIC setup but still runs pre-simulation analysis.
-        Analysis errors propagate and leave ``is_setup`` false for a new setup.
+        Analysis errors are logged with tracebacks without aborting setup or
+        preventing the remaining diagnostics from running.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -103,7 +104,8 @@ class Simulation(SerializableConfig):
         Attached post-simulation diagnostics run on the write rank after all
         stepping succeeds and the requested completion hash is saved. A matching
         hash skips stepping but still reruns analysis, without requiring FBPIC
-        setup. Analysis errors propagate while preserving the completion hash,
+        setup. Analysis errors are logged with tracebacks without preventing
+        remaining diagnostics from running. The completion hash is preserved,
         so retries can analyze existing output without repeating the simulation.
 
         Args:
@@ -114,6 +116,47 @@ class Simulation(SerializableConfig):
 
         Returns:
             None"""
+        ...
+    def delete_dumps(self, n: int) -> None:
+        """Permanently delete diagnostic dumps except the last n by iteration.
+
+        Only FBPIC ``data<iteration>.h5`` files directly under the resolved
+        diagnostics ``hdf5/`` directory are considered. Checkpoints, other
+        output, and the completion hash are left unchanged. Call after stepping
+        and any analysis or plotting that needs the full time series.
+        FBPIC setup is not required; only the write rank accesses the files.
+
+        Args:
+            n: Number of latest dumps to retain. Must be a non-negative integer;
+                zero deletes all dumps. Missing or empty output is a no-op.
+
+        Raises:
+            TypeError: If n is not an integer, or is a boolean.
+            ValueError: If n is negative."""
+        ...
+    def plot_movie(self, field_name: str | None=None, component: Literal['x', 'y', 'z', 'abs', 'sqr', 'eme'] | None=None, vminmax: tuple[float, float] | Literal['even'] | None=None, scale: Literal['linear', 'log']='linear', field_offset: float=0.0, cmap: str='bwr', rmax: float | None=None, font_size: int=16, *, save_path: Path | str='plots', filename: str | None=None, framerate: int=10) -> Path | None:
+        """Generate PNG stills and an MP4 movie from this simulation's diagnostics.
+
+        Plotting options mirror `plot_from_hdf5_series`. Both plotting and movie
+        encoding, including their imports, run only when `do_write_to_disk` is
+        True. Requires ffmpeg on the write rank and existing field diagnostics;
+        FBPIC setup is not required to plot previously saved diagnostics.
+
+        Args:
+            field_name: (str | None) Field to plot, such as "rho", "E", or "B". Ignored for component="eme".
+            component: (Literal["x", "y", "z", "abs", "sqr", "eme"] | None) Field component. Defaults to None (scalar field). "eme" plots electromagnetic energy density; "abs" and "sqr" are not yet implemented by the plotting helper.
+            vminmax: (tuple[float, float] | Literal["even"] | None) Color limits, "even" for symmetric limits, or None for automatic limits.
+            scale: (Literal["linear", "log"]) Color scale. Defaults to "linear".
+            field_offset: (float) Offset added to the scaled field. Defaults to 0.0.
+            cmap: (str) Colormap. Defaults to "bwr".
+            rmax: (float | None) Maximum radial extent to display, in meters. Defaults to None.
+            font_size: (int) Plot font size. Defaults to 16.
+            save_path: (Path | str) Output directory for movies, with PNGs retained in its "stills" subdirectory. Relative paths resolve against `working_directory`. Defaults to "plots".
+            filename: (str | None) Movie name without extension. Defaults to the field/component prefix returned by the plotting helper.
+            framerate: (int) Movie frames per second. Defaults to 10.
+
+        Returns:
+            Path | None: Movie path, or None on non-write ranks or if encoding fails."""
         ...
 
 class SimulationHyperparameters(SerializableConfig):
