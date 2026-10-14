@@ -4,11 +4,12 @@ template_class: IonizationInjectionSimulation
 run_root: ${PSCRATCH}/exploration_fbpic_smoke
 
 parameters:
-  peak_plasma_density_cm3: {nominal: 4.0e18}
+  peak_neutral_density_cm3: {nominal: 2.0e18}
   nitrogen_dopant_fraction: {nominal: 0.03}
-  density_peak: {nominal: 1.1}
-  density_alpha_m: {nominal: 1.1e-3}
-  density_beta: {nominal: 1.1}
+  density_fwhm_left: {nominal: 1.1e-3}
+  density_fwhm_right: {nominal: 1.1e-3}
+  density_beta_left: {nominal: 1.1}
+  density_beta_right: {nominal: 1.1}
   density_center_location_m: {nominal: 2.3e-3}
   laser_wavelength_m: {nominal: 800e-9}
   laser_energy_J: {nominal: 2.5}
@@ -71,6 +72,11 @@ execution:
     p_nz: 2
     p_nr: 2
     p_nt: 15
+    r_boundary: reflective
+    diagnostic_select: {uz: [10.0, None]}
+    openpmd_select: {uz: [10.0, None]}
+    dump_fields: false
+    plot_movies: false
     number_dumps_lab: 50
     write_period: 50
     save_checkpoints: false
