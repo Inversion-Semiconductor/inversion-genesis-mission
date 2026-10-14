@@ -308,41 +308,20 @@ class IonizationInjectionSimulation:
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
             # contains all simulation parameters, results, element metadata
-            if _SERIALIZATION_FORMAT == "json":
-                sim.to_json_file(
-                    Path(hyperparameters["results_directory"]) / "simulation.json",
-                )
-            elif _SERIALIZATION_FORMAT == "yaml":
-                sim.to_yaml_file(
-                    Path(hyperparameters["results_directory"]) / "simulation.yaml",
-                )
-            elif _SERIALIZATION_FORMAT == "h5":
-                sim.to_hdf5_file(
-                    Path(hyperparameters["results_directory"]) / "simulation.h5",
-                    overwrite=True,
-                )
-            else:
-                raise ValueError(
-                    f"Unsupported serialization format: {_SERIALIZATION_FORMAT}"
-                )
-
+            sim.to_file(
+                Path(hyperparameters["results_directory"])
+                / f"simulation.{_PARAMETERS_FORMAT}",
+                _PARAMETERS_FORMAT,
+                overwrite=True,
+            )
             # contains only the simulation parameters and processed results
-            if _PARAMETERS_FORMAT == "json":
-                datapoint.to_json_file(
-                    Path(hyperparameters["results_directory"]) / "datapoint.json",
-                )
-            elif _PARAMETERS_FORMAT == "yaml":
-                datapoint.to_yaml_file(
-                    Path(hyperparameters["results_directory"]) / "datapoint.yaml",
-                )
-            elif _PARAMETERS_FORMAT == "h5":
-                datapoint.to_hdf5_file(
-                    Path(hyperparameters["results_directory"]) / "datapoint.h5",
-                    group_path="/results",
-                    overwrite=True,
-                )
-            else:
-                raise ValueError(f"Unsupported parameters format: {_PARAMETERS_FORMAT}")
+            datapoint.to_file(
+                Path(hyperparameters["results_directory"])
+                / f"datapoint.{_PARAMETERS_FORMAT}",
+                _PARAMETERS_FORMAT,
+                group_path="/results",
+                overwrite=True,
+            )
 
         if hyperparameters["plot_movies"]:
             self.movie_future = self._queue_movies(

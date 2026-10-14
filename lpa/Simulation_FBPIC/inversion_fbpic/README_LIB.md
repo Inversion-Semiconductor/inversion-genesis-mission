@@ -403,6 +403,14 @@ _Datapoint `data` is deliberately an init field so curated inputs and completed
 analysis results can both be saved. _Diagnostic completion status is a non-init
 runtime field and is not included.
 
+Write any supported format with `config.to_file(path, filetype, **kwargs)`, where
+`filetype` is `h5`/`hdf5`, `yaml`/`yml`, or `json`/`jsn` (case-insensitive).
+The explicit file type selects the writer, independently of the path suffix.
+Only keyword arguments accepted by that writer are forwarded; the rest are
+ignored. Writers accepting arbitrary keyword arguments receive all options.
+For example, `config.to_file("config.yaml", "yaml", comments=False, include_nones=False)`
+returns the resolved output path, just like the format-specific file writers.
+
 ### Native HDF5 configurations
 
 `config.to_hdf5_file(path)` writes a native configuration into `/config` in an
