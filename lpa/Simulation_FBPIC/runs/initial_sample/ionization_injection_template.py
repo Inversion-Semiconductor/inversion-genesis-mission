@@ -15,7 +15,6 @@ from inversion_fbpic.lib import (
     density_profiles as dn,
     laser as ls,
     simulation as sm,
-    diagnostics as dg,
     datapoint as dp,
     config_container as cc,
 )
@@ -72,9 +71,6 @@ class IonizationInjectionSimulation:
         "p_nt": 30,
         "r_boundary": "reflective",
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
-        "openpmd_select": {
-            "uz": [10.0, None]
-        },  # which particles are used for post-analysis
         "dump_fields": False,
         "plot_movies": False,
         "number_dumps_lab": 100,
@@ -141,7 +137,33 @@ class IonizationInjectionSimulation:
 
     @staticmethod
     def _plot_movies(simulation: sm.Simulation, save_path: Path) -> None:
+        """Render density and laser profile plots as well as movies of the fields."""
+        import matplotlib.pyplot as plt
+
         try:
+            save_path.mkdir(parents=True, exist_ok=True)
+            try:
+                fig = simulation.plot_densities()
+                try:
+                    fig.savefig(save_path / "densities.png")
+                finally:
+                    plt.close(fig)
+            except Exception:
+                _LOGGER.exception("Density profile generation failed for %s", save_path)
+
+            for i, las in enumerate(simulation.lasers):
+                try:
+                    fig = las.plot()
+                    try:
+                        fig.savefig(save_path / f"laser_{i}.png")
+                    finally:
+                        plt.close(fig)
+                except Exception:
+                    _LOGGER.exception(
+                        "Laser profile %d generation failed for %s", i, save_path
+                    )
+
+            # plot movies of fields
             simulation.plot_movie(
                 field_name="rho",
                 vminmax=(1e15, 1e18),
@@ -291,33 +313,29 @@ class IonizationInjectionSimulation:
             r_boundary=hyperparameters["r_boundary"],
         )
 
-        datapoint = cc.ConfigContainer(
+        parameters = cc.ConfigContainer(
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
-                dg.MomentDescriptorDiagnostic(
-                    target=("all_of_species", "e"),
-                    select=hyperparameters["openpmd_select"],
-                ),
             ]
         )
 
-        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
+        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
 
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
-            # contains all simulation parameters, results, element metadata
+            # contains all simulation parameters and element metadata
             sim.to_file(
                 Path(hyperparameters["results_directory"])
                 / f"simulation.{_SERIALIZATION_FORMAT}",
                 _SERIALIZATION_FORMAT,
                 overwrite=True,
             )
-            # contains only the simulation parameters and processed results
-            datapoint.to_file(
+            # contains only the simulation parameters
+            parameters.to_file(
                 Path(hyperparameters["results_directory"])
-                / f"datapoint.{_PARAMETERS_FORMAT}",
+                / f"parameters.{_PARAMETERS_FORMAT}",
                 _PARAMETERS_FORMAT,
                 group_path="/results",
                 overwrite=True,

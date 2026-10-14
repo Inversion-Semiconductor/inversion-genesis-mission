@@ -2,7 +2,7 @@
 This script is a simple launch script for the template in the same directory.
 
 Demonstrates configuring and launching one ionization-injection simulation.
-Use ``plot-phase-space-moments`` after the run completes
+Use ``compute_moment_descriptor`` and ``plot-phase-space-moments`` after the run completes
 to inspect the resulting phase space.
 """
 
@@ -31,7 +31,6 @@ HYPERPARAMETERS = {
     "p_nt": 15,
     "r_boundary": "reflective",
     "diagnostic_select": {"uz": [10.0, None]},
-    "openpmd_select": {"uz": [10.0, None]},
     "dump_fields": False,
     "plot_movies": False,
     "number_dumps_lab": 50,

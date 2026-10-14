@@ -399,6 +399,98 @@ class TestSimulationAssembly:
             sim.run_simulation()
 
 
+class TestPlotDensities:
+    def test_creates_one_axes_with_all_profiles(self) -> None:
+        import matplotlib.pyplot as plt
+
+        from inversion_fbpic.lib.density_profiles import AsymmetricSine
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        second_density = AsymmetricSine(
+            nominal_density=2e24,
+            p_nz=1,
+            p_nr=1,
+            p_nt=1,
+            species="He",
+            peak_z0=2.5e-3,
+            upramp_length=2.5e-3,
+            downramp_length=1.5e-3,
+        )
+        sim = Simulation(elements=[hyp, density, second_density, laser])
+
+        fig = sim.plot_densities()
+        try:
+            assert len(fig.axes) == 1
+            ax = fig.axes[0]
+            assert len(ax.lines) == 2
+            labels = [f"{den.SUBCLASS} ({den.species})" for den in sim.densities]
+            assert [line.get_label() for line in ax.lines] == labels
+            assert [text.get_text() for text in ax.get_legend().get_texts()] == labels
+            for den, line in zip(sim.densities, ax.lines):
+                zs = np.linspace(*den.get_z_extent(), 600)
+                expected = den.build_density_function()(zs, np.zeros_like(zs))
+                np.testing.assert_allclose(line.get_xdata(), zs * 1e3)
+                np.testing.assert_allclose(
+                    line.get_ydata(), expected * den.nominal_density * 1e-6
+                )
+            assert ax.get_xlabel() == "z (mm)"
+            assert ax.get_ylabel() == r"Electron Density ($\mathrm{cm}^{-3}$)"
+            assert not sim.is_setup
+        finally:
+            plt.close(fig)
+
+    @pytest.mark.parametrize("neutral_density", [False, True])
+    def test_reuses_axes_and_delegates_options(
+        self, monkeypatch: pytest.MonkeyPatch, neutral_density: bool
+    ) -> None:
+        import matplotlib.pyplot as plt
+
+        sim = _make_simulation()
+        density = sim.densities[0]
+        plot_z_profile = MagicMock(wraps=density.plot_z_profile)
+        monkeypatch.setattr(type(density), "plot_z_profile", plot_z_profile)
+        fig, ax = plt.subplots()
+        try:
+            assert (
+                sim.plot_densities(
+                    ax, num=21, z_padding_fraction=0.1, neutral_density=neutral_density
+                )
+                is fig
+            )
+            plot_z_profile.assert_called_once_with(
+                ax,
+                num=21,
+                z_scale=1e3,
+                density_scale=1e-6,
+                z_padding_fraction=0.1,
+                neutral_density=neutral_density,
+                label=f"{density.SUBCLASS} ({density.species})",
+            )
+            assert len(ax.lines) == 1
+            assert len(ax.lines[0].get_xdata()) == 21
+            assert ax.get_ylabel().startswith(
+                "Neutral" if neutral_density else "Electron"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_labels_bare_electron_species(self) -> None:
+        import matplotlib.pyplot as plt
+
+        from inversion_fbpic.lib.density_profiles import ExampleDensityProfile
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, laser = _make_simulation_elements()
+        density = ExampleDensityProfile(**EXAMPLE_DENSITY_KWARGS, species=None)
+        sim = Simulation(elements=[hyp, density, laser])
+        fig = sim.plot_densities()
+        try:
+            assert fig.axes[0].lines[0].get_label() == f"{density.SUBCLASS} (None)"
+        finally:
+            plt.close(fig)
+
+
 class TestSupportingElements:
     def test_nested_containers_and_parameters_preserve_references(self) -> None:
         from inversion_fbpic.lib.config_container import ConfigContainer

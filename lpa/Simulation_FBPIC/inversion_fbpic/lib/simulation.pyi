@@ -9,8 +9,9 @@ from .laser import _LaserPulse
 from .serializable_config import SerializableConfig
 from fbpic.main import Simulation as FBPICSimulation, Particles
 from pathlib import Path
-from typing import ClassVar, Literal, List, Any
+from typing import TYPE_CHECKING, ClassVar, Literal, List, Any
 import logging
+import matplotlib.pyplot as plt
 
 class Simulation(SerializableConfig):
     """Simulation class for FBPIC simulations.
@@ -45,6 +46,21 @@ class Simulation(SerializableConfig):
     @property
     def z_extent(self) -> tuple[float, float]:
         """The extent of the simulation."""
+        ...
+    def plot_densities(self, ax: 'plt.Axes | None'=None, *, num: int=600, z_padding_fraction: float=0.0, neutral_density: bool=False) -> 'plt.Figure':
+        """Overlay all constituent on-axis density profiles on the same axes.
+
+        Each profile is labeled with its concrete ``SUBCLASS`` and species.
+        No FBPIC setup is required, and the figure is not shown automatically.
+
+        Args:
+            ax: Existing axes to plot on. If None, create a new figure and axes.
+            num: Number of sampling points per profile.
+            z_padding_fraction: Fractional padding on each side of each profile.
+            neutral_density: Plot neutral rather than fully ionized electron density.
+
+        Returns:
+            matplotlib.figure.Figure: The figure containing the overlay."""
         ...
     @property
     def do_write_to_disk(self) -> bool:
