@@ -110,10 +110,11 @@ def test_production_density_geometry_is_fixed_to_the_simulation_domain() -> None
     )
     assert hyperparameters["zmin"] == -150.0e-6
     assert hyperparameters["zmax"] == 0.0
-    assert hyperparameters["nz"] == 3840
+    assert hyperparameters["nz"] == 4096
     assert (hyperparameters["zmax"] - hyperparameters["zmin"]) / hyperparameters[
         "nz"
     ] <= 800.0e-9 / 20.0
+    assert hyperparameters["diagnostic_select"] == {"uz": [10.0, None]}
     assert hyperparameters["p_zmin"] == 0.0
     assert hyperparameters["p_zmax"] == 10.0e-3
 

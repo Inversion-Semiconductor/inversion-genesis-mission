@@ -101,7 +101,7 @@ execution:
   hyperparameters:
     n_order: 32
     gamma_boost: 3.0  # 2.0 perhaps more ideal, but we need the speedup
-    nz: 3840  # 5760 perhaps more ideal, but grid is getting very large
+    nz: 4096  # 5760 perhaps more ideal, but grid is getting very large
     nr: 1280  # 1500 is ideal for the density range, here I compromise
     zmax: 0.0
     zmin: -150.0e-6
@@ -116,7 +116,7 @@ execution:
     helium_p_nt: 10
     p_zmax: 10.0e-3
     r_boundary: reflective
-    diagnostic_select: {uz: [10.0, None]}
+    diagnostic_select: {uz: [10.0, null]}
     dump_fields: false
     plot_movies: false
     number_dumps_lab: 2

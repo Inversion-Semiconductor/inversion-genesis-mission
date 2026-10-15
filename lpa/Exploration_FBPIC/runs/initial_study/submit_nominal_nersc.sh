@@ -12,6 +12,11 @@
 
 set -euo pipefail
 
+RUN_DIRECTORY="${PSCRATCH}/ionization_injection_exploration/nominal_test"
+mkdir -p "$RUN_DIRECTORY"
+exec >"$RUN_DIRECTORY/slurm-${SLURM_JOB_ID}.out" \
+	2>"$RUN_DIRECTORY/slurm-${SLURM_JOB_ID}.err"
+
 module load PrgEnv-gnu cpe-cuda cudatoolkit python
 source activate fbpic
 

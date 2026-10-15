@@ -32,6 +32,8 @@ def main() -> None:
     campaign = Campaign.from_file(CAMPAIGN_FILE)
     parameters = campaign.config.complete_parameters("stage_1")
     hyperparameters = campaign.config.template_hyperparameters()
+    RUN_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    os.chdir(RUN_DIRECTORY)
     hyperparameters.update(
         {
             "dump_fields": True,
@@ -41,7 +43,6 @@ def main() -> None:
             "lasy_file": RUN_DIRECTORY / "experimental_laser",
         }
     )
-    RUN_DIRECTORY.mkdir(parents=True, exist_ok=True)
     simulation_class = load_template_class(campaign)
     simulation_class(parameters, hyperparameters).run()
 
