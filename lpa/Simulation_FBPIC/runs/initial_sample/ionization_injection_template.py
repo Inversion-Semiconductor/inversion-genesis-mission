@@ -15,6 +15,7 @@ from inversion_fbpic.lib import (
     density_profiles as dn,
     laser as ls,
     simulation as sm,
+    diagnostics as dg,
     datapoint as dp,
     config_container as cc,
 )
@@ -24,7 +25,7 @@ _MOVIE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fbpic-mo
 _LOGGER = logging.getLogger(__name__)
 
 _SERIALIZATION_FORMAT: Literal["json", "yaml", "h5"] = "json"
-_PARAMETERS_FORMAT: Literal["json", "yaml", "h5"] = "json"
+_DATAPOINT_FORMAT: Literal["json", "yaml", "h5"] = "json"
 
 
 class IonizationInjectionSimulation:
@@ -71,6 +72,7 @@ class IonizationInjectionSimulation:
         "p_nt": 30,
         "r_boundary": "reflective",
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
+        "analysis_select": {"uz": [10.0, None]},  # which particles are analyzed
         "dump_fields": False,
         "plot_movies": False,
         "number_dumps_lab": 100,
@@ -313,14 +315,22 @@ class IonizationInjectionSimulation:
             r_boundary=hyperparameters["r_boundary"],
         )
 
-        parameters = cc.ConfigContainer(
+        datapoint = cc.ConfigContainer(
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
+                dg.MomentDescriptorDiagnostic(
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["analysis_select"],
+                    longitudinal_mode=dg.SPLINE,
+                    longitudinal_bins=dg.LONGITUDINAL_PROFILE_BINS,
+                    include_total_weight=False,
+                    include_higher_moments=False,
+                ),
             ]
         )
 
-        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
+        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
 
         sim.setup_simulation()
         sim.run_simulation()
@@ -333,10 +343,10 @@ class IonizationInjectionSimulation:
                 overwrite=True,
             )
             # contains only the simulation parameters
-            parameters.to_file(
+            datapoint.to_file(
                 Path(hyperparameters["results_directory"])
-                / f"parameters.{_PARAMETERS_FORMAT}",
-                _PARAMETERS_FORMAT,
+                / f"datapoint.{_DATAPOINT_FORMAT}",
+                _DATAPOINT_FORMAT,
                 group_path="/results",
                 overwrite=True,
             )
