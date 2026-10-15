@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
+import warnings
 
 from pathlib import Path
 import attrs
@@ -42,7 +43,10 @@ class _DensityProfile(SerializableConfig):
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
             Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
         p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
         p_nr: (int) Number of macroparticles per gridcell along the radial direction.
         p_nt: (int) Number of macroparticles per gridcell along the angular direction.
@@ -70,10 +74,23 @@ class _DensityProfile(SerializableConfig):
     ionization: int | None = attrs.field(
         default=0, converter=attrs.converters.optional(int)
     )
+    p_rmin: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
+        validator=attrs.validators.optional(attrs.validators.ge(0.0)),
+    )
     p_rmax: float | None = attrs.field(
         default=None,
         converter=attrs.converters.optional(float),
         validator=attrs.validators.optional(attrs.validators.gt(0.0)),
+    )
+    p_zmin: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
+    )
+    p_zmax: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
     )
     elec_name: str | None = attrs.field(default=None)
     elec_select: dict[str, list[float | None]] | None = attrs.field(default=None)
@@ -90,8 +107,33 @@ class _DensityProfile(SerializableConfig):
     # SUBCLASS in their own class body.
     _CONCRETE_REGISTRY: ClassVar[dict[str, type["_DensityProfile"]]] = {}
 
-    @abstractmethod
     def get_z_extent(self) -> tuple[float, float]:
+        """
+        Get the longitudinal extent in meters, clipped by p_zmin and p_zmax.
+
+        Returns:
+            tuple[float, float]: An ordered (z_min, z_max) interval. Empty
+                intersections collapse to the nearest intrinsic profile edge.
+
+        Warns:
+            RuntimeWarning: If clipping leaves no longitudinal width.
+        """
+        unb_ext = self._get_z_extent()
+        z_min = unb_ext[0] if self.p_zmin is None else max(unb_ext[0], self.p_zmin)
+        z_max = unb_ext[1] if self.p_zmax is None else min(unb_ext[1], self.p_zmax)
+        if z_min >= z_max:
+            edge = float(np.clip(z_min, unb_ext[0], unb_ext[1]))
+            warnings.warn(
+                f"Particle bounds produce an empty longitudinal extent ({z_min}, {z_max}); "
+                f"returning the zero-width extent ({edge}, {edge}).",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return edge, edge
+        return z_min, z_max
+
+    @abstractmethod
+    def _get_z_extent(self) -> tuple[float, float]:
         """
         Get the longitudinal extent of the density profile in meters.
 
@@ -99,8 +141,37 @@ class _DensityProfile(SerializableConfig):
             tuple[float, float]: A tuple of (z_min, z_max) representing the longitudinal extent in meters.
         """
 
-    @abstractmethod
     def get_r_extent(self) -> float | None:
+        """
+        Get the radial upper extent in meters, clipped by p_rmax.
+
+        Returns:
+            float|None: The upper radius, or None if unknown. Empty radial
+                intervals collapse to p_rmin (or zero when p_rmin is unset).
+
+        Warns:
+            RuntimeWarning: If clipping leaves no radial width above p_rmin.
+        """
+        unb_ext = self._get_r_extent()
+        if unb_ext is None:
+            r_max = self.p_rmax
+        elif self.p_rmax is None:
+            r_max = unb_ext
+        else:
+            r_max = min(unb_ext, self.p_rmax)
+        r_min = 0.0 if self.p_rmin is None else self.p_rmin
+        if r_max is not None and r_min >= r_max:
+            warnings.warn(
+                f"Particle bounds produce an empty radial extent ({r_min}, {r_max}); "
+                f"returning the zero-width upper radius {r_min}.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return r_min
+        return r_max
+
+    @abstractmethod
+    def _get_r_extent(self) -> float | None:
         """
         Get the radial extent of the density profile in meters.
 
@@ -122,6 +193,12 @@ class _DensityProfile(SerializableConfig):
         """
 
     def __attrs_post_init__(self) -> None:
+        for minimum, maximum in (("p_zmin", "p_zmax"), ("p_rmin", "p_rmax")):
+            lower, upper = getattr(self, minimum), getattr(self, maximum)
+            if lower is not None and upper is not None and not lower < upper:
+                raise ValueError(
+                    f"{minimum} must be less than {maximum}; got {lower} and {upper}."
+                )
         if self.species is None:
             # Bare electrons: one "level", already ionized.
             if self.ionization not in (None, 0, -1, 1):
@@ -438,6 +515,10 @@ class _DensityProfile(SerializableConfig):
             p_nz=self.p_nz,
             p_nr=self.p_nr,
             p_nt=self.p_nt,
+            p_zmin=self.p_zmin if self.p_zmin is not None else -np.inf,
+            p_zmax=self.p_zmax if self.p_zmax is not None else np.inf,
+            p_rmin=self.p_rmin if self.p_rmin is not None else 0.0,
+            p_rmax=self.p_rmax if self.p_rmax is not None else np.inf,
             boost_positions_in_dens_func=is_boosted,
         )
 
@@ -451,6 +532,10 @@ class _DensityProfile(SerializableConfig):
                 p_nz=self.p_nz,
                 p_nr=self.p_nr,
                 p_nt=self.p_nt,
+                p_zmin=self.p_zmin if self.p_zmin is not None else -np.inf,
+                p_zmax=self.p_zmax if self.p_zmax is not None else np.inf,
+                p_rmin=self.p_rmin if self.p_rmin is not None else 0.0,
+                p_rmax=self.p_rmax if self.p_rmax is not None else np.inf,
                 boost_positions_in_dens_func=is_boosted,
             )
             if self.ionization < num_ionization_levels:

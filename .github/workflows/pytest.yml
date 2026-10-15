@@ -43,8 +43,9 @@ jobs:
         run: |
           pip install -e "lpa/Simulation_FBPIC[dev]"
           pip install -e "lpa/Simulation_Fluid/postproc[dev]"
+          pip install -e "lpa/Exploration_FBPIC[nersc,dev]"
+          pip install -e "lpa/Simulation_Fluid/profile_fitting[dev]"
           pip install -e "lume-fbpic[dev]"
           pip install -e "lume-fbpic/docs/htu-twin"
-          pip install -e "lpa/Simulation_Fluid/profile_fitting[dev]"
       - name: Run pytest
         run: pytest

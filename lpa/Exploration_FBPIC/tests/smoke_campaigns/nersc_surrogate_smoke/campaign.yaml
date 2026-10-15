@@ -1,0 +1,103 @@
+name: ionization_injection_nersc_surrogate_smoke
+template_script: ../../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
+template_class: IonizationInjectionSimulation
+run_root: ${PSCRATCH}/exploration_fbpic_surrogate_smoke
+
+parameters:
+  peak_neutral_density_cm3: {nominal: 2.0e18}
+  nitrogen_dopant_fraction: {nominal: 0.03}
+  density_fwhm_left_m: {nominal: 1.1e-3}
+  density_fwhm_right_m: {nominal: 1.1e-3}
+  density_beta_left: {nominal: 1.1}
+  density_beta_right: {nominal: 1.1}
+  density_center_location_m: {nominal: 2.3e-3}
+  laser_wavelength_m: {nominal: 800e-9}
+  laser_energy_J: {nominal: 2.5}
+  laser_pulse_duration_fwhm_s: {nominal: 30e-15}
+  laser_spectral_bandwidth_rad_s: {nominal: auto}
+  laser_cep_phase_rad: {nominal: 0.0}
+  laser_gdd_relative: {nominal: 0.0}
+  laser_tod_relative: {nominal: 0.0}
+  laser_fod_s4: {nominal: 0.0}
+  laser_spot_size_m: {nominal: 24e-6, lower: 18e-6, upper: 30e-6, unit: m}
+  laser_super_gaussian_order: {nominal: 3}
+  laser_focal_position_m: {nominal: 3.5e-3, lower: 2.5e-3, upper: 4.5e-3, unit: m}
+  zernike_astigmatism_2: {nominal: 0.0}
+  zernike_astigmatism_4: {nominal: 0.0}
+  zernike_coma_y: {nominal: 0.0}
+  zernike_coma_x: {nominal: 0.0}
+  zernike_trefoil_y: {nominal: 0.0}
+  zernike_trefoil_x: {nominal: 0.0}
+  zernike_spherical_3: {nominal: 0.0}
+  zernike_astigmatism_6: {nominal: 0.0}
+  zernike_coma_5_y: {nominal: 0.0}
+  zernike_coma_5_x: {nominal: 0.0}
+  zernike_secondary_trefoil_y: {nominal: 0.0}
+  zernike_secondary_trefoil_x: {nominal: 0.0}
+
+stages:
+  surrogate_smoke:
+    # Full-physics recovery check: nominal plus low/high anchors on each axis.
+    # A sixth Sobol point fills the six two-GPU resource sets on three nodes.
+    # Twelve follow-on cases are selected by Xopt after the six seed cases finish.
+    max_evaluations: 18
+    initial_design_size: 6
+    gpus_per_simulation: 2
+    total_gpus: 12
+    concurrent_simulations: 6
+    # Set true after an interrupted run to reuse compatible stored results and
+    # dispatch only the unspent portion of max_evaluations.
+    continuation: false
+    active_parameters:
+      - laser_spot_size_m
+      - laser_focal_position_m
+
+analysis:
+  exploration_features:
+    - total_beam_charge_pc
+    - mean_kinetic_energy_MeV
+  species: nitrogen_electrons
+  uz_min: 30.0
+  central_fraction: 0.95
+  longitudinal_bins: 4
+  keep_raw_diagnostics: true
+
+execution:
+  hyperparameters:
+    n_order: 32
+    gamma_boost: 3.0
+    nz: 3000
+    nr: 300
+    zmax: 0.0
+    # The laser profile begins about 60 um after the simulation-window start.
+    # A 150 um window leaves propagation distance for wake formation and injection.
+    zmin: -150.0e-6
+    rmax: 200.0e-6
+    n_azimuthal_modes: 5
+    p_zmin: 0.0
+    p_rmax: 90e-6
+    p_nz: 2
+    p_nr: 2
+    p_nt: 15
+    r_boundary: reflective
+    diagnostic_select: {uz: [10.0, None]}
+    openpmd_select: {uz: [10.0, None]}
+    dump_fields: false
+    plot_movies: false
+    number_dumps_lab: 3
+    write_period: 50
+    save_checkpoints: false
+    checkpoint_period: 100
+    use_restart: false
+    track_electrons: false
+    random_seed: 0
+    lasy_t_start: 0.0
+    lasy_antenna_position: 0.0
+    laser_polarization: [1, 0]
+    laser_n_azimuthal_modes: 5
+    laser_num_points: [600, 900]
+    laser_hi_range: 10.0
+    laser_center_and_remove_tilt: true
+    laser_centering_angles: 72
+  launcher: [python]
+  timeout_s: 10200

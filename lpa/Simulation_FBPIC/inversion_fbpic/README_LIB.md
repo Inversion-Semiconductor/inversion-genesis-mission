@@ -73,6 +73,42 @@ simulation.run_simulation()
 
 `setup_simulation()` resolves runtime paths, creates the FBPIC object, adds particle species and lasers, configures the moving window, diagnostics, checkpoints, and restart behavior. `run_simulation()` advances the derived interaction time. Setup and execution have filesystem side effects; the wrapper writes only from rank zero when MPI is enabled.
 
+## Delete Older Diagnostic Dumps
+
+After simulation, analysis, and plotting are complete, use
+`simulation.delete_dumps(n=2)` to permanently delete all but the last two
+FBPIC diagnostic dumps, ordered by iteration. Only `data<iteration>.h5` files
+in the resolved diagnostics `hdf5/` directory are deleted; checkpoints, other
+output, and the completion hash are preserved. The method can be called on
+all MPI ranks, but only the write rank accesses files. Setup is not required
+when cleaning existing output.
+
+`n` must be a non-negative integer. `n=0` deletes all dumps; keeping at least
+as many as exist, or cleaning missing/empty output, is a no-op. Pruning removes
+the full time series needed for some analyses; preserving the completion hash
+means a later run may still skip stepping unless `skip_if_hashed=False`.
+
+## Plot Diagnostic Movies
+
+After field diagnostics have been saved, call `Simulation.plot_movie()` to retain
+PNG frames in `plots/stills/` and create an MP4 in `plots/`, relative to the
+simulation's `working_directory`. Both steps are guarded by `do_write_to_disk`,
+so the method can be called on every MPI rank. It returns the movie path, or
+`None` on non-write ranks or if encoding fails. ffmpeg is required only on the
+write rank.
+
+```python
+simulation.plot_movie("rho", vminmax=(0, 1e18), cmap="magma")
+simulation.plot_movie(component="eme", cmap="magma")
+```
+
+Field selection and plotting options mirror `plot_from_hdf5_series`; unsupported
+components retain that helper's errors. Use `save_path` to change the output
+directory, `filename` to override the field/component-based movie name, and
+`framerate` to change the default 10 fps. Diagnostics are read from the resolved
+`SimulationHyperparameters.save_directory` under `hdf5/`; plotting existing
+output does not require FBPIC setup.
+
 ## Choose Physical And Runtime Parameters
 
 - `SimulationHyperparameters` controls the FBPIC grid, timestep, boundaries, boosted-frame settings, moving window, diagnostics, restart behavior, and random seed. Values use SI units. `nz` is checked for FFT-friendly factorization; `save_directory` is relative to `working_directory` unless absolute.
@@ -203,11 +239,13 @@ Within a phase it follows depth-first element order. Repeated references are not
 deduplicated. A matching hash skips FBPIC setup and stepping but still reruns
 the corresponding pre- and post-analysis phases. Repeating setup on an already
 initialized, unhashed instance remains a no-op. Forced runs with
-`skip_if_hashed=False` invoke the appropriate phase normally. A pre-analysis
-failure leaves a new setup incomplete; a post-analysis failure preserves the
-completed simulation hash, so retrying runs analysis without repeating stepping.
-Errors propagate to the caller. Analysis implementations use
-their own declared inputs; no simulation argument is passed to `_analyze()`.
+`skip_if_hashed=False` invoke the appropriate phase normally. Automatic analysis
+failures are logged with tracebacks; they do not abort setup or execution, and
+remaining diagnostics in the phase still run. A failed first analysis remains
+incomplete. Post-analysis failures preserve the completed simulation hash, so
+retrying runs analysis without repeating stepping. Direct calls to a diagnostic's
+`analyze()` still propagate errors. Analysis implementations use their own
+declared inputs; no simulation argument is passed to `_analyze()`.
 
 Diagnostic elements are attached automatically when the simulation is assembled.
 Implementations access their simulation through `attached_simulation`; callers
@@ -235,8 +273,8 @@ each simulation.
 
 ## Compute The Final Beam Moment Descriptor
 
-`_ParticleDiagnostic` extends `_Diagnostic` with the shared `selection` field,
-recording-name resolution, latest-output discovery, and particle/weight
+`_ParticleDiagnostic` extends `_Diagnostic` with the shared `target` and `select`
+fields, recording-name resolution, latest-output discovery, and particle/weight
 concatenation. Its `load_particles()` method returns an `(N, 6)` particle array
 and matching `(N,)` macro-weights without changing `data` or completion state.
 Subclass it and implement `_analyze()` to reuse this input pipeline for another
@@ -252,14 +290,16 @@ import attrs
 from inversion_fbpic.lib.diagnostics import MomentDescriptorDiagnostic
 
 density = attrs.evolve(density, elec_name="electrons")
-moments = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+moments = MomentDescriptorDiagnostic(
+    target=("elec_name", "electrons"), select={"uz": [10.0, None]}
+)
 simulation = Simulation(elements=[hyperparameters, density, laser, moments])
 simulation.setup_simulation(working_directory=Path("runs/example"))
 simulation.run_simulation()
 features = moments.data
 ```
 
-The required `selection` is a Literal-tagged tuple with these supported forms:
+The required `target` is a two-entry Literal-tagged tuple with these supported forms:
 
 ```python
 ("elec_name", ["elec_name_1", "elec_name_2"])
@@ -281,8 +321,14 @@ an error.
 The selected particle arrays and macro-weights are concatenated before computing
 one descriptor. Duplicate recording names are loaded only once, so they do not
 double-count particles or charge. Outer tuples reload correctly from the list
-representation used in JSON, YAML, and HDF5. This replaces the previous
-single-string `species` constructor argument.
+representation used in JSON, YAML, and HDF5. `target` replaces the previous
+`selection` constructor argument; filters are supplied separately as `select`.
+
+The optional `select` dict maps `x`, `y`, `z` (in meters) or `ux`, `uy`, `uz`
+(normalized momenta) to `[minimum, maximum]` ranges. A `None` bound is unbounded.
+These filters are passed to openPMD-viewer's `get_particle(select=...)` for
+all targeted recordings before concatenation. Omitted `select`, `None`, or `{}`
+applies no further filtering. Both inputs are serialized independently.
 
 At each
 analysis call, the diagnostic searches the resolved `save_directory/hdf5` and
@@ -293,8 +339,8 @@ replacing prior results or marking analysis complete.
 
 The constructor exposes `longitudinal_mode` (OFF=0, MOMENTS=1, SPLINE=2),
 `longitudinal_bins`, `include_total_weight`, and `include_higher_moments` using
-the function's defaults. All particles of the selected recordings are analyzed without
-additional momentum selection or central cropping. `config_type` remains
+the function's defaults. All particles of the targeted recordings are analyzed unless
+`select` restricts them; no central cropping is applied. `config_type` remains
 `datapoint` and its concrete `subclass` tag is `moment_descriptor`. Call
 `moments.analyze()` explicitly to recompute outside the simulation lifecycle;
 cached `run_simulation()` calls already refresh results from existing output.
@@ -356,6 +402,14 @@ The type tags and serialized parameter names are part of the persisted run inter
 _Datapoint `data` is deliberately an init field so curated inputs and completed
 analysis results can both be saved. _Diagnostic completion status is a non-init
 runtime field and is not included.
+
+Write any supported format with `config.to_file(path, filetype, **kwargs)`, where
+`filetype` is `h5`/`hdf5`, `yaml`/`yml`, or `json`/`jsn` (case-insensitive).
+The explicit file type selects the writer, independently of the path suffix.
+Only keyword arguments accepted by that writer are forwarded; the rest are
+ignored. Writers accepting arbitrary keyword arguments receive all options.
+For example, `config.to_file("config.yaml", "yaml", comments=False, include_nones=False)`
+returns the resolved output path, just like the format-specific file writers.
 
 ### Native HDF5 configurations
 

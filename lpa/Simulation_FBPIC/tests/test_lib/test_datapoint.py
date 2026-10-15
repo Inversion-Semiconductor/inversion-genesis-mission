@@ -65,11 +65,13 @@ def _round_trip(config: SerializableConfig, method: str, tmp_path: Path):
     return SerializableConfig.from_file(value)
 
 
-def test_parameters_retain_live_dictionary() -> None:
+@pytest.mark.parametrize("label", ["", "scan inputs"])
+def test_parameters_retain_live_dictionary(label: str) -> None:
     from inversion_fbpic.lib import serializable_config as module
 
     data = {"energy": 5.0, "nested": {"selection": [10.0, None]}}
-    parameters = Parameters(data=data)
+    parameters = Parameters(label=label, data=data)
+    assert parameters.label == label
     assert parameters.data is data
     data["energy"] = 6.0
     assert parameters.data["energy"] == 6.0
@@ -79,7 +81,7 @@ def test_parameters_retain_live_dictionary() -> None:
         "config_type": "datapoint",
         "subclass": "parameters",
         "git_hash": module._git_hash(),
-        "parameters": {"data": data},
+        "parameters": {"label": label, "data": data},
     }
 
 
@@ -94,14 +96,34 @@ def test_parameters_reject_non_dictionary(data: Any) -> None:
         Parameters(data=data)
 
 
+@pytest.mark.parametrize("label", ["", "scan inputs"])
 @pytest.mark.parametrize("method", SERIALIZERS)
-def test_parameters_round_trip(method: str, tmp_path: Path) -> None:
+def test_parameters_round_trip(method: str, tmp_path: Path, label: str) -> None:
     original = Parameters(
-        data={"energy": 5.0, "nested": {"selection": [10.0, None]}, "label": "run"}
+        label=label,
+        data={"energy": 5.0, "nested": {"selection": [10.0, None]}, "label": "run"},
     )
     loaded = _round_trip(original, method, tmp_path)
     assert type(loaded) is Parameters
+    assert loaded.label == label
     assert loaded.data == original.data
+
+
+@pytest.mark.parametrize("label", [None, [], {}, 1])
+def test_parameters_reject_non_string_label(label: Any) -> None:
+    with pytest.raises(TypeError, match="label"):
+        Parameters(label=label, data={})
+
+
+def test_parameters_default_label_for_construction_and_legacy_payload() -> None:
+    parameters = Parameters(data={"energy": 5.0})
+    assert parameters.label == ""
+    payload = parameters.to_dict()
+    del payload["parameters"]["label"]
+    loaded = Parameters.from_dict(payload)
+    assert isinstance(loaded, Parameters)
+    assert loaded.label == ""
+    assert loaded.data == parameters.data
 
 
 def test_parameters_keep_config_like_user_dictionaries_as_data() -> None:
@@ -138,14 +160,18 @@ def test_parameters_use_standard_serialization_conversions(tmp_path: Path) -> No
     }
 
 
+@pytest.mark.parametrize("label", ["", "scan inputs"])
 @pytest.mark.parametrize("include_nones", [True, False])
-def test_empty_parameters_load_with_collection_fallback(include_nones: bool) -> None:
-    payload = Parameters(data={}).to_dict(include_nones=include_nones)
+def test_empty_parameters_load_with_collection_fallback(
+    include_nones: bool, label: str
+) -> None:
+    payload = Parameters(label=label, data={}).to_dict(include_nones=include_nones)
     assert ("data" in payload["parameters"]) is include_nones
     first = Parameters.from_dict(payload)
     second = Parameters.from_dict(payload)
     assert isinstance(first, Parameters) and isinstance(second, Parameters)
     assert first.data == second.data == {}
+    assert first.label == second.label == label
     if include_nones:
         # An explicitly supplied dict stays live, including a payload's dict.
         assert first.data is second.data is payload["parameters"]["data"]
@@ -319,7 +345,7 @@ def moment_simulation(
 ):
     from inversion_fbpic.lib.simulation import Simulation
 
-    diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+    diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
     minimal_density = attrs.evolve(minimal_density, elec_name="electrons")
     simulation = Simulation(
         elements=ConfigContainer(
@@ -346,7 +372,7 @@ def test_particle_diagnostic_base_is_abstract_and_not_registered() -> None:
     assert _ParticleDiagnostic not in _Datapoint._CONCRETE_REGISTRY.values()
     assert issubclass(MomentDescriptorDiagnostic, _ParticleDiagnostic)
     with pytest.raises(TypeError, match="abstract"):
-        _ParticleDiagnostic(selection=("all_of_species", "e"))  # type: ignore[abstract]
+        _ParticleDiagnostic(target=("all_of_species", "e"))  # type: ignore[abstract]
 
 
 def test_particle_loading_does_not_mutate_analysis_state(
@@ -372,7 +398,7 @@ def test_particle_loading_does_not_mutate_analysis_state(
     np.testing.assert_array_equal(weights, moment_particles[1])
     assert diagnostic.data is previous
     assert not diagnostic.analysis_complete
-    loader.assert_called_once_with(latest, "electrons")
+    loader.assert_called_once_with(latest, "electrons", select=None)
     calculation.assert_not_called()
 
 
@@ -397,7 +423,7 @@ def test_another_particle_diagnostic_reuses_data_gathering(
             }
 
     simulation, _ = moment_simulation
-    diagnostic = ParticleCountDiagnostic(selection=("all_of_species", "e"))
+    diagnostic = ParticleCountDiagnostic(target=("all_of_species", "e"))
     simulation._sort_component(diagnostic)
     directory = simulation._save_directory / "hdf5"
     directory.mkdir(parents=True)
@@ -422,7 +448,7 @@ def test_simulation_attaches_nested_diagnostic(moment_simulation) -> None:
 
 
 def test_diagnostic_attachment_is_required_and_type_checked() -> None:
-    diagnostic = MomentDescriptorDiagnostic(selection=("elec_name", "electrons"))
+    diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
     with pytest.raises(ValueError, match="Attach"):
         diagnostic.analyze()
     with pytest.raises(TypeError, match="Simulation"):
@@ -463,14 +489,14 @@ def test_moment_descriptor_selects_highest_iteration_and_stores_results(
     loader = Mock(return_value=moment_particles)
     monkeypatch.setattr(module, "load_openpmd_particles", loader)
     diagnostic.analyze()
-    loader.assert_called_once_with(directory / "data10.h5", "electrons")
+    loader.assert_called_once_with(directory / "data10.h5", "electrons", select=None)
     assert diagnostic.data == compute_moment_descriptor(*moment_particles)
     assert len(diagnostic.data) == 33
     assert diagnostic.analysis_complete
     (directory / "data11.h5").touch()
     loader.reset_mock()
     diagnostic.analyze()
-    loader.assert_called_once_with(directory / "data11.h5", "electrons")
+    loader.assert_called_once_with(directory / "data11.h5", "electrons", select=None)
 
 
 @pytest.mark.parametrize("mode", [0, 1, 2])
@@ -519,11 +545,23 @@ def test_moment_descriptor_uses_absolute_save_directory(
     loader = Mock(return_value=moment_particles)
     monkeypatch.setattr(module, "load_openpmd_particles", loader)
     diagnostic.analyze()
-    loader.assert_called_once_with(last_file, "electrons")
+    loader.assert_called_once_with(last_file, "electrons", select=None)
 
 
+@pytest.mark.parametrize(
+    "select",
+    [
+        None,
+        {},
+        *(
+            {coordinate: [-0.5, 0.5]}
+            for coordinate in ("x", "ux", "y", "uy", "z", "uz")
+        ),
+        {"uz": [0.0, None], "x": [None, 0.5], "z": [None, None]},
+    ],
+)
 def test_moment_descriptor_reads_real_openpmd_file(
-    moment_simulation, moment_particles
+    moment_simulation, moment_particles, select
 ) -> None:
     import h5py
     from scipy.constants import c, m_e
@@ -580,10 +618,22 @@ def test_moment_descriptor_reads_real_openpmd_file(
                 macroWeighted=np.uint32(0),
                 weightingPower=0.0,
             )
+    diagnostic.select = select
+    retained = np.ones(len(particles), dtype=bool)
+    coordinates = ("x", "ux", "y", "uy", "z", "uz")
+    for coordinate, (lower, upper) in (select or {}).items():
+        values = particles[:, coordinates.index(coordinate)]
+        if lower is not None:
+            retained &= values > lower
+        if upper is not None:
+            retained &= values < upper
+    loaded_particles, loaded_weights = diagnostic.load_particles()
+    np.testing.assert_allclose(loaded_particles, particles[retained])
+    np.testing.assert_allclose(loaded_weights, weights[retained])
     diagnostic.analyze()
     assert diagnostic.analysis_complete
     assert diagnostic.data == pytest.approx(
-        compute_moment_descriptor(particles, weights)
+        compute_moment_descriptor(particles[retained], weights[retained])
     )
 
 
@@ -635,8 +685,9 @@ def test_moment_descriptor_round_trip_excludes_attachment(
     loaded = _round_trip(diagnostic, method, tmp_path)
     assert type(loaded) is MomentDescriptorDiagnostic
     assert loaded.data == diagnostic.data
-    assert loaded.selection == ("elec_name", "electrons")
-    assert isinstance(loaded.selection, tuple)
+    assert loaded.target == ("elec_name", "electrons")
+    assert isinstance(loaded.target, tuple)
+    assert loaded.select is None
     assert not loaded.analysis_complete
     with pytest.raises(ValueError, match="Attach"):
         loaded.attached_simulation
@@ -661,17 +712,23 @@ def test_simulation_round_trip_reattaches_descriptor(moment_simulation) -> None:
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"selection": "electrons"},
-        {"selection": ("unknown", "electrons")},
-        {"selection": ("elec_name", "")},
-        {"selection": ("elec_name", [])},
-        {"selection": ("ion_name", ["ions", None])},
-        {"selection": ("all_of_species", ["He"])},
-        {"selection": ("all_of_species", "")},
-        {"selection": ("elec_name", "electrons", "extra")},
-        {"selection": ("elec_name", "electrons"), "longitudinal_mode": 99},
-        {"selection": ("elec_name", "electrons"), "longitudinal_bins": 3},
-        {"selection": ("elec_name", "electrons"), "include_total_weight": "true"},
+        {"target": "electrons"},
+        {"target": ()},
+        {"target": ("elec_name",)},
+        {"target": ("elec_name", "electrons", None, {})},
+        {"target": ("elec_name", "electrons", {"uz": [10.0, None]})},
+        {"target": ("unknown", "electrons")},
+        {"target": ("elec_name", "")},
+        {"target": ("elec_name", [])},
+        {"target": ("ion_name", ["ions", None])},
+        {"target": ("all_of_species", ["He"])},
+        {"target": ("all_of_species", "")},
+        {"target": ("elec_name", "electrons"), "select": []},
+        {"target": ("elec_name", "electrons"), "select": 0},
+        {"target": ("elec_name", "electrons"), "select": "extra"},
+        {"target": ("elec_name", "electrons"), "longitudinal_mode": 99},
+        {"target": ("elec_name", "electrons"), "longitudinal_bins": 3},
+        {"target": ("elec_name", "electrons"), "include_total_weight": "true"},
     ],
 )
 def test_moment_descriptor_validates_inputs(arguments) -> None:
@@ -680,7 +737,7 @@ def test_moment_descriptor_validates_inputs(arguments) -> None:
 
 
 @pytest.mark.parametrize(
-    "selection,expected_names",
+    "target,expected_names",
     [
         (("elec_name", ["e_He", "e_H"]), ["e_He", "e_H"]),
         (("elec_name", "e_He"), ["e_He"]),
@@ -691,8 +748,17 @@ def test_moment_descriptor_validates_inputs(arguments) -> None:
         (("elec_name", ["e_H", "e_He", "e_H"]), ["e_H", "e_He"]),
     ],
 )
+@pytest.mark.parametrize(
+    "select",
+    [None, {}, {"uz": [10.0, None], "x": [-1.0e-6, 1.0e-6]}],
+)
 def test_moment_descriptor_concatenates_selected_recordings(
-    moment_simulation, moment_particles, monkeypatch, selection, expected_names
+    moment_simulation,
+    moment_particles,
+    monkeypatch,
+    target,
+    expected_names,
+    select,
 ) -> None:
     from inversion_fbpic.lib import diagnostics as module
     from inversion_fbpic.utils.distributions import compute_moment_descriptor
@@ -708,7 +774,8 @@ def test_moment_descriptor_concatenates_selected_recordings(
         attrs.evolve(base, species="He", elec_name=None, ion_name="ions_He_second"),
         attrs.evolve(base, species="He", elec_name=None, ion_name=None),
     ]
-    diagnostic.selection = selection
+    diagnostic.target = target
+    diagnostic.select = select
     directory = simulation._save_directory / "hdf5"
     directory.mkdir(parents=True)
     latest = directory / "data00000010.h5"
@@ -720,11 +787,14 @@ def test_moment_descriptor_concatenates_selected_recordings(
             ["e_He", "e_H", "e_bare", "ions_He", "ions_H", "ions_He_second"]
         )
     }
-    loader = Mock(side_effect=lambda path, name: distributions[name])
+    loader = Mock(side_effect=lambda path, name, **kwargs: distributions[name])
     monkeypatch.setattr(module, "load_openpmd_particles", loader)
     diagnostic.analyze()
     assert [call.args for call in loader.call_args_list] == [
         (latest, name) for name in expected_names
+    ]
+    assert [call.kwargs for call in loader.call_args_list] == [
+        {"select": select} for name in expected_names
     ]
     combined_particles = np.concatenate(
         [distributions[name][0] for name in expected_names]
@@ -739,7 +809,7 @@ def test_moment_descriptor_concatenates_selected_recordings(
 
 
 @pytest.mark.parametrize(
-    "selection",
+    "target",
     [
         ("elec_name", "unknown"),
         ("elec_name", ["electrons", "unknown"]),
@@ -747,13 +817,11 @@ def test_moment_descriptor_concatenates_selected_recordings(
         ("all_of_species", "He"),
     ],
 )
-def test_moment_descriptor_rejects_unrecorded_selection(
-    moment_simulation, selection
-) -> None:
+def test_moment_descriptor_rejects_unrecorded_target(moment_simulation, target) -> None:
     _, diagnostic = moment_simulation
     previous = {"saved": 1.0}
     diagnostic.data = previous
-    diagnostic.selection = selection
+    diagnostic.target = target
     with pytest.raises(ValueError, match="recorded"):
         diagnostic.analyze()
     assert diagnostic.data is previous
@@ -761,25 +829,47 @@ def test_moment_descriptor_rejects_unrecorded_selection(
 
 
 @pytest.mark.parametrize("method", SERIALIZERS)
-def test_moment_descriptor_multiple_names_selector_round_trip(
-    moment_simulation, tmp_path, method
+@pytest.mark.parametrize("select", [None, {}, {"uz": [10.0, None]}])
+def test_moment_descriptor_multiple_names_target_and_select_round_trip(
+    moment_simulation, tmp_path, method, select
 ) -> None:
     _, diagnostic = moment_simulation
-    diagnostic.selection = ("elec_name", ["electrons", "second"])
+    diagnostic.target = ("elec_name", ["electrons", "second"])
+    diagnostic.select = select
     loaded = _round_trip(diagnostic, method, tmp_path)
     assert isinstance(loaded, MomentDescriptorDiagnostic)
-    assert loaded.selection == diagnostic.selection
-    assert isinstance(loaded.selection, tuple)
-    assert isinstance(loaded.selection[1], list)
+    assert loaded.target == diagnostic.target
+    assert isinstance(loaded.target, tuple)
+    assert isinstance(loaded.target[1], list)
+    assert loaded.select == select
+    parameters = diagnostic.to_dict()["parameters"]
+    assert "target" in parameters and "select" in parameters
+    assert "selection" not in parameters
 
 
-def test_moment_descriptor_selector_hdf5_round_trip(
-    moment_simulation, tmp_path
+@pytest.mark.parametrize("select", [None, {}, {"uz": [10.0, None]}])
+def test_moment_descriptor_target_and_select_hdf5_round_trip(
+    moment_simulation, tmp_path, select
 ) -> None:
     _, diagnostic = moment_simulation
-    diagnostic.selection = ("ion_name", ["ions_He", "ions_H"])
+    diagnostic.target = ("ion_name", ["ions_He", "ions_H"])
+    diagnostic.select = select
     path = diagnostic.to_hdf5_file(tmp_path / "diagnostic.h5")
     loaded = SerializableConfig.from_file(path)
     assert isinstance(loaded, MomentDescriptorDiagnostic)
-    assert loaded.selection == diagnostic.selection
-    assert isinstance(loaded.selection, tuple)
+    assert loaded.target == diagnostic.target
+    assert isinstance(loaded.target, tuple)
+    assert loaded.select == select
+
+
+@pytest.mark.parametrize("select", [None, {"uz": [10.0, None]}])
+def test_moment_descriptor_separate_inputs_preserve_open_bounds(select) -> None:
+    diagnostic = MomentDescriptorDiagnostic(
+        target=("all_of_species", "e"), select=select
+    )
+    payload = diagnostic.to_dict(include_nones=False)
+    assert ("select" in payload["parameters"]) is (select is not None)
+    loaded = SerializableConfig.from_dict(payload)
+    assert isinstance(loaded, MomentDescriptorDiagnostic)
+    assert loaded.target == diagnostic.target
+    assert loaded.select == select

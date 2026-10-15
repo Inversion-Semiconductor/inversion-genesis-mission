@@ -74,11 +74,17 @@ or J. The beam record contains the default 33-feature descriptor: momentum
 centroids, the 6D covariance entries, longitudinal slice features, and beam
 charge in pC.
 
-The selector `("all_of_species", "e")` gathers both recorded electron
+The target `("all_of_species", "e")` gathers both recorded electron
 populations. It analyzes the particles retained by their existing `uz >= 10`
 diagnostic filters. `results.h5` is written after analysis on rank zero, before
 the optional movie and plotting work, and can be overwritten by rerunning the
 demo. No raw particle arrays are copied into this results file.
+
+The separate optional `select` parameter adds loading-time filters, for example
+`MomentDescriptorDiagnostic(target=("all_of_species", "e"), select={"uz": [20.0, None], "x": [-1.0e-6, 1.0e-6]})`.
+Ranges for `x`, `y`, `z` use meters; `ux`, `uy`, `uz` use normalized momenta.
+Bounds may be `None` for an open end. Omitting `select` or setting it to
+`None` or `{}` applies no further filtering to the recorded particles.
 
 Reloading preserves `beam_moments.data`, but runtime completion status and the
 simulation attachment are deliberately not persisted.
@@ -93,6 +99,8 @@ The simulation saves a hash representation of itself; if it has already run succ
 
 When stepping is skipped because a matching hash exists, automatic analysis
 still reruns against the last recorded particle dump and refreshes `results.h5`.
-The simulation hash is saved before post-analysis. If analysis fails, retrying
-the demo skips the completed simulation and retries analysis rather than stepping
-again. The results file is replaced only after successful analysis.
+The simulation hash is saved before post-analysis. Automatic analysis failures
+are logged with tracebacks without stopping the demo. Retrying skips the completed
+simulation and retries analysis rather than stepping again. The demo overwrites
+the results file even if analysis fails; check the logs and
+`beam_moments.analysis_complete` before relying on the beam results.

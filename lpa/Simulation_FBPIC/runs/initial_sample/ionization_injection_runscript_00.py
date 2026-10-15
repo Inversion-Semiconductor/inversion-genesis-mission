@@ -2,8 +2,8 @@
 This script is a simple launch script for the template in the same directory.
 
 Demonstrates configuring and launching one ionization-injection simulation.
-Use ``build-dataset`` and ``plot-phase-space-moments`` after the run completes
-to calculate dataset descriptors and inspect the resulting phase space.
+Use ``compute_moment_descriptor`` and ``plot-phase-space-moments`` after the run completes
+to inspect the resulting phase space.
 """
 
 from pathlib import Path
@@ -16,7 +16,6 @@ DESCRIPTION: str = "sim_0000"
 
 # FBPIC numerical and execution settings.
 HYPERPARAMETERS = {
-    "use_cuda": True,
     "n_order": 32,
     "gamma_boost": 1.5,
     "nz": 1500,
@@ -30,6 +29,10 @@ HYPERPARAMETERS = {
     "p_nz": 2,
     "p_nr": 2,
     "p_nt": 15,
+    "r_boundary": "reflective",
+    "diagnostic_select": {"uz": [10.0, None]},
+    "dump_fields": False,
+    "plot_movies": False,
     "number_dumps_lab": 50,
     "write_period": 50,
     "save_checkpoints": False,
@@ -41,6 +44,7 @@ HYPERPARAMETERS = {
     "lasy_t_start": 0.0,
     "lasy_antenna_position": 0.0,
     "lab_diagnostic_directory": RUN_DIRECTORY / "data" / DESCRIPTION / "lab_diags",
+    "results_directory": RUN_DIRECTORY / "data" / DESCRIPTION / "results",
     "laser_polarization": (1, 0),
     "laser_n_azimuthal_modes": 5,
     "laser_num_points": (600, 900),
@@ -51,12 +55,13 @@ HYPERPARAMETERS = {
 
 # Physical laser and gas parameters.
 PHYSICAL_PARAMETERS = {
-    "peak_plasma_density_cm3": 4.0e18,
+    "peak_neutral_density_cm3": 1.5e18,
     "nitrogen_dopant_fraction": 0.03,
-    "density_peak": 1.1,
-    "density_alpha_m": 1.1e-3,
-    "density_beta": 1.1,
-    "density_center_location_m": 2.3e-3,
+    "density_fwhm_left_m": 1e-3,
+    "density_fwhm_right_m": 1e-3,
+    "density_beta_left": 1.5,
+    "density_beta_right": 1.5,
+    "density_center_location_m": 4e-3,
     "laser_wavelength_m": 800e-9,
     "laser_energy_J": 2.5,
     "laser_pulse_duration_fwhm_s": 30e-15,
