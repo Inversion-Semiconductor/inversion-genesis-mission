@@ -72,6 +72,7 @@ class IonizationInjectionSimulation:
         "p_nr": 4,
         "p_nt": 30,
         "r_boundary": "reflective",
+        "p_zmax": None,
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
         "dump_fields": False,
         "plot_movies": False,
@@ -306,6 +307,7 @@ class IonizationInjectionSimulation:
             p_nr=hyperparameters["p_nr"],
             p_nt=hyperparameters["p_nt"],
             p_zmin=hyperparameters["p_zmin"],
+            p_zmax=hyperparameters["p_zmax"],
             p_rmax=hyperparameters["p_rmax"],
             species="He",
             ionization=0,
@@ -327,6 +329,7 @@ class IonizationInjectionSimulation:
             p_nr=hyperparameters["p_nr"],
             p_nt=hyperparameters["p_nt"],
             p_zmin=hyperparameters["p_zmin"],
+            p_zmax=hyperparameters["p_zmax"],
             p_rmax=hyperparameters["p_rmax"],
             species="N",
             ionization=0,

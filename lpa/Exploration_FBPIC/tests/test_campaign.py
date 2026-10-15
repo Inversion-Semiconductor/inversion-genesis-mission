@@ -76,6 +76,31 @@ def test_stage_resource_settings_are_consistent() -> None:
     )
 
 
+def test_production_density_geometry_is_fixed_to_the_simulation_domain() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    parameters = campaign.config.parameters
+    hyperparameters = campaign.config.execution["hyperparameters"]
+
+    assert parameters["density_center_location_m"].nominal == 5.0e-3
+    assert not parameters["density_center_location_m"].variable
+    assert (
+        "density_center_location_m"
+        not in campaign.config.stage_settings("stage_1").active_parameters
+    )
+    assert (
+        "density_center_location_m"
+        not in campaign.config.stage_settings("stage_2").active_parameters
+    )
+    assert hyperparameters["zmin"] == -150.0e-6
+    assert hyperparameters["zmax"] == 0.0
+    assert hyperparameters["nz"] == 5760
+    assert (hyperparameters["zmax"] - hyperparameters["zmin"]) / hyperparameters[
+        "nz"
+    ] <= 800.0e-9 / 30.0
+    assert hyperparameters["p_zmin"] == 0.0
+    assert hyperparameters["p_zmax"] == 10.0e-3
+
+
 def test_stage_one_rejects_inactive_parameters() -> None:
     campaign = Campaign.from_file(CONFIG)
 

@@ -15,7 +15,7 @@ parameters:
   density_fwhm_right_m: {nominal: 2.0, lower: 0.8, upper: 5.0, unit: mm, linear_scale: 1e-3}
   density_left_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the left FWHM point toward z=0. The template remaps it as FWHM grows, then derives beta."}
   density_right_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the right FWHM point toward the mirrored right edge. The template remaps it as FWHM grows, then derives beta."}
-  density_center_location_m: {nominal: 5.0, lower: 4.0, upper: 6.0, unit: mm, linear_scale: 1e-3}
+  density_center_location_m: {nominal: 5.0, unit: mm, linear_scale: 1e-3, description: Fixed profile center at the midpoint of the 10 mm simulation domain.}
   laser_wavelength_m: {nominal: 800e-9, unit: m, description: Fixed laser central wavelength.}
   laser_energy_J: {nominal: 2.5, lower: 1.5, upper: 3.5, unit: J}
   laser_pulse_duration_fwhm_s: {nominal: 30.0, lower: 20.0, upper: 45.0, unit: fs, linear_scale: 1e-15}
@@ -53,7 +53,6 @@ stages:
       - peak_neutral_density_cm3
       - nitrogen_dopant_fraction
       - density_fwhm_left_m
-      - density_center_location_m
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
       - laser_spot_size_m
@@ -73,7 +72,6 @@ stages:
       - density_fwhm_right_m
       - density_left_ramp_edge_percent
       - density_right_ramp_edge_percent
-      - density_center_location_m
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
       - laser_gdd_relative
@@ -104,10 +102,10 @@ execution:
   hyperparameters:
     n_order: 32
     gamma_boost: 1.5
-    nz: 1500
+    nz: 5760
     nr: 300
     zmax: 0.0
-    zmin: -70.0e-6
+    zmin: -150.0e-6
     rmax: 200.0e-6
     n_azimuthal_modes: 5
     p_zmin: 0.0
@@ -115,6 +113,7 @@ execution:
     p_nz: 2
     p_nr: 2
     p_nt: 15
+    p_zmax: 10.0e-3
     r_boundary: reflective
     diagnostic_select: {uz: [10.0, None]}
     dump_fields: false

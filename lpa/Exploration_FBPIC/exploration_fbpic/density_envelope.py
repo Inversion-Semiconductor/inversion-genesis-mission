@@ -85,13 +85,20 @@ def plot_density_envelope(
     import matplotlib.pyplot as plt
 
     cases = build_density_envelope_cases(campaign, stage, random_samples, seed)
-    z_min = min(case.density.get_z_extent()[0] for case in cases)
-    z_max = max(case.density.get_z_extent()[1] for case in cases)
+    hyperparameters = campaign.config.template_hyperparameters()
+    z_min = float(hyperparameters["p_zmin"])
+    z_max = float(hyperparameters["p_zmax"])
+    if not z_min < z_max:
+        raise ValueError("execution.hyperparameters must define p_zmin < p_zmax")
     z = np.linspace(z_min, z_max, samples)
     figure, axis = plt.subplots(figsize=(9, 5.5))
-    for case in cases[1:]:
+    random_cases = cases[1:]
+    colors = plt.colormaps["turbo"](
+        np.linspace(0.0, 1.0, len(random_cases), endpoint=True)
+    )
+    for case, color in zip(random_cases, colors, strict=True):
         density = case.density.build_density_function()(z, 0.0)
-        axis.plot(z * 1.0e3, density, color="tab:orange", alpha=0.18, linewidth=0.8)
+        axis.plot(z * 1.0e3, density, color=color, alpha=0.22, linewidth=0.8)
     nominal_density = cases[0].density.build_density_function()(z, 0.0)
     axis.plot(
         z * 1.0e3,
@@ -104,10 +111,10 @@ def plot_density_envelope(
         axis.plot(
             [],
             [],
-            color="tab:orange",
+            color="0.4",
             alpha=0.45,
             linewidth=1.2,
-            label="Random campaign samples",
+            label="Random campaign samples (spectrum)",
         )
     axis.set_xlabel("z (mm)")
     axis.set_ylabel("normalized neutral density")
