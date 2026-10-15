@@ -25,7 +25,7 @@ parameters:
   laser_tod_relative: {nominal: 0.0, lower: -1.0, upper: 1.0, unit: normalized}
   laser_fod_s4: {nominal: 0.0, lower: -1.0e-55, upper: 1.0e-55, unit: s^4}
   laser_spot_size_m: {nominal: 24e-6, lower: 16e-6, upper: 32e-6, unit: m}
-  laser_super_gaussian_order: {nominal: 3, unit: dimensionless, description: Held fixed because it is discrete.}
+  laser_super_gaussian_order: {nominal: 3.0, lower: 2.0, upper: 4.0, unit: dimensionless, description: Continuous transverse super-Gaussian order; 2 is Gaussian.}
   laser_focal_position_m: {nominal: 4.0e-3, lower: 1.0e-3, upper: 6.0e-3, unit: m}
   zernike_astigmatism_2: {nominal: 0.0, lower: -0.5, upper: 0.5}
   zernike_astigmatism_4: {nominal: 0.0, lower: -0.5, upper: 0.5}
@@ -55,6 +55,7 @@ stages:
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
       - laser_spot_size_m
+      - laser_super_gaussian_order
       - laser_focal_position_m
   stage_2:
     # Includes all Stage 1 data reused at the nominal values of new inputs.
@@ -75,6 +76,7 @@ stages:
       - laser_gdd_relative
       - laser_tod_relative
       - laser_spot_size_m
+      - laser_super_gaussian_order
       - laser_focal_position_m
       - zernike_astigmatism_2
       - zernike_coma_y

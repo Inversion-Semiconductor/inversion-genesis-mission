@@ -50,6 +50,7 @@ def test_stage_one_keeps_all_physical_parameters() -> None:
 
     assert len(manifest.parameters) == len(campaign.config.parameters)
     assert manifest.parameters["laser_energy_J"] == 2.6
+    assert manifest.parameters["laser_super_gaussian_order"] == 3.0
     assert manifest.parameters["zernike_coma_5_x"] == 0.0
     assert manifest.parameters["laser_spectral_bandwidth_rad_s"] == "auto"
     assert manifest.stage_settings.gpus_per_simulation == 8
@@ -73,6 +74,22 @@ def test_stage_resource_settings_are_consistent() -> None:
     assert (
         settings.total_gpus
         == settings.gpus_per_simulation * settings.concurrent_simulations
+    )
+
+
+def test_laser_super_gaussian_order_is_a_continuous_active_coordinate() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["laser_super_gaussian_order"]
+    assert (parameter.nominal, parameter.lower, parameter.upper) == (3.0, 2.0, 4.0)
+    assert parameter.variable
+    assert (
+        "laser_super_gaussian_order"
+        in campaign.config.stage_settings("stage_1").active_parameters
+    )
+    assert (
+        "laser_super_gaussian_order"
+        in campaign.config.stage_settings("stage_2").active_parameters
     )
 
 
