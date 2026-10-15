@@ -499,7 +499,35 @@ def test_moment_descriptor_selects_highest_iteration_and_stores_results(
     loader.assert_called_once_with(directory / "data11.h5", "electrons", select=None)
 
 
-@pytest.mark.parametrize("mode", [0, 1, 2])
+def test_moment_descriptor_exposes_constants_as_class_variables() -> None:
+    from inversion_fbpic.utils import distributions
+
+    diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
+    fields = {field.name for field in attrs.fields(MomentDescriptorDiagnostic)}
+    constructor_parameters = inspect.signature(MomentDescriptorDiagnostic).parameters
+    serialized_parameters = diagnostic.to_dict()["parameters"]
+    for name in ("OFF", "MOMENTS", "SPLINE", "LONGITUDINAL_PROFILE_BINS"):
+        expected = getattr(distributions, name)
+        assert getattr(MomentDescriptorDiagnostic, name) == expected
+        assert getattr(diagnostic, name) == expected
+        assert name not in fields
+        assert name not in constructor_parameters
+        assert name not in serialized_parameters
+    assert diagnostic.longitudinal_mode == MomentDescriptorDiagnostic.SPLINE
+    assert (
+        diagnostic.longitudinal_bins
+        == MomentDescriptorDiagnostic.LONGITUDINAL_PROFILE_BINS
+    )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        MomentDescriptorDiagnostic.OFF,
+        MomentDescriptorDiagnostic.MOMENTS,
+        MomentDescriptorDiagnostic.SPLINE,
+    ],
+)
 def test_moment_descriptor_forwards_all_options(
     moment_simulation, moment_particles, monkeypatch, mode: int
 ) -> None:

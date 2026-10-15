@@ -286,6 +286,11 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
     SUBCLASS: ClassVar[str] = "moment_descriptor"
     RUN_BEFORE_SIMULATION: ClassVar[bool] = False
 
+    OFF: ClassVar[int] = OFF
+    MOMENTS: ClassVar[int] = MOMENTS
+    SPLINE: ClassVar[int] = SPLINE
+    LONGITUDINAL_PROFILE_BINS: ClassVar[int] = LONGITUDINAL_PROFILE_BINS
+
     longitudinal_mode: int = attrs.field(
         default=SPLINE, validator=attrs.validators.in_((OFF, MOMENTS, SPLINE))
     )

@@ -212,6 +212,10 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
             and excess kurtosis. Defaults to False."""
     SUBCLASS: ClassVar[str]
     RUN_BEFORE_SIMULATION: ClassVar[bool]
+    OFF: ClassVar[int]
+    MOMENTS: ClassVar[int]
+    SPLINE: ClassVar[int]
+    LONGITUDINAL_PROFILE_BINS: ClassVar[int]
     longitudinal_mode: int
     longitudinal_bins: int
     include_total_weight: bool

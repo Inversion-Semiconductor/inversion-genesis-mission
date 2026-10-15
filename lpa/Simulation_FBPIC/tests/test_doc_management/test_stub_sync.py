@@ -596,6 +596,9 @@ def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None
     assert "selection:" not in descriptor
     assert "        species: str," not in descriptor
     assert "        data: dict[str, Any] = ...," in descriptor
+    for name in ("OFF", "MOMENTS", "SPLINE", "LONGITUDINAL_PROFILE_BINS"):
+        assert f"    {name}: ClassVar[int]" in descriptor
+        assert f"        {name}:" not in descriptor
     assert "longitudinal_mode: int = SPLINE" in descriptor
     assert "longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS" in descriptor
     assert "include_higher_moments: bool = False" in descriptor

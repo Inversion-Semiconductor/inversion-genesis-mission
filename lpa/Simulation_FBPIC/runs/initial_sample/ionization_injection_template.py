@@ -322,8 +322,8 @@ class IonizationInjectionSimulation:
                 dg.MomentDescriptorDiagnostic(
                     target=("all_of_species", "e"),
                     select=hyperparameters["analysis_select"],
-                    longitudinal_mode=dg.SPLINE,
-                    longitudinal_bins=dg.LONGITUDINAL_PROFILE_BINS,
+                    longitudinal_mode=dg.MomentDescriptorDiagnostic.SPLINE,
+                    longitudinal_bins=dg.MomentDescriptorDiagnostic.LONGITUDINAL_PROFILE_BINS,
                     include_total_weight=False,
                     include_higher_moments=False,
                 ),
