@@ -45,11 +45,11 @@ def test_stage_one_keeps_all_physical_parameters() -> None:
     manifest = campaign.make_manifest(
         "sim_000001",
         "stage_1",
-        {"laser_energy_J": 3.0},
+        {"laser_energy_J": 2.6},
     )
 
     assert len(manifest.parameters) == len(campaign.config.parameters)
-    assert manifest.parameters["laser_energy_J"] == 3.0
+    assert manifest.parameters["laser_energy_J"] == 2.6
     assert manifest.parameters["zernike_coma_5_x"] == 0.0
     assert manifest.parameters["laser_spectral_bandwidth_rad_s"] == "auto"
     assert manifest.stage_settings.gpus_per_simulation == 8
@@ -93,10 +93,10 @@ def test_production_density_geometry_is_fixed_to_the_simulation_domain() -> None
     )
     assert hyperparameters["zmin"] == -150.0e-6
     assert hyperparameters["zmax"] == 0.0
-    assert hyperparameters["nz"] == 5760
+    assert hyperparameters["nz"] == 3840
     assert (hyperparameters["zmax"] - hyperparameters["zmin"]) / hyperparameters[
         "nz"
-    ] <= 800.0e-9 / 30.0
+    ] <= 800.0e-9 / 20.0
     assert hyperparameters["p_zmin"] == 0.0
     assert hyperparameters["p_zmax"] == 10.0e-3
 
@@ -110,6 +110,30 @@ def test_stage_one_rejects_inactive_parameters() -> None:
         assert "inactive" in str(error)
     else:
         raise AssertionError("expected an inactive parameter to be rejected")
+
+
+def test_production_nitrogen_dopant_fraction_is_fixed() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["nitrogen_dopant_fraction"]
+    assert parameter.nominal == 0.005
+    assert not parameter.variable
+    with pytest.raises(ValueError, match="inactive or unknown"):
+        campaign.make_manifest(
+            "sim_000001", "stage_2", {"nitrogen_dopant_fraction": 0.01}
+        )
+
+
+def test_production_spherical_aberration_is_fixed() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["zernike_spherical_3"]
+    assert parameter.nominal == 0.0
+    assert not parameter.variable
+    assert (
+        "zernike_spherical_3"
+        not in campaign.config.stage_settings("stage_2").active_parameters
+    )
 
 
 def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) -> None:

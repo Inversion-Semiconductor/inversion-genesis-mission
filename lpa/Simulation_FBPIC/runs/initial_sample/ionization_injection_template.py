@@ -71,6 +71,8 @@ class IonizationInjectionSimulation:
         "p_nz": 4,
         "p_nr": 4,
         "p_nt": 30,
+        "helium_p_nz": None,
+        "helium_p_nt": None,
         "r_boundary": "reflective",
         "p_zmax": None,
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
@@ -292,6 +294,12 @@ class IonizationInjectionSimulation:
         physical_parameters = self.physical_parameters
         left_density_parameters = self._resolved_density_ramp_parameters("left")
         right_density_parameters = self._resolved_density_ramp_parameters("right")
+        helium_p_nz = hyperparameters["helium_p_nz"]
+        if helium_p_nz is None:
+            helium_p_nz = hyperparameters["p_nz"]
+        helium_p_nt = hyperparameters["helium_p_nt"]
+        if helium_p_nt is None:
+            helium_p_nt = hyperparameters["p_nt"]
 
         density_he = dn.BilateralSuperGaussian(
             nominal_density=physical_parameters["peak_neutral_density_cm3"]
@@ -303,9 +311,9 @@ class IonizationInjectionSimulation:
             beta_left=left_density_parameters["density_beta_left"],
             beta_right=right_density_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
-            p_nz=hyperparameters["p_nz"],
+            p_nz=helium_p_nz,
             p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
+            p_nt=helium_p_nt,
             p_zmin=hyperparameters["p_zmin"],
             p_zmax=hyperparameters["p_zmax"],
             p_rmax=hyperparameters["p_rmax"],

@@ -338,6 +338,8 @@ def test_run_can_advance_while_movies_are_pending(
             {
                 "dump_fields": True,
                 "plot_movies": plot_movies,
+                "helium_p_nz": 1,
+                "helium_p_nt": 10,
                 "lab_diagnostic_directory": tmp_path / str(index) / "diags",
                 "results_directory": tmp_path / str(index) / "results",
             },
@@ -354,6 +356,10 @@ def test_run_can_advance_while_movies_are_pending(
         for recorded in run.call_args_list:
             simulation = recorded.args[0]
             assert [density.species for density in simulation.densities] == ["He", "N"]
+            assert simulation.densities[0].p_nz == 1
+            assert simulation.densities[0].p_nt == 10
+            assert simulation.densities[1].p_nz == 4
+            assert simulation.densities[1].p_nt == 30
             for density in simulation.densities:
                 assert density.fwhm_left == physical["density_fwhm_left_m"]
                 assert density.fwhm_right == physical["density_fwhm_right_m"]

@@ -180,21 +180,19 @@ def test_log_scale_uses_log_model_coordinates_and_physical_manifests() -> None:
 
     assert physical["peak_neutral_density_cm3"] == 1.4e18
     assert model["peak_neutral_density_cm3"] == np.log(1.4)
-    assert model["laser_focal_position_m"] == 3.5e-3
+    assert model["laser_focal_position_m"] == 4.0e-3
     assert explorer.model_to_physical(model)[
         "peak_neutral_density_cm3"
     ] == pytest.approx(1.4e18)
 
 
-def test_linear_scale_uses_normalized_model_coordinates_and_physical_manifests() -> (
-    None
-):
+def test_fixed_center_is_excluded_from_exploration_coordinates() -> None:
     explorer = XoptFBPICExplorer(Campaign.from_file(CONFIG), "stage_1")
     physical = explorer.initial_design(1)[0]
     model = explorer.model_initial_design(1)[0]
 
-    assert physical["density_center_location_m"] == 2.3e-3
-    assert model["density_center_location_m"] == 2.3
-    assert explorer.model_to_physical(model)[
+    assert "density_center_location_m" not in physical
+    assert "density_center_location_m" not in model
+    assert Campaign.from_file(CONFIG).config.complete_parameters("stage_1")[
         "density_center_location_m"
-    ] == pytest.approx(2.3e-3)
+    ] == pytest.approx(5.0e-3)
