@@ -13,7 +13,10 @@ CAMPAIGN_FILE = Path(__file__).with_name("campaign.yaml")
 PSCRATCH = os.environ.get("PSCRATCH")
 if PSCRATCH is None:
     raise RuntimeError("PSCRATCH must be set for the nominal NERSC run")
-RUN_DIRECTORY = Path(PSCRATCH) / "ionization_injection_exploration" / "nominal_test"
+RUN_LABEL = os.environ.get("NOMINAL_RUN_LABEL", "nominal_test")
+if not RUN_LABEL.replace("_", "").replace("-", "").isalnum():
+    raise ValueError("NOMINAL_RUN_LABEL must contain only letters, digits, '_' or '-'")
+RUN_DIRECTORY = Path(PSCRATCH) / "ionization_injection_exploration" / RUN_LABEL
 
 
 def load_template_class(campaign: Campaign) -> type:
