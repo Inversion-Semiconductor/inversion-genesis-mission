@@ -553,6 +553,8 @@ def test_datapoint_stub_includes_required_parameters() -> None:
     assert "from typing import Any, ClassVar" in pyi
     assert "class _Datapoint(SerializableConfig):" in pyi
     parameters = pyi.split("class Parameters(_Datapoint):")[1].split("\n\nclass ")[0]
+    assert "    label: str\n" in parameters
+    assert "        label: str = ''," in parameters
     assert "        data: dict[str, Any]," in parameters
     assert "        data: dict[str, Any] =" not in parameters
     assert "class _Diagnostic(" not in pyi
@@ -587,9 +589,11 @@ def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None
     ast.parse(pyi)
     descriptor = pyi.split("class MomentDescriptorDiagnostic(_ParticleDiagnostic):")[1]
     assert (
-        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
         in descriptor
     )
+    assert "        select: dict[str, list[float | None]] | None = None," in descriptor
+    assert "selection:" not in descriptor
     assert "        species: str," not in descriptor
     assert "        data: dict[str, Any] = ...," in descriptor
     assert "longitudinal_mode: int = SPLINE" in descriptor
@@ -607,9 +611,12 @@ def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> Non
         "\n\nclass "
     )[0]
     assert (
-        "selection: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
         in particle
     )
+    assert "    select: dict[str, list[float | None]] | None\n" in particle
+    assert "        select: dict[str, list[float | None]] | None = None," in particle
+    assert "selection:" not in particle
     assert "def load_particles(self) -> tuple[ParticleArray, WeightArray]:" in particle
     assert "SUBCLASS:" not in particle
     assert "longitudinal_mode:" not in particle

@@ -675,10 +675,10 @@ class InterpolateFromH5Profile(_DensityProfile):
 
         return centroid, (float(support_coordinates[0]), float(support_coordinates[-1]))
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         return self.z_extent
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:

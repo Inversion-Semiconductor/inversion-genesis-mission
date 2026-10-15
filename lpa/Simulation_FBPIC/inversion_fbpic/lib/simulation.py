@@ -1,4 +1,4 @@
-from typing import ClassVar, Literal, List, Any
+from typing import TYPE_CHECKING, ClassVar, Literal, List, Any
 from scipy.constants import c, e, epsilon_0, m_e, pi
 import hashlib
 import json
@@ -7,6 +7,9 @@ from pathlib import Path
 import logging
 import time
 import attrs
+
+if TYPE_CHECKING:
+    import matplotlib.pyplot as plt
 
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from inversion_fbpic.lib.config_container import ConfigContainer
@@ -378,6 +381,55 @@ class Simulation(SerializableConfig):
                 maxz = c_maxz
         return minz, maxz
 
+    def plot_densities(
+        self,
+        ax: "plt.Axes | None" = None,
+        *,
+        num: int = 600,
+        z_padding_fraction: float = 0.0,
+        neutral_density: bool = False,
+    ) -> "plt.Figure":
+        """Overlay all constituent on-axis density profiles on the same axes.
+
+        Each profile is labeled with its concrete ``SUBCLASS`` and species.
+        No FBPIC setup is required, and the figure is not shown automatically.
+
+        Args:
+            ax: Existing axes to plot on. If None, create a new figure and axes.
+            num: Number of sampling points per profile.
+            z_padding_fraction: Fractional padding on each side of each profile.
+            neutral_density: Plot neutral rather than fully ionized electron density.
+
+        Returns:
+            matplotlib.figure.Figure: The figure containing the overlay.
+        """
+        import matplotlib.pyplot as plt
+
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.get_figure()
+
+        for density in self.densities:
+            density.plot_z_profile(
+                ax,
+                num=num,
+                z_scale=1e3,
+                density_scale=1e-6,
+                z_padding_fraction=z_padding_fraction,
+                neutral_density=neutral_density,
+                label=f"{density.SUBCLASS} ({density.species})",
+            )
+
+        ax.set_xlabel("z (mm)")
+        ax.set_ylabel(
+            f"{'Neutral' if neutral_density else 'Electron'}"
+            + r" Density ($\mathrm{cm}^{-3}$)"
+        )
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        return fig
+
     @property
     def do_write_to_disk(self) -> bool:
         """Determines whether it is safe to handle output to disk when MPI is in use."""
@@ -495,7 +547,13 @@ class Simulation(SerializableConfig):
         if self.do_write_to_disk:
             for diagnostic in self.diagnostics:
                 if diagnostic.RUN_BEFORE_SIMULATION == before_simulation:
-                    diagnostic.analyze()
+                    try:
+                        diagnostic.analyze()
+                    except Exception as e:
+                        self._logger.error(
+                            f"Error running diagnostic {type(diagnostic).__name__}: {e}",
+                            exc_info=True,
+                        )
 
     def _element_config_anchor(self) -> Path | None:
         """Directory for resolving ``elements`` path strings."""
@@ -668,7 +726,8 @@ class Simulation(SerializableConfig):
 
         Analysis runs on the write rank after FBPIC setup completes. A matching
         completion hash skips FBPIC setup but still runs pre-simulation analysis.
-        Analysis errors propagate and leave ``is_setup`` false for a new setup.
+        Analysis errors are logged with tracebacks without aborting setup or
+        preventing the remaining diagnostics from running.
 
         Args:
             working_directory: (str | Path | None) |OPTIONAL| The working directory to save the simulation. If None, the working directory is the current working directory.
@@ -924,7 +983,8 @@ class Simulation(SerializableConfig):
         Attached post-simulation diagnostics run on the write rank after all
         stepping succeeds and the requested completion hash is saved. A matching
         hash skips stepping but still reruns analysis, without requiring FBPIC
-        setup. Analysis errors propagate while preserving the completion hash,
+        setup. Analysis errors are logged with tracebacks without preventing
+        remaining diagnostics from running. The completion hash is preserved,
         so retries can analyze existing output without repeating the simulation.
 
         Args:
@@ -990,6 +1050,120 @@ class Simulation(SerializableConfig):
             self._save_hash()
 
         self._analyze_diagnostics(before_simulation=False)
+
+    def delete_dumps(self, n: int) -> None:
+        """
+        Permanently delete diagnostic dumps except the last n by iteration.
+
+        Only FBPIC ``data<iteration>.h5`` files directly under the resolved
+        diagnostics ``hdf5/`` directory are considered. Checkpoints, other
+        output, and the completion hash are left unchanged. Call after stepping
+        and any analysis or plotting that needs the full time series.
+        FBPIC setup is not required; only the write rank accesses the files.
+
+        Args:
+            n: Number of latest dumps to retain. Must be a non-negative integer;
+                zero deletes all dumps. Missing or empty output is a no-op.
+
+        Raises:
+            TypeError: If n is not an integer, or is a boolean.
+            ValueError: If n is negative.
+        """
+        if isinstance(n, bool) or not isinstance(n, int):
+            raise TypeError("n must be a non-negative integer")
+        if n < 0:
+            raise ValueError("n must be a non-negative integer")
+        if not self.do_write_to_disk:
+            return
+
+        dumps = sorted(
+            (
+                path
+                for path in (self._save_directory / "hdf5").glob("data*.h5")
+                if path.stem[4:].isascii()
+                and path.stem[4:].isdigit()
+                and path.is_file()
+            ),
+            key=lambda path: int(path.stem[4:]),
+        )
+        for path in dumps[: max(0, len(dumps) - n)]:
+            path.unlink()
+
+    def plot_movie(
+        self,
+        field_name: str | None = None,
+        component: Literal["x", "y", "z", "abs", "sqr", "eme"] | None = None,
+        vminmax: tuple[float, float] | Literal["even"] | None = None,
+        scale: Literal["linear", "log"] = "linear",
+        field_offset: float = 0.0,
+        cmap: str = "bwr",
+        rmax: float | None = None,
+        font_size: int = 16,
+        *,
+        save_path: Path | str = "plots",
+        filename: str | None = None,
+        framerate: int = 10,
+    ) -> Path | None:
+        """
+        Generate PNG stills and an MP4 movie from this simulation's diagnostics.
+
+        Plotting options mirror `plot_from_hdf5_series`. Both plotting and movie
+        encoding, including their imports, run only when `do_write_to_disk` is
+        True. Requires ffmpeg on the write rank and existing field diagnostics;
+        FBPIC setup is not required to plot previously saved diagnostics.
+
+        Args:
+            field_name: (str | None) Field to plot, such as "rho", "E", or "B". Ignored for component="eme".
+            component: (Literal["x", "y", "z", "abs", "sqr", "eme"] | None) Field component. Defaults to None (scalar field). "eme" plots electromagnetic energy density; "abs" and "sqr" are not yet implemented by the plotting helper.
+            vminmax: (tuple[float, float] | Literal["even"] | None) Color limits, "even" for symmetric limits, or None for automatic limits.
+            scale: (Literal["linear", "log"]) Color scale. Defaults to "linear".
+            field_offset: (float) Offset added to the scaled field. Defaults to 0.0.
+            cmap: (str) Colormap. Defaults to "bwr".
+            rmax: (float | None) Maximum radial extent to display, in meters. Defaults to None.
+            font_size: (int) Plot font size. Defaults to 16.
+            save_path: (Path | str) Output directory for movies, with PNGs retained in its "stills" subdirectory. Relative paths resolve against `working_directory`. Defaults to "plots".
+            filename: (str | None) Movie name without extension. Defaults to the field/component prefix returned by the plotting helper.
+            framerate: (int) Movie frames per second. Defaults to 10.
+
+        Returns:
+            Path | None: Movie path, or None on non-write ranks or if encoding fails.
+        """
+        if not self.do_write_to_disk:
+            return None
+
+        from inversion_fbpic.utils.plotting import plot_from_hdf5_series
+
+        try:
+            from inversion_fbpic.utils.make_movie import make_movie
+        except (ImportError, RuntimeError):
+            self._logger.warning(
+                "Movie generation requires ffmpeg. Install ffmpeg and ensure it is in your PATH."
+            )
+            return None
+
+        save_path = Path(save_path)
+        if not save_path.is_absolute():
+            save_path = self.working_directory / save_path
+
+        stills_dir, prefix = plot_from_hdf5_series(
+            self._save_directory / "hdf5",
+            save_path / "stills",
+            field_name=field_name,
+            component=component,
+            vminmax=vminmax,
+            scale=scale,
+            field_offset=field_offset,
+            cmap=cmap,
+            rmax=rmax,
+            font_size=font_size,
+        )
+        return make_movie(
+            stills_dir,
+            prefix,
+            filename=prefix if filename is None else filename,
+            framerate=framerate,
+            movie_dir=save_path,
+        )
 
     # TODO: Add a method for plotting the constituent DensityProfiles like in Chris' results. Include lineouts of gas pressure and the total plasma density.
     # TODO: Add a method for plotting the laser pulse profiles (probably just calling the LaserProfile.plot() method)

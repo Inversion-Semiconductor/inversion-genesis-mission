@@ -51,13 +51,13 @@ class ExampleDensityProfile(_DensityProfile):
         super().__attrs_post_init__()  # NOTE: ALL SUBCLASSES MUST CALL THEIR SUPERCLASS'S __ATTRS_POST_INIT__ IF THEY OVERRIDE IT
 
     # NOTE: IMPLEMENTATIONS MUST OVERRIDE THESE METHODS, DETERMINE THE Z AND R EXTENTS OF THE PROFILE.
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         """
         Get the longitudinal extent of the density profile in meters.
         """
         return (self.start_position, self.start_position + self.length)
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         """
         Get the radial extent of the density profile in meters.
         """
@@ -119,13 +119,13 @@ class AsymmetricSine(_DensityProfile):
         converter=float, validator=attrs.validators.gt(0.0)
     )
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         return (
             self.peak_z0 - self.upramp_length,
             self.peak_z0 + self.downramp_length,
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:
@@ -168,7 +168,7 @@ class SmoothSineFlattop(_DensityProfile):
     )
     offset_length: float = attrs.field(default=0.0, converter=float)
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         return (
             self.offset_length,
             self.offset_length
@@ -177,7 +177,7 @@ class SmoothSineFlattop(_DensityProfile):
             + self.downramp_length,
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:
@@ -232,7 +232,7 @@ class GaussianPlusTriangle(_DensityProfile):
         default=3.0, converter=float, validator=attrs.validators.gt(0.0)
     )
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         triangle_extent = (
             self.tri_z0 - self.tri_left_width,
             self.tri_z0 + self.tri_right_width,
@@ -246,7 +246,7 @@ class GaussianPlusTriangle(_DensityProfile):
             max(triangle_extent[1], gaussian_extent[1]),
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:
@@ -306,7 +306,7 @@ class GeneralizedGaussianPlusTriangle(_DensityProfile):
         default=3.0, converter=float, validator=attrs.validators.gt(0.0)
     )
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         # get equivalent width of Gaussian where value is e^(-num_sigma_extent**2/2)
         gen_gaus_nsig_width = (
             np.power(self.num_sigma_extent**2 / 2.0, 1.0 / self.gauss_beta)
@@ -327,7 +327,7 @@ class GeneralizedGaussianPlusTriangle(_DensityProfile):
             max(triangle_extent[1], gaussian_extent[1]),
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:
@@ -378,7 +378,7 @@ class BilateralSuperGaussian(_DensityProfile):
         default=3.0, converter=float, validator=attrs.validators.gt(0.0)
     )
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         left_half = _supergaussian_half_span(
             self.fwhm_left, self.beta_left, self.num_sigma_extent
         )
@@ -387,7 +387,7 @@ class BilateralSuperGaussian(_DensityProfile):
         )
         return (self.center - left_half, self.center + right_half)
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:
@@ -502,7 +502,7 @@ class GeneralizedLorentzianSum(_DensityProfile):
             raise ValueError("At least one parameter must have a positive amplitude A.")
         object.__setattr__(self, "nominal_density", max(p.A for p in self.parameters))
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         extents = [
             p.z_extent(self.density_cutoff_ratio * abs(self.nominal_density / p.A))
             for p in self.parameters
@@ -513,7 +513,7 @@ class GeneralizedLorentzianSum(_DensityProfile):
             max(extent[1] for extent in extents),
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
     def build_density_function(self) -> DensityCallable:

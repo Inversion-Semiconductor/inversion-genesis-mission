@@ -76,7 +76,10 @@ class ModifiedDensityProfile(_DensityProfile):
             Defaults to Hydrogen.
         ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
             Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
         p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
         p_nr: (int) Number of macroparticles per gridcell along the radial direction.
         p_nt: (int) Number of macroparticles per gridcell along the angular direction.
@@ -98,7 +101,10 @@ class ModifiedDensityProfile(_DensityProfile):
     p_nt: int
     species: str | None
     ionization: int | None
+    p_rmin: float | None
     p_rmax: float | None
+    p_zmin: float | None
+    p_zmax: float | None
     elec_name: str | None
     elec_select: dict[str, list[float | None]] | None
     ion_name: str | None
@@ -129,7 +135,10 @@ class ModifiedDensityProfile(_DensityProfile):
                 Defaults to Hydrogen.
             ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
                 Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
-            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile. If None, the radial extent is determined by the simulation grid.
+            p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
             p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
             p_nr: (int) Number of macroparticles per gridcell along the radial direction.
             p_nt: (int) Number of macroparticles per gridcell along the angular direction.
@@ -144,9 +153,9 @@ class ModifiedDensityProfile(_DensityProfile):
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
                 Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
                 Defaults to None."""
-    def get_z_extent(self) -> tuple[float, float] | None:
+    def _get_z_extent(self) -> tuple[float, float] | None:
         ...
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         ...
     def build_density_function(self) -> DensityCallable:
         ...
