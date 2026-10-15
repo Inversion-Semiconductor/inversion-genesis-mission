@@ -303,8 +303,8 @@ def test_run_can_advance_while_movies_are_pending(
         nitrogen_dopant_fraction=0.03,
         density_fwhm_left_m=1e-3,
         density_fwhm_right_m=2e-3,
-        density_beta_left=2.0,
-        density_beta_right=4.0,
+        density_left_ramp_edge_percent=0.5,
+        density_right_ramp_edge_percent=0.5,
         density_center_location_m=2e-3,
         laser_energy_J=1.0,
         laser_wavelength_m=800e-9,
@@ -357,8 +357,22 @@ def test_run_can_advance_while_movies_are_pending(
             for density in simulation.densities:
                 assert density.fwhm_left == physical["density_fwhm_left_m"]
                 assert density.fwhm_right == physical["density_fwhm_right_m"]
-                assert density.beta_left == physical["density_beta_left"]
-                assert density.beta_right == physical["density_beta_right"]
+                one_percent_location = density.center - (
+                    density.fwhm_left / 2.0
+                    + physical["density_left_ramp_edge_percent"]
+                    * (density.center - density.fwhm_left / 2.0)
+                )
+                assert density.build_density_function()(
+                    one_percent_location, 0.0
+                ) == pytest.approx(0.01)
+                right_one_percent_location = density.center + (
+                    density.fwhm_right / 2.0
+                    + physical["density_right_ramp_edge_percent"]
+                    * (density.center - density.fwhm_right / 2.0)
+                )
+                assert density.build_density_function()(
+                    right_one_percent_location, 0.0
+                ) == pytest.approx(0.01)
         if plot_movies:
             assert not cases[1].movie_future.done()
         else:

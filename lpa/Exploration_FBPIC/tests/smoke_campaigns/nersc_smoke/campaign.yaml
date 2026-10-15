@@ -8,8 +8,8 @@ parameters:
   nitrogen_dopant_fraction: {nominal: 0.03}
   density_fwhm_left_m: {nominal: 1.1e-3}
   density_fwhm_right_m: {nominal: 1.1e-3}
-  density_beta_left: {nominal: 1.1}
-  density_beta_right: {nominal: 1.1}
+  density_left_ramp_edge_percent: {nominal: 1.0}
+  density_right_ramp_edge_percent: {nominal: 1.0}
   density_center_location_m: {nominal: 2.3e-3}
   laser_wavelength_m: {nominal: 800e-9}
   laser_energy_J: {nominal: 2.5}

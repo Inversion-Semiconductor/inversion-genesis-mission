@@ -88,19 +88,39 @@ class StageConfig:
         unknown = set(self.active_parameters) - set(parameters)
         if unknown:
             raise ValueError(f"stage {name}: unknown parameters {sorted(unknown)}")
-        nonnumeric = [parameter for parameter in self.active_parameters if not parameters[parameter].variable]
+        nonnumeric = [
+            parameter
+            for parameter in self.active_parameters
+            if not parameters[parameter].variable
+        ]
         if nonnumeric:
-            raise ValueError(f"stage {name}: fixed parameters cannot be active: {nonnumeric}")
+            raise ValueError(
+                f"stage {name}: fixed parameters cannot be active: {nonnumeric}"
+            )
         if self.initial_design_size < 0:
             raise ValueError(f"stage {name}: initial_design_size cannot be negative")
         if self.max_evaluations < self.initial_design_size:
-            raise ValueError(f"stage {name}: max_evaluations must cover the initial design")
-        if min(self.max_evaluations, self.gpus_per_simulation, self.total_gpus, self.concurrent_simulations) < 1:
+            raise ValueError(
+                f"stage {name}: max_evaluations must cover the initial design"
+            )
+        if (
+            min(
+                self.max_evaluations,
+                self.gpus_per_simulation,
+                self.total_gpus,
+                self.concurrent_simulations,
+            )
+            < 1
+        ):
             raise ValueError(f"stage {name}: resource settings must be positive")
         if self.total_gpus % self.gpus_per_simulation:
-            raise ValueError(f"stage {name}: total_gpus must be divisible by gpus_per_simulation")
+            raise ValueError(
+                f"stage {name}: total_gpus must be divisible by gpus_per_simulation"
+            )
         if self.concurrent_simulations > self.total_gpus // self.gpus_per_simulation:
-            raise ValueError(f"stage {name}: concurrent_simulations exceeds GPU capacity")
+            raise ValueError(
+                f"stage {name}: concurrent_simulations exceeds GPU capacity"
+            )
 
 
 @dataclass(frozen=True)
@@ -156,7 +176,9 @@ class CampaignConfig:
         return cls(
             name=data["name"],
             template_script=(path.parent / data["template_script"]).resolve(),
-            template_class=str(data.get("template_class", "IonizationInjectionSimulation")),
+            template_class=str(
+                data.get("template_class", "IonizationInjectionSimulation")
+            ),
             run_root=run_root.resolve(),
             parameters=parameters,
             stages=stages,
@@ -168,23 +190,33 @@ class CampaignConfig:
         try:
             names = self.stages[stage].active_parameters
         except KeyError as error:
-            raise KeyError(f"unknown stage {stage!r}; choose from {sorted(self.stages)}") from error
+            raise KeyError(
+                f"unknown stage {stage!r}; choose from {sorted(self.stages)}"
+            ) from error
         return tuple(self.parameters[name] for name in names)
 
     def stage_settings(self, stage: str) -> StageConfig:
         try:
             return self.stages[stage]
         except KeyError as error:
-            raise KeyError(f"unknown stage {stage!r}; choose from {sorted(self.stages)}") from error
+            raise KeyError(
+                f"unknown stage {stage!r}; choose from {sorted(self.stages)}"
+            ) from error
 
     @property
     def exploration_features(self) -> tuple[str, ...]:
         """Scalar outputs selected by this campaign for exploration."""
         features = self.analysis.get("exploration_features", ())
-        if not isinstance(features, list) or not all(isinstance(feature, str) for feature in features):
-            raise ValueError("analysis.exploration_features must be a list of scalar feature names")
+        if not isinstance(features, list) or not all(
+            isinstance(feature, str) for feature in features
+        ):
+            raise ValueError(
+                "analysis.exploration_features must be a list of scalar feature names"
+            )
         if not features:
-            raise ValueError("analysis.exploration_features must select at least one scalar feature")
+            raise ValueError(
+                "analysis.exploration_features must select at least one scalar feature"
+            )
         return tuple(features)
 
     def complete_parameters(
@@ -195,12 +227,33 @@ class CampaignConfig:
         active_names = set(self.stage_settings(stage).active_parameters)
         unknown = set(proposed) - active_names
         if unknown:
-            raise ValueError(f"proposal changes inactive or unknown parameters: {sorted(unknown)}")
+            raise ValueError(
+                f"proposal changes inactive or unknown parameters: {sorted(unknown)}"
+            )
         resolved: dict[str, float | str] = {}
         for name, parameter in self.parameters.items():
             value = proposed.get(name, parameter.nominal)
             resolved[name] = parameter.validate(value)
         return resolved
+
+    def template_hyperparameters(self) -> dict[str, Any]:
+        """Return execution settings enriched with campaign-derived template inputs."""
+        hyperparameters = dict(self.execution["hyperparameters"])
+        for side in ("left", "right"):
+            fwhm = self.parameters.get(f"density_fwhm_{side}_m")
+            ramp_edge_percent = self.parameters.get(f"density_{side}_ramp_edge_percent")
+            if fwhm is not None and fwhm.variable:
+                assert fwhm.lower is not None and fwhm.upper is not None
+                hyperparameters[f"{side}_ramp_percent_fwhm_range_m"] = [
+                    fwhm.lower,
+                    fwhm.upper,
+                ]
+            if ramp_edge_percent is not None and ramp_edge_percent.variable:
+                assert ramp_edge_percent.lower is not None
+                hyperparameters[f"{side}_ramp_percent_min_low_fwhm"] = (
+                    ramp_edge_percent.lower
+                )
+        return hyperparameters
 
     def fingerprint(self) -> str:
         """Hash settings that must remain fixed to compare all campaign outputs."""
@@ -210,7 +263,9 @@ class CampaignConfig:
             "template_class": self.template_class,
             "analysis": self.analysis,
             "execution": self.execution,
-            "parameters": {name: asdict(parameter) for name, parameter in self.parameters.items()},
+            "parameters": {
+                name: asdict(parameter) for name, parameter in self.parameters.items()
+            },
         }
         encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return sha256(encoded).hexdigest()[:16]
@@ -229,7 +284,9 @@ class RunManifest:
 
     def write(self, run_directory: str | Path) -> Path:
         path = Path(run_directory) / "run_manifest.json"
-        path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(asdict(self), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         return path
 
 

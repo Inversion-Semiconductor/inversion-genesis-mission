@@ -90,15 +90,36 @@ diagnostic. It is expected to consume normal FBPIC resources.
 ## Inspecting density ramps
 
 Plot the four lower/upper combinations of `density_fwhm_left_m` and
-`density_beta_left` without running FBPIC. All other physical parameters remain
-at their campaign nominal values. `--simulation-half-length` is in metres and
-sets `density_center_location_m`, so the figure spans the left half of the
-simulation from zero to the density peak:
+`density_left_ramp_edge_percent` without running FBPIC. The latter places the
+1% density point at a fraction of the available distance between the left FWHM
+point and the simulation edge; the template derives beta from it, FWHM, and the
+density center. All other physical parameters remain at their campaign nominal
+values. `--simulation-half-length` is in metres and sets
+`density_center_location_m`, so the figure spans the left half of the simulation
+from zero to the density peak:
+
+For the initial study, the requested 10% to 100% range is remapped before beta
+is derived: at the minimum FWHM it remains 10% to 100%, while at the maximum
+FWHM it becomes 55% to 100%. This suppresses overly steep large-FWHM ramps.
 
 ```bash
 explore-fbpic runs/initial_study/campaign.yaml plot-density-ramps \
   --simulation-half-length 5e-3 \
   --output density-ramp-extremes.png
+```
+
+The command also writes `density-ramp-extremes-parameter-space.png`: 16 sampled
+boundary points from the derived FWHM/beta region, with the direct
+`beta = 1` to `4` rectangle overlaid for comparison. Use
+`--parameter-space-output` to choose a different path.
+
+Plot the nominal full density profile with lightweight random profiles sampled
+from a stage's active campaign parameters:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 \
+  plot-density-envelope --random-samples 30 --seed 7 \
+  --output density-profile-envelope.png
 ```
 
 ## NERSC/libEnsemble

@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 
 from .campaign import Campaign
-from .density_ramps import plot_density_ramps
+from .density_envelope import plot_density_envelope
+from .density_ramps import plot_density_ramp_parameter_space, plot_density_ramps
 from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
 from .store import CampaignStore
@@ -45,7 +46,20 @@ def main() -> None:
         help="left plotting extent in metres; sets density_center_location_m",
     )
     density_ramps.add_argument("--output", type=Path, required=True)
+    density_ramps.add_argument(
+        "--parameter-space-output",
+        type=Path,
+        help="default: OUTPUT with '-parameter-space' appended to its stem",
+    )
     density_ramps.add_argument("--samples", type=int, default=1000)
+    density_envelope = subparsers.add_parser(
+        "plot-density-envelope",
+        help="plot the nominal density profile with random campaign samples",
+    )
+    density_envelope.add_argument("--output", type=Path, required=True)
+    density_envelope.add_argument("--random-samples", type=int, default=20)
+    density_envelope.add_argument("--seed", type=int, default=0)
+    density_envelope.add_argument("--samples", type=int, default=1000)
     subparsers.add_parser("status", help="show reusable successful evaluations")
     subparsers.add_parser(
         "rebuild-store",
@@ -55,13 +69,33 @@ def main() -> None:
 
     explorer = XoptFBPICExplorer(Campaign.from_file(args.config), args.stage)
     if args.command == "plot-density-ramps":
+        campaign = Campaign.from_file(args.config)
         output = plot_density_ramps(
-            Campaign.from_file(args.config),
+            campaign,
             args.simulation_half_length,
             args.output,
             args.samples,
         )
+        parameter_space_output = args.parameter_space_output
+        if parameter_space_output is None:
+            parameter_space_output = args.output.with_name(
+                f"{args.output.stem}-parameter-space{args.output.suffix}"
+            )
+        plot_density_ramp_parameter_space(
+            campaign, args.simulation_half_length, parameter_space_output
+        )
         print(f"wrote density-ramp plot to {output}")
+        print(f"wrote density-ramp parameter-space plot to {parameter_space_output}")
+    elif args.command == "plot-density-envelope":
+        output = plot_density_envelope(
+            Campaign.from_file(args.config),
+            args.stage,
+            args.output,
+            args.random_samples,
+            args.seed,
+            args.samples,
+        )
+        print(f"wrote density-profile envelope to {output}")
     elif args.command == "initial-design":
         count = (
             args.count

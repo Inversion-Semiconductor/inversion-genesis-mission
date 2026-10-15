@@ -56,6 +56,14 @@ def test_stage_one_keeps_all_physical_parameters() -> None:
     assert manifest.stage_settings.concurrent_simulations == 4
 
 
+def test_campaign_derives_independent_right_ramp_inputs() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    hyperparameters = campaign.config.template_hyperparameters()
+
+    assert hyperparameters["right_ramp_percent_fwhm_range_m"] == [0.8e-3, 5.0e-3]
+    assert hyperparameters["right_ramp_percent_min_low_fwhm"] == 0.05
+
+
 def test_stage_resource_settings_are_consistent() -> None:
     campaign = Campaign.from_file(CONFIG)
     settings = campaign.config.stage_settings("stage_1")

@@ -128,7 +128,7 @@ class FBPICRunExecutor:
         return result
 
     def _write_entrypoint(self, run_directory: Path, manifest: RunManifest) -> None:
-        hyperparameters = dict(self.config.execution["hyperparameters"])
+        hyperparameters = self.config.template_hyperparameters()
         hyperparameters["lasy_file"] = str(run_directory / "experimental_laser")
         hyperparameters["lab_diagnostic_directory"] = str(run_directory / "lab_diags")
         contents = f'''"""Generated FBPIC entry point. Do not edit; see run_manifest.json."""

@@ -11,11 +11,11 @@ run_root: ../../data/ionization_injection_exploration
 parameters:
   peak_neutral_density_cm3: {nominal: 1.4, lower: 0.5, upper: 8.0, unit: 1e18 cm^-3, linear_scale: 1e18} # nominal density profile values for 3 mm distance, 20 bar pressure, (sim: shape, exp: peak density)
   nitrogen_dopant_fraction: {nominal: 0.03, lower: 0.01, upper: 0.06, unit: fraction}
-  density_fwhm_left_m: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
-  density_fwhm_right_m: {nominal: 2.0, lower: 0.8, upper: 3.0, unit: mm, linear_scale: 1e-3}
-  density_beta_left: {nominal: 2.0, lower: 1.0, upper: 3.0}
-  density_beta_right: {nominal: 2.0, lower: 1.0, upper: 3.0}
-  density_center_location_m: {nominal: 2.3, lower: 1.5, upper: 3.2, unit: mm, linear_scale: 1e-3} # NOTE: this should scale with "density_fwhm_left_m" & "density_beta_left", or be fixed, not be treated as an optimization parameter
+  density_fwhm_left_m: {nominal: 2.0, lower: 0.8, upper: 5.0, unit: mm, linear_scale: 1e-3}
+  density_fwhm_right_m: {nominal: 2.0, lower: 0.8, upper: 5.0, unit: mm, linear_scale: 1e-3}
+  density_left_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the left FWHM point toward z=0. The template remaps it as FWHM grows, then derives beta."}
+  density_right_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the right FWHM point toward the mirrored right edge. The template remaps it as FWHM grows, then derives beta."}
+  density_center_location_m: {nominal: 5.0, lower: 4.0, upper: 6.0, unit: mm, linear_scale: 1e-3}
   laser_wavelength_m: {nominal: 800e-9, unit: m, description: Fixed laser central wavelength.}
   laser_energy_J: {nominal: 2.5, lower: 1.5, upper: 3.5, unit: J}
   laser_pulse_duration_fwhm_s: {nominal: 30.0, lower: 20.0, upper: 45.0, unit: fs, linear_scale: 1e-15}
@@ -71,8 +71,8 @@ stages:
       - nitrogen_dopant_fraction
       - density_fwhm_left_m
       - density_fwhm_right_m
-      - density_beta_left
-      - density_beta_right
+      - density_left_ramp_edge_percent
+      - density_right_ramp_edge_percent
       - density_center_location_m
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
@@ -134,6 +134,7 @@ execution:
     laser_hi_range: 10.0
     laser_center_and_remove_tilt: true
     laser_centering_angles: 72
+    ramp_percent_min_high_fwhm: 0.4
   # Use [python] locally. In a NERSC allocation, a libEnsemble worker should
   # supply the slot-aware srun command through this field or its executor.
   launcher: [python]
