@@ -10,25 +10,16 @@ import subprocess
 import time
 from typing import Any, Mapping
 
-import numpy as np
-from scipy.constants import c, e, m_e
-
 from inversion_fbpic.utils.distributions import (
     SPLINE,
     compute_moment_descriptor,
     crop_central_particles,
     load_openpmd_particles,
+    mean_kinetic_energy_mev as mean_kinetic_energy_mev,
     select_by_uz,
 )
 
 from .campaign import Campaign, RunManifest
-
-
-def mean_kinetic_energy_mev(particles: np.ndarray, weights: np.ndarray) -> float:
-    """Return the charge-weighted mean electron kinetic energy in MeV."""
-    gamma = np.sqrt(1.0 + np.sum(particles[:, (1, 3, 5)] ** 2, axis=1))
-    kinetic_energy_mev = (gamma - 1.0) * m_e * c**2 / e / 1.0e6
-    return float(np.average(kinetic_energy_mev, weights=weights))
 
 
 @dataclass(frozen=True)
