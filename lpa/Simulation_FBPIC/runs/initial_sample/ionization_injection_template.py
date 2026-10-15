@@ -73,6 +73,7 @@ class IonizationInjectionSimulation:
         "r_boundary": "reflective",
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
         "analysis_select": {"uz": [10.0, None]},  # which particles are analyzed
+        "analysis_central_fraction": 0.95,
         "dump_fields": False,
         "plot_movies": False,
         "number_dumps_lab": 100,
@@ -326,10 +327,12 @@ class IonizationInjectionSimulation:
                     longitudinal_bins=dg.MomentDescriptorDiagnostic.LONGITUDINAL_PROFILE_BINS,
                     include_total_weight=False,
                     include_higher_moments=False,
+                    central_fraction=hyperparameters["analysis_central_fraction"],
                 ),
                 dg.MeanKineticEnergy(
                     target=("all_of_species", "e"),
                     select=hyperparameters["analysis_select"],
+                    central_fraction=hyperparameters["analysis_central_fraction"],
                 ),
             ]
         )

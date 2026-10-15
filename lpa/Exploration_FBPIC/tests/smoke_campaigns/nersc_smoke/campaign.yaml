@@ -74,6 +74,7 @@ execution:
     r_boundary: reflective
     diagnostic_select: {uz: [10.0, None]}
     analysis_select: {uz: [10.0, None]}
+    analysis_central_fraction: 0.95
     dump_fields: false
     plot_movies: false
     number_dumps_lab: 50

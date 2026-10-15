@@ -32,6 +32,7 @@ HYPERPARAMETERS = {
     "r_boundary": "reflective",
     "diagnostic_select": {"uz": [10.0, None]},
     "analysis_select": {"uz": [10.0, None]},
+    "analysis_central_fraction": 0.95,
     "dump_fields": False,
     "plot_movies": False,
     "number_dumps_lab": 50,
