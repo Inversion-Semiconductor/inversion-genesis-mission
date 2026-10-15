@@ -12,7 +12,7 @@ when the selection does. Variables that set an input (laser energy, ...) go to t
 
 A run that holds no final particles -- an archive of a reconstructed run -- has none to hand on. With
 `synthetic_bunch_particles=N` the selector builds an approximate bunch from that run's recorded moment
-descriptor instead, each time `final_particles` is read.
+descriptor instead, and keeps it until the descriptor values change.
 """
 
 from __future__ import annotations
@@ -22,8 +22,7 @@ import typing
 import warnings
 
 import numpy
-from scipy.constants import c
-from lume_fbpic.simulator import ELECTRON_MC2_EV
+from scipy.constants import e
 from scipy.optimize import minimize
 from scipy.stats import norm
 
@@ -32,7 +31,11 @@ from lume.staged_model import FinalParticlesMixIn
 from lume.variables import EnumVariable, Variable
 
 from inversion_fbpic.utils.distributions import COORD_NAMES
+from lume_fbpic.actions import DESCRIPTOR_PREFIX
+from lume_fbpic.descriptor import covariance_feature, slice_features
 from lume_fbpic.model import LUMEFBPICModel
+from lume_fbpic.utils import particle_group
+from lume_fbpic_twin.bunch_frame import to_bunch_frame
 
 from beamphysics import ParticleGroup
 
@@ -48,7 +51,7 @@ class ArchiveSelector(FinalParticlesMixIn, LUMEModel):
         selector_name: Name of the enum variable. It must not be one of the models' variables.
         synthetic_bunch_particles: If given, a run without final particles (an archive of a
             reconstructed run) hands downstream a bunch of this many macroparticles built from
-            its recorded moment descriptor. It is built each time `final_particles` is read, and
+            its recorded moment descriptor. It is built once per run and descriptor, and
             is an APPROXIMATION: the descriptor's 33 numbers do not fix a distribution (see
             `particles_from_descriptor`). None means such a run has no particles.
 
@@ -83,15 +86,20 @@ class ArchiveSelector(FinalParticlesMixIn, LUMEModel):
             raise ValueError("synthetic_bunch_particles must be at least 2")
         self._models = dict(models)
         self._synthetic_bunch_particles = synthetic_bunch_particles
+        # Run name -> (descriptor it was built from, synthetic bunch).
+        self._synthetic_bunches: dict[str, tuple[dict[str, float], ParticleGroup]] = {}
         self.selector_name = selector_name
         self._active = names[0]
         self._selector = EnumVariable(
             name=selector_name, options=names, default_value=names[0], read_only=False
         )
         if synthetic_bunch_particles is not None:
-            for model in self._models.values():  # fail now, not on the first switch
+            for (
+                name,
+                model,
+            ) in self._models.items():  # fail now, not on the first switch
                 if model.final_particles is None:
-                    self._synthetic_bunch(model)
+                    self._synthetic_bunch(name)
 
     @property
     def active(self) -> str:
@@ -109,7 +117,7 @@ class ArchiveSelector(FinalParticlesMixIn, LUMEModel):
         recorded descriptor if `synthetic_bunch_particles` was given, otherwise None."""
         particles = self.active_model.final_particles
         if particles is None and self._synthetic_bunch_particles is not None:
-            return self._synthetic_bunch(self.active_model)
+            return self._synthetic_bunch(self._active)
         return particles
 
     @property
@@ -147,17 +155,22 @@ class ArchiveSelector(FinalParticlesMixIn, LUMEModel):
         if rest:
             self.active_model.set(rest)
 
-    def _synthetic_bunch(self, model: LUMEFBPICModel) -> ParticleGroup:
-        """A bunch built from `model`'s recorded moment descriptor.
+    def _synthetic_bunch(self, name: str) -> ParticleGroup:
+        """A bunch built from the recorded moment descriptor of run `name`, kept until the
+        descriptor values change (the build solves for the bin charges and samples the bunch).
 
         Raises:
             ValueError: If the model has no recorded descriptor, or an incomplete one.
         """
-        prefix = "descriptor_"
-        names = [name for name in model.supported_variables if name.startswith(prefix)]
+        model = self._models[name]
+        names = [
+            name
+            for name in model.supported_variables
+            if name.startswith(DESCRIPTOR_PREFIX)
+        ]
         values = model.get(names) if names else {}
         descriptor = {
-            name[len(prefix) :]: value
+            name[len(DESCRIPTOR_PREFIX) :]: value
             for name, value in values.items()
             if not math.isnan(value)
         }
@@ -165,9 +178,14 @@ class ArchiveSelector(FinalParticlesMixIn, LUMEModel):
             raise ValueError(
                 "a run without final particles has no recorded descriptor values"
             )
-        return particles_from_descriptor(
+        cached = self._synthetic_bunches.get(name)
+        if cached is not None and cached[0] == descriptor:
+            return cached[1]
+        bunch = particles_from_descriptor(
             descriptor, n_particles=self._synthetic_bunch_particles
         )
+        self._synthetic_bunches[name] = (descriptor, bunch)
+        return bunch
 
 
 def particles_from_descriptor(
@@ -190,23 +208,26 @@ def particles_from_descriptor(
     - The mean position is zero (the descriptor does not carry it), and the tails of the real
       distribution are not reproduced.
 
-    The result is in the bunch frame (`t = -z / c`, `z` centred on zero), has equal charge weights
-    summing to `total_beam_charge_pc` (in coulombs), and is already the selected bunch the descriptor was computed
-    on: do not select it again.
+    The sample is a lab-frame snapshot at `t = 0`, centred on `z = 0`, returned in the bunch frame
+    on that plane (`bunch_frame.to_bunch_frame`); `drift_to_t(0.0)` gives the snapshot back. It has
+    equal charge weights summing to `total_beam_charge_pc` (in coulombs), and is already the
+    selected bunch the descriptor was computed on: do not select it again.
 
     Raises:
         ValueError: If the descriptor lacks a required key.
     """
-    coords = COORD_NAMES  # x, ux, y, uy, z, uz
     try:
         covariance = numpy.zeros((6, 6))
         for row in range(6):
             for column in range(row, 6):
-                key = f"cov_{coords[row]}_{coords[column]}"
-                covariance[row, column] = covariance[column, row] = descriptor[key]
-        bins = sorted(k for k in descriptor if k.startswith("longitudinal_mean_uz_"))
-        slice_mean = numpy.array([descriptor[k] for k in bins])
-        slice_rms = numpy.array([descriptor[k.replace("mean", "rms")] for k in bins])
+                covariance[row, column] = covariance[column, row] = descriptor[
+                    covariance_feature(COORD_NAMES[row], COORD_NAMES[column])
+                ]
+        bins = []
+        while slice_features(len(bins))[0] in descriptor:
+            bins.append(slice_features(len(bins)))
+        slice_mean = numpy.array([descriptor[mean] for mean, _ in bins])
+        slice_rms = numpy.array([descriptor[rms] for _, rms in bins])
         mean_ux, mean_uy, mean_uz = (
             descriptor[f"mean_{n}"] for n in ("ux", "uy", "uz")
         )
@@ -257,19 +278,12 @@ def particles_from_descriptor(
         + deviation @ regression.T
         + rng.normal(size=(n_particles, 4)) @ root.T
     )
-    return ParticleGroup(
-        data={
-            "x": sample[:, 0],
-            "y": sample[:, 2],
-            "z": z,
-            "px": sample[:, 1] * ELECTRON_MC2_EV,
-            "py": sample[:, 3] * ELECTRON_MC2_EV,
-            "pz": uz * ELECTRON_MC2_EV,
-            "t": -z / c,
-            "status": numpy.ones(n_particles, dtype=int),
-            "weight": numpy.full(n_particles, charge / n_particles),
-            "species": "electron",
-        }
+    return to_bunch_frame(
+        particle_group(
+            numpy.column_stack([sample, z, uz]),
+            numpy.full(n_particles, charge / e / n_particles),
+        ),
+        0.0,
     )
 
 

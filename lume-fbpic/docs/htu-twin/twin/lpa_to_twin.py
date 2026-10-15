@@ -1,10 +1,10 @@
 """Make a `lume-fbpic` bunch the source of the HTU transport twin (`geecs-lume-twin`).
 
 `build_chain(lpa_model)` is `StagedModel([lpa_model, TwinStage(twin_model)])`: it hands the LPA
-stage's `final_particles` to the twin's `initial_particles` (see `docs/htu-twin/twin/twin_stage.py`), and the
+stage's `final_particles` to the twin's `initial_particles` (see `lume_fbpic_twin.twin_stage`), and the
 twin's own `Source_*` variables become read-only readbacks of that bunch. The bunch comes from either
 
-- `--archive`: an archive written with `LUMEFBPICModel.archive(save_final_particles=True)`, or
+- `--archive`: an archive written with `model.archive(..., save_final_particles=True)`, or
 - `--run-dir`: the working directory of a finished `ionization_injection.py` run, whose
   diagnostics are read with `load_results()`.
 
@@ -29,33 +29,12 @@ import sys
 from pathlib import Path
 
 import numpy
+from lume_fbpic import descriptor
 from lume_fbpic.model import LUMEFBPICModel
+from lume_fbpic_twin.twin_stage import build_chain
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "examples"))
 import ionization_injection  # noqa: E402  (docs/examples/ionization_injection.py)
-from twin_stage import (
-    build_chain,
-)  # noqa: E402  (docs/htu-twin/twin/twin_stage.py, this directory)
-
-SCREENS = (
-    "TCPhosphor",
-    "ChicaneSlit",
-    "DCPhosphor",
-    "Phosphor1",
-    "UC_ALineEbeam1",
-    "UC_ALineEBeam2",
-    "UC_ALineEBeam3",
-)
-SOURCE_READBACKS = (
-    "Source_Energy_MeV",
-    "Source_EnergySpread_pct",
-    "Source_Charge_pC",
-    "Source_NumParticles",
-    "Source_BetaX_mm",
-    "Source_BetaY_mm",
-    "Source_NormEmitX_um",
-    "Source_NormEmitY_um",
-)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -65,8 +44,10 @@ def main(argv: list[str] | None = None) -> None:
     source.add_argument(
         "--run-dir", type=Path, help="working directory of a finished run"
     )
-    parser.add_argument("--uz-min", type=float, default=30.0)
-    parser.add_argument("--central-fraction", type=float, default=0.95)
+    parser.add_argument("--uz-min", type=float, default=descriptor.UZ_MIN)
+    parser.add_argument(
+        "--central-fraction", type=float, default=descriptor.CENTRAL_FRACTION
+    )
     parser.add_argument(
         "--plasma-exit-z",
         type=float,
@@ -74,6 +55,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    from htu.lattice import SCREEN_NAMES
     from htu.model import build_htu_model
 
     if args.archive:
@@ -91,9 +73,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     twin = chain.lume_model_instances[1]
 
-    # Setting any twin variable passes the LPA bunch on first; re-setting a value is harmless.
-    current = chain.get(["EMQ1H_Current"])["EMQ1H_Current"]
-    chain.set({"EMQ1H_Current": float(current)})
+    # A set of the chain, even an empty one, passes the LPA bunch on.
+    chain.set({})
 
     injected = twin.initial_particles
     print(f"injected {len(injected)} particles, {injected.charge * 1e12:.1f} pC")
@@ -106,10 +87,10 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"Source_* are read-only: {chain.supported_variables['Source_Energy_MeV'].read_only}"
     )
-    for name in SOURCE_READBACKS:
+    for name in twin.source_names:
         print(f"  {name:26} {float(chain.get([name])[name]):.4g}")
     print("charge on each screen (pC, fraction of injected):")
-    for screen in SCREENS:
+    for screen in SCREEN_NAMES:
         image = numpy.asarray(chain.get([f"{screen}_image"])[f"{screen}_image"])
         charge = float(image.sum()) * 1e12
         print(f"  {screen:18} {charge:8.1f}  {charge / (injected.charge * 1e12):6.1%}")

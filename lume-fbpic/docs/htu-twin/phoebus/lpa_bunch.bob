@@ -5,370 +5,572 @@
   <height>852</height>
   <widget type="label" version="2.0.0">
     <name>Title</name>
+    <x>20</x>
+    <y>10</y>
+    <width>300</width>
+    <height>28</height>
     <text>LPA bunch</text>
-    <x>20</x><y>10</y><width>300</width><height>28</height>
-    <font><font family="Liberation Sans" style="BOLD" size="16.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="16.0" />
+    </font>
   </widget>
   <widget type="label" version="2.0.0">
     <name>Subtitle</name>
-    <text>Served by serve.py --twin. The values are the selected run's recorded results.</text>
-    <x>20</x><y>40</y><width>718</width><height>20</height>
-    <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
+    <x>20</x>
+    <y>40</y>
+    <width>718</width>
+    <height>20</height>
+    <text>Served by lume_fbpic_twin.serve --twin. The values are the selected run's recorded results.</text>
+    <font>
+      <font family="Liberation Sans" style="REGULAR" size="10.0" />
+    </font>
   </widget>
   <widget type="action_button" version="3.0.0">
     <name>SynopticButton</name>
     <actions>
       <action type="open_display">
         <file>htu_synoptic_lpa.bob</file>
-        <macros></macros>
+        <macros />
         <target>window</target>
         <description>The HTU twin synoptic with the LPA bunch tied in (see generate_linked_synoptic.py)</description>
       </action>
     </actions>
     <text>HTU synoptic...</text>
-    <x>588</x><y>12</y><width>150</width><height>26</height>
+    <x>588</x>
+    <y>12</y>
+    <width>150</width>
+    <height>26</height>
   </widget>
   <widget type="label" version="2.0.0">
     <name>RunLabel</name>
+    <x>20</x>
+    <y>70</y>
+    <width>70</width>
+    <height>24</height>
     <text>LPA run:</text>
-    <x>20</x><y>70</y><width>70</width><height>24</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="combo" version="2.0.0">
     <name>RunSelector</name>
+    <x>94</x>
+    <y>70</y>
+    <width>260</width>
+    <height>24</height>
     <pv_name>pva://$(P=HTU:SIM:)LPA_Archive</pv_name>
-    <x>94</x><y>70</y><width>260</width><height>24</height>
     <items_from_pv>true</items_from_pv>
   </widget>
   <widget type="label" version="2.0.0">
     <name>RunNote</name>
+    <x>364</x>
+    <y>70</y>
+    <width>374</width>
+    <height>24</height>
     <text>Choose a run: its values are loaded here and passed on to the twin as its source.</text>
-    <x>364</x><y>70</y><width>374</width><height>24</height>
-    <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="REGULAR" size="10.0" />
+    </font>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SourceHeader</name>
+    <x>20</x>
+    <y>108</y>
+    <width>400</width>
+    <height>22</height>
     <text>Twin source (the LPA bunch as injected)</text>
-    <x>20</x><y>108</y><width>400</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="rectangle" version="2.0.0">
     <name>SourceRule</name>
-    <x>20</x><y>132</y><width>718</width><height>1</height>
+    <x>20</x>
+    <y>132</y>
+    <width>718</width>
+    <height>1</height>
     <line_width>0</line_width>
-    <background_color><color red="150" green="150" blue="150"/></background_color>
+    <background_color>
+      <color red="150" green="150" blue="150" alpha="255" />
+    </background_color>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL0</name>
+    <x>20</x>
+    <y>140</y>
+    <width>150</width>
+    <height>22</height>
     <text>Energy [MeV]</text>
-    <x>20</x><y>140</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV0</name>
+    <x>175</x>
+    <y>140</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_Energy_MeV</pv_name>
-    <x>175</x><y>140</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL1</name>
+    <x>379</x>
+    <y>140</y>
+    <width>150</width>
+    <height>22</height>
     <text>Energy spread [% rms]</text>
-    <x>379</x><y>140</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV1</name>
+    <x>534</x>
+    <y>140</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_EnergySpread_pct</pv_name>
-    <x>534</x><y>140</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL2</name>
+    <x>20</x>
+    <y>166</y>
+    <width>150</width>
+    <height>22</height>
     <text>Charge [pC]</text>
-    <x>20</x><y>166</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV2</name>
+    <x>175</x>
+    <y>166</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_Charge_pC</pv_name>
-    <x>175</x><y>166</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL3</name>
+    <x>379</x>
+    <y>166</y>
+    <width>150</width>
+    <height>22</height>
     <text>Macroparticles</text>
-    <x>379</x><y>166</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV3</name>
+    <x>534</x>
+    <y>166</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_NumParticles</pv_name>
-    <x>534</x><y>166</y><width>110</width><height>22</height>
     <precision>0</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL4</name>
+    <x>20</x>
+    <y>192</y>
+    <width>150</width>
+    <height>22</height>
     <text>Beta x [mm]</text>
-    <x>20</x><y>192</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV4</name>
+    <x>175</x>
+    <y>192</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_BetaX_mm</pv_name>
-    <x>175</x><y>192</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL5</name>
+    <x>379</x>
+    <y>192</y>
+    <width>150</width>
+    <height>22</height>
     <text>Beta y [mm]</text>
-    <x>379</x><y>192</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV5</name>
+    <x>534</x>
+    <y>192</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_BetaY_mm</pv_name>
-    <x>534</x><y>192</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL6</name>
+    <x>20</x>
+    <y>218</y>
+    <width>150</width>
+    <height>22</height>
     <text>Alpha x</text>
-    <x>20</x><y>218</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV6</name>
+    <x>175</x>
+    <y>218</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_AlphaX</pv_name>
-    <x>175</x><y>218</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL7</name>
+    <x>379</x>
+    <y>218</y>
+    <width>150</width>
+    <height>22</height>
     <text>Alpha y</text>
-    <x>379</x><y>218</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV7</name>
+    <x>534</x>
+    <y>218</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_AlphaY</pv_name>
-    <x>534</x><y>218</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL8</name>
+    <x>20</x>
+    <y>244</y>
+    <width>150</width>
+    <height>22</height>
     <text>Norm. emit. x [um]</text>
-    <x>20</x><y>244</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV8</name>
+    <x>175</x>
+    <y>244</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_NormEmitX_um</pv_name>
-    <x>175</x><y>244</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL9</name>
+    <x>379</x>
+    <y>244</y>
+    <width>150</width>
+    <height>22</height>
     <text>Norm. emit. y [um]</text>
-    <x>379</x><y>244</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV9</name>
+    <x>534</x>
+    <y>244</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_NormEmitY_um</pv_name>
-    <x>534</x><y>244</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL10</name>
+    <x>20</x>
+    <y>270</y>
+    <width>150</width>
+    <height>22</height>
     <text>Centroid x [um]</text>
-    <x>20</x><y>270</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV10</name>
+    <x>175</x>
+    <y>270</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_X_um</pv_name>
-    <x>175</x><y>270</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL11</name>
+    <x>379</x>
+    <y>270</y>
+    <width>150</width>
+    <height>22</height>
     <text>Centroid y [um]</text>
-    <x>379</x><y>270</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV11</name>
+    <x>534</x>
+    <y>270</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_Y_um</pv_name>
-    <x>534</x><y>270</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL12</name>
+    <x>20</x>
+    <y>296</y>
+    <width>150</width>
+    <height>22</height>
     <text>Pointing x [mrad]</text>
-    <x>20</x><y>296</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV12</name>
+    <x>175</x>
+    <y>296</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_Xp_mrad</pv_name>
-    <x>175</x><y>296</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SrcL13</name>
+    <x>379</x>
+    <y>296</y>
+    <width>150</width>
+    <height>22</height>
     <text>Pointing y [mrad]</text>
-    <x>379</x><y>296</y><width>150</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SrcV13</name>
+    <x>534</x>
+    <y>296</y>
+    <width>110</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)Source_Yp_mrad</pv_name>
-    <x>534</x><y>296</y><width>110</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>MomentHeader</name>
+    <x>20</x>
+    <y>336</y>
+    <width>500</width>
+    <height>22</height>
     <text>Moment descriptor: momentum centroids and charge</text>
-    <x>20</x><y>336</y><width>500</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="rectangle" version="2.0.0">
     <name>MomentRule</name>
-    <x>20</x><y>360</y><width>718</width><height>1</height>
+    <x>20</x>
+    <y>360</y>
+    <width>718</width>
+    <height>1</height>
     <line_width>0</line_width>
-    <background_color><color red="150" green="150" blue="150"/></background_color>
+    <background_color>
+      <color red="150" green="150" blue="150" alpha="255" />
+    </background_color>
   </widget>
   <widget type="label" version="2.0.0">
     <name>MeanL0</name>
+    <x>20</x>
+    <y>368</y>
+    <width>60</width>
+    <height>22</height>
     <text>mean ux</text>
-    <x>20</x><y>368</y><width>60</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>MeanV0</name>
+    <x>82</x>
+    <y>368</y>
+    <width>108</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_ux</pv_name>
-    <x>82</x><y>368</y><width>108</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>MeanL1</name>
+    <x>236</x>
+    <y>368</y>
+    <width>60</width>
+    <height>22</height>
     <text>mean uy</text>
-    <x>236</x><y>368</y><width>60</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>MeanV1</name>
+    <x>298</x>
+    <y>368</y>
+    <width>108</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_uy</pv_name>
-    <x>298</x><y>368</y><width>108</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>MeanL2</name>
+    <x>452</x>
+    <y>368</y>
+    <width>60</width>
+    <height>22</height>
     <text>mean uz</text>
-    <x>452</x><y>368</y><width>60</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>MeanV2</name>
+    <x>514</x>
+    <y>368</y>
+    <width>108</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_uz</pv_name>
-    <x>514</x><y>368</y><width>108</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>ChargeL</name>
+    <x>560</x>
+    <y>394</y>
+    <width>90</width>
+    <height>22</height>
     <text>Charge [pC]</text>
-    <x>560</x><y>394</y><width>90</width><height>22</height>
     <horizontal_alignment>2</horizontal_alignment>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>ChargeV</name>
+    <x>670</x>
+    <y>394</y>
+    <width>108</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_total_beam_charge_pc</pv_name>
-    <x>670</x><y>394</y><width>108</width><height>22</height>
     <precision>2</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovHeader</name>
+    <x>20</x>
+    <y>430</y>
+    <width>500</width>
+    <height>22</height>
     <text>Covariance of (x, ux, y, uy, z, uz); u = p / (m c)</text>
-    <x>20</x><y>430</y><width>500</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="rectangle" version="2.0.0">
     <name>CovRule</name>
-    <x>20</x><y>454</y><width>718</width><height>1</height>
+    <x>20</x>
+    <y>454</y>
+    <width>718</width>
+    <height>1</height>
     <line_width>0</line_width>
-    <background_color><color red="150" green="150" blue="150"/></background_color>
+    <background_color>
+      <color red="150" green="150" blue="150" alpha="255" />
+    </background_color>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol0</name>
+    <x>90</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>x [m]</text>
-    <x>90</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol1</name>
+    <x>198</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>ux</text>
-    <x>198</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol2</name>
+    <x>306</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>y [m]</text>
-    <x>306</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol3</name>
+    <x>414</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>uy</text>
-    <x>414</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol4</name>
+    <x>522</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>z [m]</text>
-    <x>522</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovCol5</name>
+    <x>630</x>
+    <y>462</y>
+    <width>104</width>
+    <height>20</height>
     <text>uz</text>
-    <x>630</x><y>462</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow0</name>
+    <x>20</x>
+    <y>486</y>
+    <width>66</width>
+    <height>22</height>
     <text>x [m]</text>
-    <x>20</x><y>486</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_x</name>
+    <x>90</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_x</pv_name>
-    <x>90</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -376,8 +578,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_ux</name>
+    <x>198</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_ux</pv_name>
-    <x>198</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -385,8 +590,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_y</name>
+    <x>306</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_y</pv_name>
-    <x>306</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -394,8 +602,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_uy</name>
+    <x>414</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_uy</pv_name>
-    <x>414</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -403,8 +614,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_z</name>
+    <x>522</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_z</pv_name>
-    <x>522</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -412,8 +626,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_x_uz</name>
+    <x>630</x>
+    <y>486</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_uz</pv_name>
-    <x>630</x><y>486</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -421,14 +638,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow1</name>
+    <x>20</x>
+    <y>510</y>
+    <width>66</width>
+    <height>22</height>
     <text>ux</text>
-    <x>20</x><y>510</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_ux_ux</name>
+    <x>198</x>
+    <y>510</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_ux</pv_name>
-    <x>198</x><y>510</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -436,8 +661,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_ux_y</name>
+    <x>306</x>
+    <y>510</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_y</pv_name>
-    <x>306</x><y>510</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -445,8 +673,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_ux_uy</name>
+    <x>414</x>
+    <y>510</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_uy</pv_name>
-    <x>414</x><y>510</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -454,8 +685,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_ux_z</name>
+    <x>522</x>
+    <y>510</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_z</pv_name>
-    <x>522</x><y>510</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -463,8 +697,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_ux_uz</name>
+    <x>630</x>
+    <y>510</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_uz</pv_name>
-    <x>630</x><y>510</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -472,14 +709,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow2</name>
+    <x>20</x>
+    <y>534</y>
+    <width>66</width>
+    <height>22</height>
     <text>y [m]</text>
-    <x>20</x><y>534</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_y_y</name>
+    <x>306</x>
+    <y>534</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_y</pv_name>
-    <x>306</x><y>534</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -487,8 +732,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_y_uy</name>
+    <x>414</x>
+    <y>534</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_uy</pv_name>
-    <x>414</x><y>534</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -496,8 +744,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_y_z</name>
+    <x>522</x>
+    <y>534</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_z</pv_name>
-    <x>522</x><y>534</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -505,8 +756,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_y_uz</name>
+    <x>630</x>
+    <y>534</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_uz</pv_name>
-    <x>630</x><y>534</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -514,14 +768,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow3</name>
+    <x>20</x>
+    <y>558</y>
+    <width>66</width>
+    <height>22</height>
     <text>uy</text>
-    <x>20</x><y>558</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_uy_uy</name>
+    <x>414</x>
+    <y>558</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_uy</pv_name>
-    <x>414</x><y>558</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -529,8 +791,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_uy_z</name>
+    <x>522</x>
+    <y>558</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_z</pv_name>
-    <x>522</x><y>558</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -538,8 +803,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_uy_uz</name>
+    <x>630</x>
+    <y>558</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_uz</pv_name>
-    <x>630</x><y>558</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -547,14 +815,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow4</name>
+    <x>20</x>
+    <y>582</y>
+    <width>66</width>
+    <height>22</height>
     <text>z [m]</text>
-    <x>20</x><y>582</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_z_z</name>
+    <x>522</x>
+    <y>582</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_z_z</pv_name>
-    <x>522</x><y>582</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -562,8 +838,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_z_uz</name>
+    <x>630</x>
+    <y>582</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_z_uz</pv_name>
-    <x>630</x><y>582</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -571,14 +850,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>CovRow5</name>
+    <x>20</x>
+    <y>606</y>
+    <width>66</width>
+    <height>22</height>
     <text>uz</text>
-    <x>20</x><y>606</y><width>66</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>Cov_uz_uz</name>
+    <x>630</x>
+    <y>606</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uz_uz</pv_name>
-    <x>630</x><y>606</y><width>104</width><height>22</height>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -586,165 +873,253 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceHeader</name>
+    <x>20</x>
+    <y>644</y>
+    <width>560</width>
+    <height>22</height>
     <text>Longitudinal slices (equal particle count along z, tail to head)</text>
-    <x>20</x><y>644</y><width>560</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="rectangle" version="2.0.0">
     <name>SliceRule</name>
-    <x>20</x><y>668</y><width>718</width><height>1</height>
+    <x>20</x>
+    <y>668</y>
+    <width>718</width>
+    <height>1</height>
     <line_width>0</line_width>
-    <background_color><color red="150" green="150" blue="150"/></background_color>
+    <background_color>
+      <color red="150" green="150" blue="150" alpha="255" />
+    </background_color>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceMeanL</name>
+    <x>20</x>
+    <y>700</y>
+    <width>66</width>
+    <height>22</height>
     <text>mean uz</text>
-    <x>20</x><y>700</y><width>66</width><height>22</height>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceRmsL</name>
+    <x>20</x>
+    <y>726</y>
+    <width>66</width>
+    <height>22</height>
     <text>rms uz</text>
-    <x>20</x><y>726</y><width>66</width><height>22</height>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceCol0</name>
+    <x>90</x>
+    <y>676</y>
+    <width>104</width>
+    <height>20</height>
     <text>slice 0</text>
-    <x>90</x><y>676</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceMean0</name>
+    <x>90</x>
+    <y>700</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_00</pv_name>
-    <x>90</x><y>700</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceRms0</name>
+    <x>90</x>
+    <y>726</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_00</pv_name>
-    <x>90</x><y>726</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceCol1</name>
+    <x>198</x>
+    <y>676</y>
+    <width>104</width>
+    <height>20</height>
     <text>slice 1</text>
-    <x>198</x><y>676</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceMean1</name>
+    <x>198</x>
+    <y>700</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_01</pv_name>
-    <x>198</x><y>700</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceRms1</name>
+    <x>198</x>
+    <y>726</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_01</pv_name>
-    <x>198</x><y>726</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceCol2</name>
+    <x>306</x>
+    <y>676</y>
+    <width>104</width>
+    <height>20</height>
     <text>slice 2</text>
-    <x>306</x><y>676</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceMean2</name>
+    <x>306</x>
+    <y>700</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_02</pv_name>
-    <x>306</x><y>700</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceRms2</name>
+    <x>306</x>
+    <y>726</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_02</pv_name>
-    <x>306</x><y>726</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>SliceCol3</name>
+    <x>414</x>
+    <y>676</y>
+    <width>104</width>
+    <height>20</height>
     <text>slice 3</text>
-    <x>414</x><y>676</y><width>104</width><height>20</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
     <horizontal_alignment>1</horizontal_alignment>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceMean3</name>
+    <x>414</x>
+    <y>700</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_03</pv_name>
-    <x>414</x><y>700</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>SliceRms3</name>
+    <x>414</x>
+    <y>726</y>
+    <width>104</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_03</pv_name>
-    <x>414</x><y>726</y><width>104</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>StatsHeader</name>
+    <x>20</x>
+    <y>760</y>
+    <width>560</width>
+    <height>22</height>
     <text>Run statistics (blank/NaN for a reconstructed run: no particles)</text>
-    <x>20</x><y>760</y><width>560</width><height>22</height>
-    <font><font family="Liberation Sans" style="BOLD" size="12.0"/></font>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="12.0" />
+    </font>
   </widget>
   <widget type="rectangle" version="2.0.0">
     <name>StatsRule</name>
-    <x>20</x><y>784</y><width>718</width><height>1</height>
+    <x>20</x>
+    <y>784</y>
+    <width>718</width>
+    <height>1</height>
     <line_width>0</line_width>
-    <background_color><color red="150" green="150" blue="150"/></background_color>
+    <background_color>
+      <color red="150" green="150" blue="150" alpha="255" />
+    </background_color>
   </widget>
   <widget type="label" version="2.0.0">
     <name>StatL0</name>
+    <x>20</x>
+    <y>792</y>
+    <width>175</width>
+    <height>22</height>
     <text>Charge, all electrons [pC]</text>
-    <x>20</x><y>792</y><width>175</width><height>22</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>StatV0</name>
+    <x>20</x>
+    <y>816</y>
+    <width>140</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)charge_pc</pv_name>
-    <x>20</x><y>816</y><width>140</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>StatL1</name>
-    <text>Mean energy [MeV]</text>
-    <x>259</x><y>792</y><width>175</width><height>22</height>
+    <x>259</x>
+    <y>792</y>
+    <width>175</width>
+    <height>22</height>
+    <text>Mean kinetic energy [MeV]</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>StatV1</name>
+    <x>259</x>
+    <y>816</y>
+    <width>140</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)energy_mean_mev</pv_name>
-    <x>259</x><y>816</y><width>140</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>StatL2</name>
-    <text>Energy rms [MeV]</text>
-    <x>498</x><y>792</y><width>175</width><height>22</height>
+    <x>498</x>
+    <y>792</y>
+    <width>175</width>
+    <height>22</height>
+    <text>Kinetic energy rms [MeV]</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>StatV2</name>
+    <x>498</x>
+    <y>816</y>
+    <width>140</width>
+    <height>22</height>
     <pv_name>pva://$(P=HTU:SIM:)energy_std_mev</pv_name>
-    <x>498</x><y>816</y><width>140</width><height>22</height>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>

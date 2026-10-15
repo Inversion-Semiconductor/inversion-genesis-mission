@@ -1,107 +1,101 @@
-"""Tests for lume_fbpic action/variable classes."""
+"""Tests for lume_fbpic action/variable classes, through the model's `get()` and `set()`."""
 
 from __future__ import annotations
 
+import math
+
+import pytest
+
+from conftest import LASER_KWARGS
 from downramp_actions import make_actions
+from inversion_fbpic.lib.laser import GaussianLaserPulse
 from lume_fbpic.actions import HyperparameterFieldAction, LaserFieldAction
+from lume_fbpic.model import LUMEFBPICModel
 
 
-def _action(simulator, name):
-    return next(a for a in make_actions(simulator) if a.name == name)
-
-
-def test_laser_field_action_get_matches_current_value(simulator):
-    action = _action(simulator, "laser_energy")
-    assert action._get(simulator) == simulator.laser.energy
-
-
-def test_laser_field_action_set_replaces_object_via_attrs_evolve(simulator):
-    action = _action(simulator, "laser_energy")
-    original_laser = simulator.laser
-
-    action._set(simulator, 7.5)
-
-    assert simulator.laser is not original_laser
-    assert simulator.laser.energy == 7.5
-    assert action._get(simulator) == 7.5
-
-
-def test_laser_field_action_set_on_non_amplitude_field_does_not_trip_energy_a0_check(
-    simulator,
-):
-    # Regression test: every constructed _LaserPulse has *both* energy and a0 populated
-    # (one given, one derived) from the moment it's built -- not just after an amplitude
-    # field is set. Evolving an unrelated field (focal_position here) must still null out
-    # whichever of the pair is currently derived, or attrs.evolve() carries over both and
-    # trips "provide exactly one of energy or a0".
-    action = _action(simulator, "laser_focal_position")
-
-    action._set(simulator, 20.0e-6)
-
-    assert simulator.laser.focal_position == 20.0e-6
-    # energy is unchanged (it's still the amplitude source); a0 is freshly re-derived from
-    # it by __attrs_post_init__, not left null -- nulling it going into evolve() only
-    # avoids the "both provided" conflict, it doesn't mean it stays null afterward.
-    assert simulator.laser.energy == 5.0
-    assert simulator.laser.a0 is not None
-
-
-def test_laser_field_action_set_a0_after_energy_still_allows_further_field_changes(
-    simulator,
-):
-    # Regression test: switching the amplitude source (energy -> a0) must update
-    # `_amplitude_source` so a *subsequent* unrelated field change still nulls the right
-    # (now-derived) field.
-    a0_action = LaserFieldAction(name="laser_a0", field_name="a0", unit=None)
-    focal_action = _action(simulator, "laser_focal_position")
-
-    a0_action._set(simulator, 3.0)
-    focal_action._set(simulator, 20.0e-6)
-
-    assert simulator.laser.a0 == 3.0
-    assert simulator.laser.focal_position == 20.0e-6
-    assert simulator.laser.energy is not None
-
-
-def test_hyperparameter_field_action_get_set(simulator):
-    # Not part of the HTU downramp action set (tests/downramp_actions.py deliberately
-    # excludes grid/numerical hyperparameters as control variables), but exercised directly here
-    # since HyperparameterFieldAction is available as a general-purpose class.
-    action = HyperparameterFieldAction(
-        name="gamma_boost", field_name="gamma_boost", unit=None
+@pytest.fixture()
+def model(simulator) -> LUMEFBPICModel:
+    """The downramp action set plus a laser `a0` and a hyperparameter action."""
+    return LUMEFBPICModel(
+        simulator,
+        [
+            *make_actions(simulator),
+            LaserFieldAction(name="laser_a0", field_name="a0"),
+            HyperparameterFieldAction(name="nz", field_name="nz"),
+        ],
+        dummy_run=True,
     )
-    assert action._get(simulator) == simulator.hyparams.gamma_boost
-
-    original_hyparams = simulator.hyparams
-    action._set(simulator, 2.0)
-
-    assert simulator.hyparams is not original_hyparams
-    assert simulator.hyparams.gamma_boost == 2.0
 
 
-def test_density_field_action_targets_correct_profile_by_index(simulator):
-    action = _action(simulator, "downramp_length")
-
-    action._set(simulator, 0.25e-3)
-
-    assert simulator.densities[1].downramp_length == 0.25e-3
-    assert simulator.densities[0].downramp_length != 0.25e-3
+def _get(model, name):
+    return model.get([name])[name]
 
 
-def test_stat_action_reads_from_cached_stats(simulator):
-    action = _action(simulator, "charge_pc")
-    simulator.stats = {"charge_pc": 12.3}
-    assert action._get(simulator) == 12.3
+def test_a_laser_field_reads_the_laser(model):
+    assert _get(model, "laser_energy") == model.simulator.laser.energy
 
 
-def test_stat_action_defaults_to_nan_before_any_run(simulator):
-    import math
+def test_setting_a_laser_field_replaces_the_laser_and_leaves_the_old_one(model):
+    original = model.simulator.laser
 
-    action = _action(simulator, "energy_mean_mev")
-    assert math.isnan(action._get(simulator))
+    model.set({"laser_energy": 7.5})
+
+    assert model.simulator.laser.energy == 7.5
+    assert _get(model, "laser_energy") == 7.5
+    assert original.energy == 5.0
 
 
-def test_final_particles_action_reads_from_cache(simulator):
-    action = _action(simulator, "final_particles")
-    simulator.final_particles = "placeholder"
-    assert action._get(simulator) == "placeholder"
+def test_setting_another_laser_field_keeps_the_energy_and_derives_a0_again(model):
+    # Every laser holds both energy and a0, one given and one derived; the derived one must be
+    # dropped before the laser is rebuilt, or the rebuild sees both.
+    model.set({"laser_focal_position": 20.0e-6})
+
+    expected = GaussianLaserPulse(
+        energy=5.0, **{**LASER_KWARGS, "focal_position": 20.0e-6}
+    )
+    assert model.simulator.laser.focal_position == 20.0e-6
+    assert model.simulator.laser.energy == 5.0
+    assert model.simulator.laser.a0 == expected.a0
+
+
+def test_after_a0_is_set_another_laser_field_keeps_a0_and_derives_the_energy(model):
+    model.set({"laser_a0": 3.0})
+    model.set({"laser_focal_position": 20.0e-6})
+
+    expected = GaussianLaserPulse(a0=3.0, **{**LASER_KWARGS, "focal_position": 20.0e-6})
+    assert model.simulator.laser.a0 == 3.0
+    assert model.simulator.laser.focal_position == 20.0e-6
+    assert model.simulator.laser.energy == expected.energy
+
+
+def test_a_hyperparameter_field_reads_and_sets_the_hyperparameters(model):
+    assert _get(model, "nz") == model.simulator.hyparams.nz
+
+    model.set({"nz": 16})
+
+    assert model.simulator.hyparams.nz == 16
+
+
+def test_a_density_field_sets_only_the_profile_it_indexes(model):
+    other = model.simulator.densities[0]
+
+    model.set({"downramp_length": 0.25e-3})
+
+    assert model.simulator.densities[1].downramp_length == 0.25e-3
+    assert model.simulator.densities[0] == other
+
+
+def test_a_stat_reads_the_simulators_stats(model):
+    model.simulator.stats = {"charge_pc": 12.3}
+
+    assert _get(model, "charge_pc") == 12.3
+
+
+def test_a_stat_is_nan_before_any_run(model):
+    assert math.isnan(_get(model, "energy_mean_mev"))
+
+
+def test_the_final_particles_are_the_simulators(model, particle_group):
+    model.simulator.final_particles = particle_group
+
+    assert _get(model, "final_particles") is particle_group

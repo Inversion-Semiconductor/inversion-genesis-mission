@@ -15,12 +15,16 @@ own source puts use (`htu.model._apply_machine_state` and the beam attributes of
 `CheetahSimulator`), so it follows that code; `htu` is imported only when a `TwinStage` is built.
 
 What the injection does, in order: if the incoming `ParticleGroup` is a lab-frame snapshot (every
-particle at the same `t`) it is selected and moved to the bunch frame (`bunch_frame_particles`,
-with this stage's `uz_min` and `central_fraction`); a group that already has arrival times is used
-as it is. If `plasma_exit_z` is given, the bunch is then drifted ballistically from where it is
-(its charge-weighted mean `z`) to that plane (`drift_particles`) -- the twin's source plane is its
-`PlasmaExit` screen, and the 5.2 cm from there to the first magnet is the twin's own `SrcToPMQ1`
-drift, so only the offset between the snapshot and the plane is added here. It becomes a Cheetah
+particle at the same `t`) the bunch is selected from it (`bunch_frame.bunch_frame_particles`, with
+this stage's `uz_min` and `central_fraction`); a group that already has arrival times is not
+selected again. The bunch is then drifted ballistically into the bunch frame
+(`bunch_frame.to_bunch_frame`): every particle on one plane, `t` its arrival time there. The plane
+is `plasma_exit_z` if it is given -- the twin's source plane is its `PlasmaExit` screen, and the
+5.2 cm from there to the first magnet is the twin's own `SrcToPMQ1` drift, so only the offset
+between the bunch and the plane is added here -- and otherwise the bunch's own charge-weighted
+mean `z` (a bunch already on one plane stays there). Its `t` is then taken relative to its
+charge-weighted mean, since Cheetah's `tau = c t` is relative to the reference particle. It
+becomes a Cheetah
 `ParticleBeam` (`ParticleBeam.from_openpmd_particlegroup`, reference
 energy the charge-weighted mean total energy), replaces the twin's source beam, and the twin
 re-derives its magnet settings at the new beam energy -- its rule that magnet PVs hold their
@@ -44,34 +48,15 @@ import typing
 
 import numpy
 import torch
-from scipy.constants import c
-from lume_fbpic.simulator import ELECTRON_MC2_EV
+from lume_fbpic import descriptor
+from lume_fbpic.utils import ELECTRON_MC2_EV
+from lume_fbpic_twin.bunch_frame import bunch_frame_particles, to_bunch_frame
 
 from lume.model import LUMEModel
 from lume.staged_model import InitialParticlesMixIn
 
 
 from beamphysics import ParticleGroup
-
-# Names of the twin's source-parameter variables.
-_SOURCE_PREFIX = "Source_"
-
-# SourceParams fields that `beam_moments()` fills.
-_SOURCE_FIELDS = (
-    "energy_mev",
-    "energy_spread_pct",
-    "charge_pc",
-    "beta_x_mm",
-    "beta_y_mm",
-    "alpha_x",
-    "alpha_y",
-    "norm_emit_x_um",
-    "norm_emit_y_um",
-    "x_um",
-    "y_um",
-    "xp_mrad",
-    "yp_mrad",
-)
 
 
 class TwinStage(InitialParticlesMixIn, LUMEModel):
@@ -82,11 +67,11 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
     Args:
         model: The twin's model; `htu.model.build_htu_model()` if omitted.
         central_fraction: Central fraction kept per axis when the incoming particles are a lab
-            snapshot (see `bunch_frame_particles`); `None` keeps all.
+            snapshot (see `bunch_frame.bunch_frame_particles`); `None` keeps all.
         uz_min: Smallest `uz` kept from a lab snapshot; `None` keeps all.
         plasma_exit_z: Lab-frame `z` [m] of the twin's source plane (the plasma exit). The bunch
             is drifted from its own mean `z` to this plane before injection; `None` (the
-            default) injects it where it is. `plasma_exit_z()` gives the end
+            default) injects it at its mean `z`. `plasma_exit_z()` gives the end
             of a simulation's density profiles. A positive drift means the snapshot was taken
             before the bunch reached the plane, still in the gas; the vacuum drift then ignores
             the rest of the plasma, and a warning says so.
@@ -105,20 +90,21 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self,
         model=None,
         *,
-        central_fraction: float | None = 0.95,
-        uz_min: float | None = 30.0,
+        central_fraction: float | None = descriptor.CENTRAL_FRACTION,
+        uz_min: float | None = descriptor.UZ_MIN,
         plasma_exit_z: float | None = None,
         lock_source: bool = True,
         screen_binning: int = 1,
     ) -> None:
         super().__init__()
+        htu_model = _import_htu()
         if model is None:
             geometries = (
                 binned_screen_geometries(screen_binning)
                 if screen_binning != 1
                 else None
             )
-            model = _import_htu().build_htu_model(screen_geometries=geometries)
+            model = htu_model.build_htu_model(screen_geometries=geometries)
         elif screen_binning != 1:
             raise ValueError(
                 "screen_binning only applies when the stage builds the twin model"
@@ -129,10 +115,18 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self.uz_min = uz_min
         self.plasma_exit_z = plasma_exit_z
         self.lock_source = lock_source
+        # The twin's source parameters, by variable name: an injection sets them all.
+        self._source = {
+            name: variable
+            for name, variable in model.supported_variables.items()
+            if isinstance(
+                variable, (htu_model.SourceVariable, htu_model.SourceIntVariable)
+            )
+        }
         self._variables = {
             name: (
                 variable.model_copy(update={"read_only": True})
-                if lock_source and name.startswith(_SOURCE_PREFIX)
+                if lock_source and name in self._source
                 else variable
             )
             for name, variable in model.supported_variables.items()
@@ -167,7 +161,7 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
 
     @property
     def initial_particles(self) -> ParticleGroup | None:
-        """The bunch last injected, as it went in (bunch frame, selected and drifted to the source
+        """The bunch last injected, as it went in (selected, and in the bunch frame on the source
         plane if `plasma_exit_z` is set); None if none."""
         return self._particles
 
@@ -184,9 +178,7 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
             )
         drift_m = None
         if self.plasma_exit_z is not None:
-            z_mean = float(
-                numpy.average(particles.z, weights=numpy.abs(particles.weight))
-            )
+            z_mean = float(particles.avg("z"))
             drift_m = float(self.plasma_exit_z) - z_mean
             if drift_m > 0:
                 warnings.warn(
@@ -194,23 +186,32 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
                     "plasma exit: drifting it there in vacuum ignores the remaining plasma",
                     stacklevel=2,
                 )
-            particles = drift_particles(particles, drift_m)
+            particles = to_bunch_frame(particles, self.plasma_exit_z)
+        elif _spread(particles.z) != 0.0:
+            particles = to_bunch_frame(particles)
+        else:
+            particles = particles.copy()
+        particles.t = particles.t - particles.avg("t")
         simulator = self._model.simulator
         dtype = simulator.beam_distribution.particles.dtype
-        weights = particles.weight
-        energy = torch.tensor(
-            float((particles.energy * abs(weights)).sum() / abs(weights).sum()),
+        # Everything that can raise runs before any state is touched.
+        moments = beam_moments(particles)
+        beam = ParticleBeam.from_openpmd_particlegroup(
+            particles,
+            energy=torch.tensor(moments["energy_mev"] * 1.0e6, dtype=dtype),
             dtype=dtype,
         )
-        # Everything that can raise runs before any state is touched.
-        beam = ParticleBeam.from_openpmd_particlegroup(
-            particles, energy=energy, dtype=dtype
-        )
-        moments = beam_moments(particles)
+        # POSIT: `beam_moments()` names its moments as the twin's `SourceParams` fields.
         source_params = dataclasses.replace(
             simulator.source_params,
-            num_particles=int(moments["num_particles"]),
-            **{name: moments[name] for name in _SOURCE_FIELDS},
+            **{
+                variable.param: (
+                    int(moments[variable.param])
+                    if isinstance(variable, htu_model.SourceIntVariable)
+                    else moments[variable.param]
+                )
+                for variable in self._source.values()
+            },
         )
 
         saved = (
@@ -241,10 +242,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self._injected_beam = simulator.initial_beam_distribution
         self._tracking_pending = True
 
-    @property
-    def supported_variables(self) -> dict[str, typing.Any]:
-        return self._variables
-
     def reset(self) -> None:
         """Restore the source beam the twin had when it was wrapped, then reset the twin."""
         simulator = self._model.simulator
@@ -258,6 +255,15 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self._particles = None
         self._drift_m = None
         self._injected_beam = None
+
+    @property
+    def source_names(self) -> list[str]:
+        """The names of the twin's source-parameter variables, which read the injected bunch."""
+        return list(self._source)
+
+    @property
+    def supported_variables(self) -> dict[str, typing.Any]:
+        return self._variables
 
     def _get(self, names: list[str]) -> dict[str, typing.Any]:
         self._track_if_pending()
@@ -291,33 +297,22 @@ def beam_moments(particles: ParticleGroup) -> dict[str, float]:
     Raises:
         ValueError: If the bunch has fewer than two particles or no charge.
     """
-    weights = numpy.abs(numpy.asarray(particles.weight, dtype=numpy.float64))
-    if len(weights) < 2 or weights.sum() <= 0:
+    if len(particles) < 2 or particles.charge <= 0:
         raise ValueError("need at least two particles with charge")
-    weights = weights / weights.sum()
-
-    def mean(values):
-        return float(numpy.sum(weights * values))
-
-    energy = numpy.asarray(particles.energy, dtype=numpy.float64)
-    mean_energy = mean(energy)
-    p0c = float(numpy.sqrt(mean_energy**2 - ELECTRON_MC2_EV**2))
+    energy = particles["mean_energy"]
+    p0c = numpy.sqrt(energy**2 - ELECTRON_MC2_EV**2)
     moments = {
-        "energy_mev": mean_energy / 1.0e6,
-        "energy_spread_pct": 100.0
-        * float(numpy.sqrt(mean((energy - mean_energy) ** 2)))
-        / mean_energy,
-        "charge_pc": float(numpy.sum(numpy.abs(particles.weight))) * 1.0e12,
-        "num_particles": float(len(weights)),
+        "energy_mev": energy / 1.0e6,
+        "energy_spread_pct": 100.0 * particles["sigma_energy"] / energy,
+        "charge_pc": particles.charge * 1.0e12,
+        "num_particles": float(len(particles)),
     }
+    weights = particles.weight / particles.weight.sum()
     for plane in ("x", "y"):
-        position = numpy.asarray(getattr(particles, plane), dtype=numpy.float64)
-        angle = (
-            numpy.asarray(getattr(particles, f"p{plane}"), dtype=numpy.float64) / p0c
-        )
-        centroid, mean_angle = mean(position), mean(angle)
-        dx, da = position - centroid, angle - mean_angle
-        sxx, sxa, saa = mean(dx * dx), mean(dx * da), mean(da * da)
+        # beamphysics's `twiss()` takes the dispersion out; these Twiss values do not
+        dx = particles[plane] - particles[f"mean_{plane}"]
+        da = (particles[f"p{plane}"] - particles[f"mean_p{plane}"]) / p0c
+        sxx, sxa, saa = (weights @ (a * b) for a, b in ((dx, dx), (dx, da), (da, da)))
         emittance = float(numpy.sqrt(max(sxx * saa - sxa * sxa, 0.0)))
         beta, alpha = (
             (sxx / emittance, -sxa / emittance) if emittance > 0 else (0.0, 0.0)
@@ -325,9 +320,10 @@ def beam_moments(particles: ParticleGroup) -> dict[str, float]:
         moments[f"beta_{plane}_mm"] = beta * 1.0e3
         moments[f"alpha_{plane}"] = alpha
         moments[f"norm_emit_{plane}_um"] = emittance * (p0c / ELECTRON_MC2_EV) * 1.0e6
-        moments[f"{plane}_um"] = centroid * 1.0e6
-        moments[f"{plane}p_mrad"] = mean_angle * 1.0e3
-    return moments
+        moments[f"{plane}_um"] = particles[f"mean_{plane}"] * 1.0e6
+        moments[f"{plane}p_mrad"] = particles[f"mean_p{plane}"] / p0c * 1.0e3
+    # plain floats: numpy ones would make the twin build its beam in float64
+    return {name: float(value) for name, value in moments.items()}
 
 
 def binned_screen_geometries(factor: int) -> dict[str, typing.Any]:
@@ -373,106 +369,6 @@ def build_chain(lpa_model, twin_model=None, **stage_kwargs):
     from lume.staged_model import StagedModel
 
     return StagedModel([lpa_model, TwinStage(twin_model, **stage_kwargs)])
-
-
-def bunch_frame_particles(
-    particles: ParticleGroup,
-    *,
-    central_fraction: float | None = 0.95,
-    uz_min: float | None = 30.0,
-) -> ParticleGroup:
-    """Select the bunch from a lab-frame snapshot and put it in the bunch frame.
-
-    Selection follows the moment descriptor (`inversion_fbpic.utils.distributions`): keep
-    `uz = pz / (m_e c) >= uz_min`, then the central `central_fraction` of the charge-weighted
-    distance from the mean on each of the six phase-space axes (`None` skips a step).
-
-    The returned `ParticleGroup` has `t = -(z - <z>) / c`, `<z>` the charge-weighted mean, so that a
-    particle ahead of the bunch centre (larger `z`) has a negative arrival time, as in Cheetah's
-    `tau = c t`, and `status = 1`. `x, y, z, px, py, pz` and the charge weights are unchanged.
-
-    Raises:
-        ValueError: If fewer than two particles remain after the selection.
-    """
-    x, y, z = (
-        numpy.asarray(getattr(particles, name), dtype=numpy.float64) for name in "xyz"
-    )
-    ux, uy, uz = (
-        numpy.asarray(getattr(particles, f"p{name}"), dtype=numpy.float64)
-        / ELECTRON_MC2_EV
-        for name in "xyz"
-    )
-    weight = numpy.asarray(particles.weight, dtype=numpy.float64)
-
-    keep = numpy.ones(len(x), dtype=bool)
-    if uz_min is not None:
-        keep &= uz >= uz_min
-    if central_fraction is not None:
-        if not 0 < central_fraction <= 1:
-            raise ValueError("central_fraction must be in (0, 1]")
-        phase_space = numpy.stack([x, ux, y, uy, z, uz], axis=-1)[keep]
-        if len(phase_space) >= 2:
-            centre = numpy.average(phase_space, axis=0, weights=numpy.abs(weight[keep]))
-            distance = numpy.abs(phase_space - centre)
-            limit = numpy.quantile(distance, central_fraction, axis=0)
-            inside = numpy.all(distance <= limit, axis=1)
-            central = numpy.zeros(len(x), dtype=bool)
-            central[numpy.flatnonzero(keep)[inside]] = True
-            keep = central
-    if keep.sum() < 2:
-        raise ValueError("fewer than two particles remain after the selection")
-
-    z_mean = numpy.average(z[keep], weights=numpy.abs(weight[keep]))
-    return ParticleGroup(
-        data={
-            "x": x[keep],
-            "y": y[keep],
-            "z": z[keep],
-            "px": numpy.asarray(particles.px, dtype=numpy.float64)[keep],
-            "py": numpy.asarray(particles.py, dtype=numpy.float64)[keep],
-            "pz": numpy.asarray(particles.pz, dtype=numpy.float64)[keep],
-            "t": -(z[keep] - z_mean) / c,
-            "status": numpy.ones(int(keep.sum()), dtype=int),
-            "weight": weight[keep],
-            "species": "electron",
-        }
-    )
-
-
-def drift_particles(particles: ParticleGroup, length: float) -> ParticleGroup:
-    """Move a bunch ballistically along `z` by `length` metres (negative moves it back).
-
-    Each particle travels in a straight line at its own angle `px / pz`, so `x` and `y` change by
-    `length * px / pz` and `z` by `length`. The arrival time `t` changes by the extra time of
-    flight relative to the reference particle -- the charge-weighted mean energy `E0`, on axis --
-    which is `(length / c) * (E / (pz c) - E0 / p0c)` per particle (`pz c` and `p0c` in eV):
-    higher-energy particles gain on the reference when `length` is positive, and the
-    charge-weighted mean `t` is not held at zero. This is the same ballistic drift as Cheetah's
-    `Drift` with `tracking_method="drift_kick_drift"`; there are no fields, no space charge and no
-    scattering. Momenta, charges and `status` are unchanged.
-    """
-    px, py, pz = (
-        numpy.asarray(getattr(particles, f"p{n}"), dtype=numpy.float64) for n in "xyz"
-    )
-    energy = numpy.asarray(particles.energy, dtype=numpy.float64)
-    weight = numpy.abs(numpy.asarray(particles.weight, dtype=numpy.float64))
-    e0 = float(numpy.average(energy, weights=weight))
-    p0c = float(numpy.sqrt(e0**2 - ELECTRON_MC2_EV**2))
-    return ParticleGroup(
-        data={
-            "x": numpy.asarray(particles.x, dtype=numpy.float64) + length * px / pz,
-            "y": numpy.asarray(particles.y, dtype=numpy.float64) + length * py / pz,
-            "z": numpy.asarray(particles.z, dtype=numpy.float64) + length,
-            "px": px,
-            "py": py,
-            "pz": pz,
-            "t": numpy.asarray(particles.t, dtype=numpy.float64)
-            + (length / c) * (energy / pz - e0 / p0c),
-            "status": numpy.asarray(particles.status),
-            "weight": numpy.asarray(particles.weight, dtype=numpy.float64),
-            "species": particles.species,
-        }
-    )
 
 
 def plasma_exit_z(densities) -> float:

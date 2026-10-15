@@ -3,40 +3,31 @@
 from __future__ import annotations
 
 from beamphysics import ParticleGroup
-from lume.actions import Action, ActionModel, ReadOnlyActionMixin
+from lume.actions import Action, ActionModel
 from lume.staged_model import FinalParticlesMixIn
-from lume.variables import ScalarVariable
-from lume_fbpic import archive_config
 from lume_fbpic.simulator import BaseSimulator
 from pathlib import Path
-import h5py
-import inspect
-import lume_fbpic.actions
-import math
 import typing
 
 
 class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
     """LUMEModel using the actions framework, wrapping a `BaseSimulator`
-    (`FBPICSimulator`, or another subclass).
+    (`LWFASimulator`, or another subclass).
 
     No `InitialParticlesMixIn` -- the plasma-accelerator stage makes its own bunch (by injection
     off a density downramp or dopant, or from a driver bunch's wake), it doesn't consume an
     externally-supplied one. It is the first stage of a `StagedModel` chain.
 
     Like `LUMECheetahModel` and `LUMEImpactModel`, `set()` applies the new parameter values and
-    then runs the simulation (configuring the simulator first if it is not yet), so `get()`
-    afterwards returns outputs for those inputs. A real
-    fbpic run costs minutes to hours, so pass `dummy_run=True` (as `LUMEImpactModel` allows) to
-    make `set()` only update parameters without running -- useful for building up a
+    then runs the simulation (checking the config with `configure()` first), so `get()`
+    afterwards returns outputs for those inputs; `set({})` runs it without changing anything. A
+    real fbpic run costs minutes to hours, so pass `dummy_run=True` (as `LUMEImpactModel`
+    allows) to make `set()` only update parameters without running -- useful for building up a
     configuration, or in tests.
 
-    `archive()` bundles the simulator's config with the action definitions and the values of the
-    read-only scalar actions (the outputs); the inputs are in the config. `from_archive()`
-    rebuilds the model, actions included. For an archive written without the final particles, the
-    recorded output values are put in the simulator's `stats`, where the output actions find
-    them. The outputs are the last results, recorded or computed: with `dummy_run=True`, setting
-    an input changes the config only and they stay as they are, and a run replaces them.
+    `archive()` writes the model to an archive and `from_archive()` rebuilds one, as lume-base's
+    `archive()` and `from_archive()` do; `lume_fbpic.archive` holds the format. The outputs are the last results, recorded or computed: with `dummy_run=True`,
+    setting an input changes the config only and they stay as they are, and a run replaces them.
 
     `reset()` restores the simulator's starting state (for a model loaded from an archive, the
     archived config and results); it never runs the simulation.
@@ -50,8 +41,11 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         actions: list[Action],
         dummy_run: bool = False,
     ) -> None:
-        _set_default_units(simulator, actions)
-        super().__init__(simulator=simulator, action_variables=actions)
+        _check_simulator(simulator, actions)
+        super().__init__(
+            simulator=simulator,
+            action_variables=_with_default_units(simulator, actions),
+        )
         self.dummy_run = dummy_run
 
     def archive(
@@ -61,47 +55,13 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         save_final_particles: bool = False,
         input_dirs: str | Path | typing.Sequence[str | Path] | None = None,
     ):
-        """Archive the simulator config and the actions into one HDF5 file.
+        """Write the model to an archive: `lume_fbpic.archive.save()`, which describes the
+        arguments. Returns `h5`, or the name of the file written if it was None."""
+        from lume_fbpic import archive  # which imports this module
 
-        Written on top of `BaseSimulator.archive()` (the simulator's config, and with
-        `save_final_particles=True` the final `ParticleGroup` and `stats`), plus an `actions`
-        group with, for each action, its class and parameters and, for a read-only scalar action,
-        its current value (NaN where there is no result yet). The inputs are not stored as
-        values; they are in the config, which is the current one.
-
-        An action whose parameters an archive cannot store raises `TypeError` before anything is
-        written. An archive written to a path is complete or not there: see
-        `BaseSimulator.archive()`.
-
-        Parameters
-        ----------
-        h5 : str, Path, or h5py.File, optional
-            Destination. If None, a fingerprint-based filename is used.
-        save_final_particles : bool, optional
-            Also store the final particles and `stats`; see `BaseSimulator.archive()`.
-        input_dirs : str, Path or list of them, optional
-            Where the input files are; see `BaseSimulator.archive()`.
-
-        Returns
-        -------
-        The h5 argument, or the generated filename if it was None.
-        """
-        for action in self.supported_variables.values():
-            _storable_parameters(action)  # raises before anything is written
-        if h5 is None:
-            h5 = self.simulator.archive_name()
-        if isinstance(h5, (str, Path)):
-            with archive_config.atomic_h5(h5) as g:
-                self.simulator.archive(
-                    g, save_final_particles=save_final_particles, input_dirs=input_dirs
-                )
-                self._archive_actions(g)
-        else:
-            self.simulator.archive(
-                h5, save_final_particles=save_final_particles, input_dirs=input_dirs
-            )
-            self._archive_actions(h5)
-        return h5
+        return archive.save(
+            self, h5, save_final_particles=save_final_particles, input_dirs=input_dirs
+        )
 
     @property
     def final_particles(self) -> ParticleGroup | None:
@@ -117,60 +77,15 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         working_directory: str | Path | None = None,
         input_dirs: str | Path | typing.Sequence[str | Path] | None = None,
     ) -> "LUMEFBPICModel":
-        """Rebuild a model, actions included, from a file written by `archive()`.
+        """The model an archive holds: `lume_fbpic.archive.load()`, which describes the
+        arguments."""
+        from lume_fbpic import archive  # which imports this module
 
-        The simulator is restored with `BaseSimulator.from_archive()` (so the final particles
-        and `stats` are back if they were saved), and each action is rebuilt from its stored
-        class and parameters; the class must be one defined in `lume_fbpic.actions`. `input_dirs`
-        is where the simulator looks for the input files the archive refers to; see
-        `BaseSimulator.from_archive()`.
-
-        Raises:
-            ValueError: If the archive has no `actions` group (it was written by
-                `BaseSimulator.archive()`), or an action class is unknown.
-        """
-        if isinstance(h5, (str, Path)):
-            with h5py.File(h5, "r") as g:
-                return cls.from_archive(
-                    g,
-                    dummy_run=dummy_run,
-                    working_directory=working_directory,
-                    input_dirs=input_dirs,
-                )
-        if "actions" not in h5:
-            raise ValueError(
-                "The archive has no actions; it was written by BaseSimulator.archive(). "
-                "Use LUMEFBPICModel(simulator, actions) with an action list."
-            )
-
-        g = h5["actions"]
-        return cls(
-            BaseSimulator.from_archive(
-                h5,
-                working_directory=working_directory,
-                input_dirs=input_dirs,
-                stats={
-                    name: value
-                    for name, value in _read_output_values(h5).items()
-                    if not math.isnan(value)
-                },
-            ),
-            [
-                _action_from_config(
-                    {
-                        "class": str(g[key].attrs["class"]),
-                        "parameters": {
-                            **{name: None for name in _explicit_nones(g[key])},
-                            **{
-                                name: value.item() if hasattr(value, "item") else value
-                                for name, value in g[key]["parameters"].attrs.items()
-                            },
-                        },
-                    }
-                )
-                for key in sorted(g)
-            ],
+        return archive.load(
+            h5,
             dummy_run=dummy_run,
+            working_directory=working_directory,
+            input_dirs=input_dirs,
         )
 
     def reset(self) -> None:
@@ -182,43 +97,6 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         """
         self.simulator.reset()
 
-    def _archive_action(self, entry, action: Action) -> None:
-        """Write one action to `entry`, a group of an open archive: its name and class, its
-        parameters as the attributes of a `parameters` group (those that are set), and, for a
-        read-only scalar action, its current value as `value` (NaN where there is no result).
-        A parameter that was given as `None`, and not left unset, is listed by name in the
-        `explicit_nones` attribute, so that it is `None` again when the archive is loaded (an
-        unset `unit` would get its default).
-
-        Raises:
-            TypeError: If a parameter is not a bool, int, float or string.
-        """
-        config = _action_to_config(action)
-        entry.attrs["name"] = action.name
-        entry.attrs["class"] = config["class"]
-        parameters = entry.create_group("parameters")
-        for key, value in _storable_parameters(action).items():
-            parameters.attrs[key] = value
-        explicit_nones = sorted(
-            key
-            for key in action.model_fields_set
-            if config["parameters"].get(key) is None
-        )
-        if explicit_nones:
-            entry.attrs["explicit_nones"] = explicit_nones
-        if isinstance(action, ReadOnlyActionMixin) and isinstance(
-            action, ScalarVariable
-        ):
-            entry.attrs["value"] = float(self.get([action.name])[action.name])
-
-    def _archive_actions(self, g) -> None:
-        """Write the `actions` group to the open archive `g`: one numbered entry per action, in
-        registration order. The inputs are not stored as values; they are in the config.
-        """
-        actions_group = g.create_group("actions")
-        for index, action in enumerate(self.supported_variables.values()):
-            self._archive_action(actions_group.create_group(f"{index:04d}"), action)
-
     def _set(self, values: dict[str, typing.Any]) -> None:
         super()._set(values)
         if self.dummy_run:
@@ -226,80 +104,37 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         self.simulator.run()
 
 
-def _action_from_config(config: dict[str, typing.Any]) -> Action:
-    """Rebuild an action from `_action_to_config()`'s output; its class must be one of the
-    classes of `lume_fbpic.actions`.
+def _check_simulator(simulator: BaseSimulator, actions: list[Action]) -> None:
+    """Check that each action works on `simulator`, an instance of its `SIMULATOR`.
 
     Raises:
-        ValueError: If the class name is not known.
-    """
-    classes = {
-        name: cls
-        for name, cls in inspect.getmembers(lume_fbpic.actions, inspect.isclass)
-        if issubclass(cls, Action) and cls.__module__ == lume_fbpic.actions.__name__
-    }
-    name = config["class"]
-    if name not in classes:
-        raise ValueError(f"Unknown action class {name!r}; known: {sorted(classes)}")
-    return classes[name](**config["parameters"])
-
-
-def _action_to_config(action: Action) -> dict[str, typing.Any]:
-    """JSON-compatible description of an action: `{"class": <class name>, "parameters": {...}}`."""
-    return {
-        "class": type(action).__name__,
-        "parameters": action.model_dump(mode="json"),
-    }
-
-
-def _explicit_nones(entry) -> list[str]:
-    """The names of the parameters of the archived action `entry` that were given as `None`."""
-    return [
-        name.decode() if isinstance(name, bytes) else str(name)
-        for name in entry.attrs.get("explicit_nones", [])
-    ]
-
-
-def _read_output_values(h5) -> dict[str, float]:
-    """Read the recorded output values, by action name, from an open file written by
-    `LUMEFBPICModel.archive()`; read-only actions without a scalar value (the final-particles
-    action) are left out."""
-    group = h5["actions"]
-    return {
-        str(group[key].attrs["name"]): float(group[key].attrs["value"])
-        for key in sorted(group)
-        if "value" in group[key].attrs
-    }
-
-
-def _set_default_units(simulator: BaseSimulator, actions: list[Action]) -> None:
-    """Give each action that was made without a `unit` the one its `default_unit()` finds.
-
-    An action with a `unit` passed to it, `None` included, keeps it.
+        TypeError: For an action of another kind of simulator.
     """
     for action in actions:
-        default_unit = getattr(action, "default_unit", None)
-        if default_unit is not None and "unit" not in action.model_fields_set:
-            unit = default_unit(simulator)
-            if unit is not None:
-                action.unit = unit
-
-
-def _storable_parameters(action: Action) -> dict[str, typing.Any]:
-    """The parameters of `action` that an archive stores: those that are set (not `None`), apart
-    from `variable_class`, the class name again.
-
-    Raises:
-        TypeError: If one is not a bool, int, float or string.
-    """
-    stored = {}
-    for key, value in _action_to_config(action)["parameters"].items():
-        if value is None or key == "variable_class":
-            continue
-        if not isinstance(value, (bool, int, float, str)):
+        required = getattr(action, "SIMULATOR", None)
+        if required is not None and not isinstance(simulator, required):
             raise TypeError(
-                f"parameter {key!r} of action {action.name!r} is a "
-                f"{type(value).__name__}, which an archive cannot store"
+                f"action {action.name!r} needs a {required.__name__}, "
+                f"not a {type(simulator).__name__}"
             )
-        stored[key] = value
-    return stored
+
+
+def _with_default_units(
+    simulator: BaseSimulator, actions: list[Action]
+) -> list[Action]:
+    """`actions`, each made without a `unit` replaced by a copy with the one its
+    `default_unit()` finds; the actions given are left as they are, so a list can serve several
+    models. An action with a `unit` passed to it, `None` included, is kept as it is.
+    """
+    result = []
+    for action in actions:
+        default_unit = getattr(action, "default_unit", None)
+        unit = (
+            default_unit(simulator)
+            if default_unit is not None and "unit" not in action.model_fields_set
+            else None
+        )
+        result.append(
+            action if unit is None else action.model_copy(update={"unit": unit})
+        )
+    return result

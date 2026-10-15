@@ -8,37 +8,43 @@ the twin's source.
 ## How the pieces fit
 
 An LPA run is an archive (`LUMEFBPICModel.archive()`): the config, the action values and, if saved,
-the final particles. `twin/twin_stage.py` wraps the twin as a `StagedModel` stage that takes those final
-particles as its source beam. `serving/serve.py` loads one or more archives, picks the active one
-through `archive_selector.py`, and serves the archive's outputs and the twin's variables as PVs. The
-displays in `phoebus/` are laid out for those PVs.
+the final particles. The package `lume_fbpic_twin` (in this directory, with its own
+`pyproject.toml`) holds the rest: `twin_stage` wraps the twin as a `StagedModel` stage that takes
+those final particles as its source beam, and `serve` loads one or more archives, picks the active
+one through `archive_selector`, and serves the archive's outputs and the twin's variables as PVs.
+The displays in `phoebus/` are laid out for those PVs.
 
 ## Files
 
-**`twin/`**
+**`lume_fbpic_twin/`**
 
 - `twin_stage.py`: `TwinStage` wraps the twin's model so that `StagedModel` can hand it the LPA stage's
-  `final_particles`. It moves the bunch from the simulation's lab frame to a bunch frame, selects
-  the particles (`uz_min`, `central_fraction`), optionally drifts it to the twin's source plane,
-  replaces the twin's source beam, and makes the twin's `Source_*` PVs read-only readbacks of the
-  bunch's moments. `build_chain()` returns `StagedModel([lpa_model, TwinStage(twin_model)])`.
+  `final_particles`. It selects the particles (`uz_min`, `central_fraction`), drifts the bunch
+  from the simulation's lab-frame snapshot onto one plane (its mean `z`, or the twin's source
+  plane), replaces the twin's source beam, and makes the twin's `Source_*` PVs read-only
+  readbacks of the bunch's moments. `build_chain()` returns
+  `StagedModel([lpa_model, TwinStage(twin_model)])`.
+- `bunch_frame.py`: the selection and the ballistic move onto one plane
+  (`ParticleGroup.drift_to_z()`), shared by `TwinStage` and the synthetic bunch.
+- `serve.py` (`python -m lume_fbpic_twin.serve`): serves archives as EPICS PVs through `lume-pva`.
+  It loads each archive without running anything (`dummy_run=True`) and serves the model's
+  variables as `<prefix><name>`: the outputs, and the inputs read-only unless `--include-inputs`
+  is given. With `--twin` it also builds the chain and serves the twin's variables, which
+  re-track on each put.
+- `archive_selector.py`: `ArchiveSelector` holds several archives and presents the active one as a single
+  LPA model, with one writable enum PV (`LPA_Archive`) to switch. A switch reaches the twin like
+  a new LPA result. For archives without particles it can build an approximate bunch from the
+  moment descriptor.
+
+**`twin/`**
+
 - `lpa_to_twin.py`: a script that runs that chain once, from an archive or a finished run's
   diagnostics, and prints what the twin received and the fraction of the charge that reaches each
   screen.
 - `initial_sample_archives.py`: turns the seven runs of the NERSC `initial_sample` dataset into
   archives. They hold the recorded 33 moment-descriptor values and no particles, so the twin gets a
-  synthesized bunch from them.
-
-**`serving/`**
-
-- `serve.py`: serves archives as EPICS PVs through `lume-pva`. It loads each archive without
-  running anything (`dummy_run=True`) and serves the model's variables as `<prefix><name>`: the
-  outputs, and the inputs read-only unless `--include-inputs` is given. With `--twin` it also
-  builds the chain and serves the twin's variables, which re-track on each put.
-- `archive_selector.py`: `ArchiveSelector` holds several archives and presents the active one as a single
-  LPA model, with one writable enum PV (`LPA_Archive`) to switch. A switch reaches the twin like
-  a new LPA result. For archives without particles it can build an approximate bunch from the
-  moment descriptor.
+  synthesized bunch from them. Each also holds its dataset record (run name, inputs, outputs and
+  descriptor selection, as recorded) as `Parameters`, in `model.simulator.parameters`.
 
 **`phoebus/`**
 
@@ -56,6 +62,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e lpa/Simulation_FBPIC      # inversion_fbpic, with fbpic
 pip install -e lume-fbpic                # lume_fbpic
+pip install -e lume-fbpic/docs/htu-twin  # lume_fbpic_twin: the twin stage, selector and server
 pip install -e geecs-lume-twin           # the twin (htu), with Cheetah, lume-pva and p4p
 ```
 
@@ -69,14 +76,14 @@ From the repository root, with the environment active:
 ```bash
 cd lume-fbpic
 python docs/htu-twin/twin/initial_sample_archives.py      # writes ./initial_sample_archives
-python docs/htu-twin/serving/serve.py initial_sample_archives --twin --synthesize-bunch
+python -m lume_fbpic_twin.serve initial_sample_archives --twin --synthesize-bunch
 ```
 
-Wait for `serving 131 variables` (a few seconds) and leave the terminal open. The first read of a
+Wait for `serving N variables` (a few seconds) and leave the terminal open. The first read of a
 PV can show 0 for about a second, until the server's first update.
 
 The writable LPA inputs (`laser_energy`, the Zernike coefficients, ...) are served read-only, so
-all 131 variables are in the served config: the `lume-pva` the twin pins fails with
+every variable is in the served config: the `lume-pva` the twin pins fails with
 `KeyError: 'laser_energy'` if a variable of the model is missing from it. `--include-inputs` serves
 them read-write instead. A put to one then changes the config only (the server runs with
 `dummy_run=True`), and the outputs stay the recorded results.
@@ -89,7 +96,7 @@ From another terminal, with the EPICS command-line tools:
 pvget HTU:SIM:LPA_Archive HTU:SIM:STATUS HTU:SIM:Source_Charge_pC
 ```
 
-Expect `sim_0000`, `Idle` and about 511 pC. `HTU:SIM:STATUS` is `Idle` or `Simulating`, and is
+Expect `sim_0000`, `Idle` and the charge of `sim_0000`'s bunch. `HTU:SIM:STATUS` is `Idle` or `Simulating`, and is
 `Simulating` while the twin re-tracks. If your Phoebus settings pin `epics_pva_addr_list`, add
 `127.0.0.1` to that list.
 
@@ -105,7 +112,7 @@ Start the server first, and restart Phoebus after a server restart. Phoebus rest
 session, so older windows may open too: use the one with the LPA strip along the bottom.
 
 - The "Run:" combo box in the strip selects the active archive. The values and the twin's source
-  follow after the twin re-tracks, about 2 seconds.
+  follow after the twin re-tracks, in a few seconds.
 - The "Twin:" LED shows `Idle` (green) or `Simulating` (amber).
 - The `SRC` element opens `lpa_bunch.bob`. The other elements are the twin's own controls and
   camera views.
@@ -125,8 +132,8 @@ To stop, press Ctrl-C in the server terminal and close Phoebus.
   N times coarser, default 4; 1 keeps the twin's 1024 x 1024), `--bunch-particles N` (synthetic
   bunch size, default 20000), `--wait-for-puts` (acknowledge a put only after the twin re-tracks,
   for scan clients; the default acknowledges at once).
-- Without `--twin`, `serve.py` serves just the archives' variables, by default with the prefix
-  `LPA:SIM:`: `python docs/htu-twin/serving/serve.py run.h5 --prefix LPA:SIM:`.
+- Without `--twin`, the server serves just the archives' variables, by default with the prefix
+  `LPA:SIM:`: `python -m lume_fbpic_twin.serve run.h5 --prefix LPA:SIM:`.
 
 ### Run the chain once
 

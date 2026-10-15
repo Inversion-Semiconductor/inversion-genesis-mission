@@ -15,6 +15,10 @@ Substitutions made in the conversion:
 - `a0 = 4.0` maps directly onto `GaussianLaserPulse(a0=...)`.
 - `p_rmax` is not reproduced: `_DensityProfile` does not pass it on, so macroparticles load out
   to `rmax`.
+
+After the run, the model is archived with its final particles as `lwfa.h5` and loaded back. The
+archive holds the config, the actions and the bunch, and serves as it is:
+`python -m lume_fbpic_twin.serve lwfa.h5` (the package in `docs/htu-twin`).
 """
 
 from __future__ import annotations
@@ -23,26 +27,25 @@ from lume_fbpic.actions import (
     DensityFieldAction,
     FinalParticlesAction,
     LaserFieldAction,
-    StatAction,
     make_descriptor_actions,
+    make_stat_actions,
 )
 from lume_fbpic.density_profiles import LinearRampFlattop
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.simulator import FBPICSimulator
+from lume_fbpic.lwfa_simulator import LWFASimulator
 
 from inversion_fbpic.lib.simulation import SimulationHyperparameters
 from inversion_fbpic.lib.laser import GaussianLaserPulse
 from inversion_fbpic.utils.simulation_setup_tools import (
     LASER_TAU_TO_SIGMA,
     SIGMA_TO_FWHM_INTENSITY,
-    calculate_laser_tau_from_fwhm_intensity,
 )
 
 # Exact inverse of calculate_laser_tau_from_fwhm_intensity(), so that GaussianLaserPulse's
-# tau_fwhm reproduces the original's literal tau=16e-15 -- see the module docstring.
-_UPSTREAM_TAU = 16.0e-15
-TAU_FWHM = _UPSTREAM_TAU * SIGMA_TO_FWHM_INTENSITY * LASER_TAU_TO_SIGMA
-assert calculate_laser_tau_from_fwhm_intensity(TAU_FWHM) == _UPSTREAM_TAU
+# tau_fwhm reproduces the original's literal tau=16e-15 -- see the module docstring. A test
+# checks the round trip.
+UPSTREAM_TAU = 16.0e-15
+TAU_FWHM = UPSTREAM_TAU * SIGMA_TO_FWHM_INTENSITY * LASER_TAU_TO_SIGMA
 
 
 def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
@@ -97,7 +100,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         },  # matches the original's ParticleDiagnostic select
     )
 
-    simulator = FBPICSimulator(
+    simulator = LWFASimulator(
         hyparams,
         laser,
         [density],
@@ -114,8 +117,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
             density_index=0,
             field_name="nominal_density",
         ),
-        StatAction(name="charge_pc", stat_name="charge_pc", read_only=True),
-        StatAction(name="energy_mean_mev", stat_name="energy_mean_mev", read_only=True),
+        *make_stat_actions(),
         FinalParticlesAction(name="final_particles", read_only=True),
         # Moment descriptor of the bunch. This bunch is ~1 MeV (mean uz ~ 2), so the
         # build_dataset.py default of uz >= 30 would select nothing; use uz >= 1 here.
@@ -127,5 +129,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
 
 if __name__ == "__main__":
     model = build_model()
-    model.set({"laser_a0": 4.0})  # set() applies the value, then runs the simulation
+    model.set({})  # runs the simulation (an empty set changes nothing first)
     print(model.get(["charge_pc", "energy_mean_mev"]))
+
+    # Archive the config, the actions and the final bunch, then load it back without running.
+    model.archive("lwfa.h5", save_final_particles=True)
+    loaded = LUMEFBPICModel.from_archive("lwfa.h5", dummy_run=True)
+    print(loaded.get(["laser_a0", "charge_pc", "energy_mean_mev"]))

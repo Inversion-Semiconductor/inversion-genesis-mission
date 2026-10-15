@@ -42,7 +42,7 @@
     <name>lbl_PlasmaExit_24</name>
     <text>PlasmaExit</text>
     <x>24</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -65,7 +65,7 @@
     <name>lbl_PMQ1V_31</name>
     <text>PMQ1V</text>
     <x>31</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -88,7 +88,7 @@
     <name>lbl_PMQ2H_40</name>
     <text>PMQ2H</text>
     <x>40</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -111,7 +111,7 @@
     <name>lbl_PMQ3V_51</name>
     <text>PMQ3V</text>
     <x>51</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -124,7 +124,7 @@
     <name>lbl_TCPhosphor_86</name>
     <text>TCPhosphor</text>
     <x>86</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -147,7 +147,7 @@
     <name>lbl_BEND1_148</name>
     <text>BEND1</text>
     <x>148</x><y>190</y><width>16</width><height>50</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -170,7 +170,7 @@
     <name>lbl_BEND2_193</name>
     <text>BEND2</text>
     <x>193</x><y>190</y><width>16</width><height>50</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -183,7 +183,7 @@
     <name>lbl_ChicaneSlit_241</name>
     <text>ChicaneSlit</text>
     <x>241</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -206,7 +206,7 @@
     <name>lbl_BEND3_263</name>
     <text>BEND3</text>
     <x>263</x><y>190</y><width>16</width><height>50</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -229,7 +229,7 @@
     <name>lbl_BEND4_308</name>
     <text>BEND4</text>
     <x>308</x><y>190</y><width>16</width><height>50</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -242,7 +242,7 @@
     <name>lbl_DCPhosphor_374</name>
     <text>DCPhosphor</text>
     <x>374</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -265,7 +265,7 @@
     <name>lbl_EMQ1H_434</name>
     <text>EMQ1H</text>
     <x>434</x><y>45</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -288,7 +288,7 @@
     <name>lbl_EMQ2V_471</name>
     <text>EMQ2V</text>
     <x>471</x><y>45</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -311,7 +311,7 @@
     <name>lbl_EMQ3H_530</name>
     <text>EMQ3H</text>
     <x>530</x><y>45</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -324,7 +324,7 @@
     <name>lbl_Phosphor1_563</name>
     <text>Phosphor1</text>
     <x>563</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -347,7 +347,7 @@
     <name>lbl_MagSpec_605</name>
     <text>MagSpec</text>
     <x>605</x><y>195</y><width>16</width><height>60</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -360,7 +360,7 @@
     <name>lbl_UC_ALineEbeam1_736</name>
     <text>UC_ALineEbeam1</text>
     <x>736</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -373,7 +373,7 @@
     <name>lbl_UC_ALineEBeam2_793</name>
     <text>UC_ALineEBeam2</text>
     <x>793</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -386,7 +386,7 @@
     <name>lbl_UC_ALineEBeam3_855</name>
     <text>UC_ALineEBeam3</text>
     <x>855</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -399,7 +399,7 @@
     <name>lbl_VQ2_899</name>
     <text>VQ2</text>
     <x>899</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -412,7 +412,7 @@
     <name>lbl_VQ2_906</name>
     <text>VQ2</text>
     <x>906</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -425,7 +425,7 @@
     <name>lbl_VQ1_917</name>
     <text>VQ1</text>
     <x>917</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -438,7 +438,7 @@
     <name>lbl_VQ1_924</name>
     <text>VQ1</text>
     <x>924</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -451,7 +451,7 @@
     <name>lbl_UC_VisaEBeam1_934</name>
     <text>UC_VisaEBeam1</text>
     <x>934</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -464,7 +464,7 @@
     <name>lbl_VQ2_934</name>
     <text>VQ2</text>
     <x>934</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -477,7 +477,7 @@
     <name>lbl_VQ2_942</name>
     <text>VQ2</text>
     <x>942</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -490,7 +490,7 @@
     <name>lbl_VQ1_952</name>
     <text>VQ1</text>
     <x>952</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -503,7 +503,7 @@
     <name>lbl_VQ1_959</name>
     <text>VQ1</text>
     <x>959</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -516,7 +516,7 @@
     <name>lbl_VQ2_970</name>
     <text>VQ2</text>
     <x>970</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -529,7 +529,7 @@
     <name>lbl_VQ2_977</name>
     <text>VQ2</text>
     <x>977</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -542,7 +542,7 @@
     <name>lbl_VQ1_987</name>
     <text>VQ1</text>
     <x>987</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -555,7 +555,7 @@
     <name>lbl_VQ1_995</name>
     <text>VQ1</text>
     <x>995</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -568,7 +568,7 @@
     <name>lbl_UC_VisaEBeam2_1005</name>
     <text>UC_VisaEBeam2</text>
     <x>1005</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -581,7 +581,7 @@
     <name>lbl_VQ2_1005</name>
     <text>VQ2</text>
     <x>1005</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -594,7 +594,7 @@
     <name>lbl_VQ2_1012</name>
     <text>VQ2</text>
     <x>1012</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -607,7 +607,7 @@
     <name>lbl_VQ1_1022</name>
     <text>VQ1</text>
     <x>1022</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -620,7 +620,7 @@
     <name>lbl_VQ1_1030</name>
     <text>VQ1</text>
     <x>1030</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -633,7 +633,7 @@
     <name>lbl_VQ4_1040</name>
     <text>VQ4</text>
     <x>1040</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -646,7 +646,7 @@
     <name>lbl_VQ4_1048</name>
     <text>VQ4</text>
     <x>1048</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -659,7 +659,7 @@
     <name>lbl_VQ3_1058</name>
     <text>VQ3</text>
     <x>1058</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -672,7 +672,7 @@
     <name>lbl_VQ3_1065</name>
     <text>VQ3</text>
     <x>1065</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -685,7 +685,7 @@
     <name>lbl_UC_VisaEBeam3_1075</name>
     <text>UC_VisaEBeam3</text>
     <x>1075</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -698,7 +698,7 @@
     <name>lbl_VQ4_1075</name>
     <text>VQ4</text>
     <x>1075</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -711,7 +711,7 @@
     <name>lbl_VQ4_1083</name>
     <text>VQ4</text>
     <x>1083</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -724,7 +724,7 @@
     <name>lbl_VQ3_1093</name>
     <text>VQ3</text>
     <x>1093</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -737,7 +737,7 @@
     <name>lbl_VQ3_1101</name>
     <text>VQ3</text>
     <x>1101</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -750,7 +750,7 @@
     <name>lbl_VQ4_1111</name>
     <text>VQ4</text>
     <x>1111</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -763,7 +763,7 @@
     <name>lbl_VQ4_1118</name>
     <text>VQ4</text>
     <x>1118</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -776,7 +776,7 @@
     <name>lbl_VQ3_1128</name>
     <text>VQ3</text>
     <x>1128</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -789,7 +789,7 @@
     <name>lbl_VQ3_1136</name>
     <text>VQ3</text>
     <x>1136</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -802,7 +802,7 @@
     <name>lbl_UC_VisaEBeam4_1146</name>
     <text>UC_VisaEBeam4</text>
     <x>1146</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -815,7 +815,7 @@
     <name>lbl_VQ4_1146</name>
     <text>VQ4</text>
     <x>1146</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -828,7 +828,7 @@
     <name>lbl_VQ4_1153</name>
     <text>VQ4</text>
     <x>1153</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -841,7 +841,7 @@
     <name>lbl_VQ3_1164</name>
     <text>VQ3</text>
     <x>1164</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -854,7 +854,7 @@
     <name>lbl_VQ3_1171</name>
     <text>VQ3</text>
     <x>1171</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -867,7 +867,7 @@
     <name>lbl_VQ6_1181</name>
     <text>VQ6</text>
     <x>1181</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -880,7 +880,7 @@
     <name>lbl_VQ6_1189</name>
     <text>VQ6</text>
     <x>1189</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -893,7 +893,7 @@
     <name>lbl_VQ5_1199</name>
     <text>VQ5</text>
     <x>1199</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -906,7 +906,7 @@
     <name>lbl_VQ5_1206</name>
     <text>VQ5</text>
     <x>1206</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -919,7 +919,7 @@
     <name>lbl_UC_VisaEBeam5_1217</name>
     <text>UC_VisaEBeam5</text>
     <x>1217</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -932,7 +932,7 @@
     <name>lbl_VQ6_1217</name>
     <text>VQ6</text>
     <x>1217</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -945,7 +945,7 @@
     <name>lbl_VQ6_1224</name>
     <text>VQ6</text>
     <x>1224</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -958,7 +958,7 @@
     <name>lbl_VQ5_1234</name>
     <text>VQ5</text>
     <x>1234</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -971,7 +971,7 @@
     <name>lbl_VQ5_1242</name>
     <text>VQ5</text>
     <x>1242</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -984,7 +984,7 @@
     <name>lbl_VQ6_1252</name>
     <text>VQ6</text>
     <x>1252</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -997,7 +997,7 @@
     <name>lbl_VQ6_1259</name>
     <text>VQ6</text>
     <x>1259</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1010,7 +1010,7 @@
     <name>lbl_VQ5_1269</name>
     <text>VQ5</text>
     <x>1269</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1023,7 +1023,7 @@
     <name>lbl_VQ5_1277</name>
     <text>VQ5</text>
     <x>1277</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1036,7 +1036,7 @@
     <name>lbl_UC_VisaEBeam6_1287</name>
     <text>UC_VisaEBeam6</text>
     <x>1287</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1049,7 +1049,7 @@
     <name>lbl_VQ6_1287</name>
     <text>VQ6</text>
     <x>1287</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1062,7 +1062,7 @@
     <name>lbl_VQ6_1295</name>
     <text>VQ6</text>
     <x>1295</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1075,7 +1075,7 @@
     <name>lbl_VQ5_1305</name>
     <text>VQ5</text>
     <x>1305</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1088,7 +1088,7 @@
     <name>lbl_VQ5_1312</name>
     <text>VQ5</text>
     <x>1312</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1101,7 +1101,7 @@
     <name>lbl_VQ8_1322</name>
     <text>VQ8</text>
     <x>1322</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1114,7 +1114,7 @@
     <name>lbl_VQ8_1330</name>
     <text>VQ8</text>
     <x>1330</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1127,7 +1127,7 @@
     <name>lbl_VQ7_1340</name>
     <text>VQ7</text>
     <x>1340</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1140,7 +1140,7 @@
     <name>lbl_VQ7_1347</name>
     <text>VQ7</text>
     <x>1347</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1153,7 +1153,7 @@
     <name>lbl_UC_VisaEBeam7_1358</name>
     <text>UC_VisaEBeam7</text>
     <x>1358</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1166,7 +1166,7 @@
     <name>lbl_VQ8_1358</name>
     <text>VQ8</text>
     <x>1358</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1179,7 +1179,7 @@
     <name>lbl_VQ8_1365</name>
     <text>VQ8</text>
     <x>1365</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1192,7 +1192,7 @@
     <name>lbl_VQ7_1375</name>
     <text>VQ7</text>
     <x>1375</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1205,7 +1205,7 @@
     <name>lbl_VQ7_1383</name>
     <text>VQ7</text>
     <x>1383</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1218,7 +1218,7 @@
     <name>lbl_VQ8_1393</name>
     <text>VQ8</text>
     <x>1393</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1231,7 +1231,7 @@
     <name>lbl_VQ8_1400</name>
     <text>VQ8</text>
     <x>1400</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1244,7 +1244,7 @@
     <name>lbl_VQ7_1411</name>
     <text>VQ7</text>
     <x>1411</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1257,7 +1257,7 @@
     <name>lbl_VQ7_1418</name>
     <text>VQ7</text>
     <x>1418</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1270,7 +1270,7 @@
     <name>lbl_UC_VisaEBeam8_1428</name>
     <text>UC_VisaEBeam8</text>
     <x>1428</x><y>20</y><width>16</width><height>86</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1283,7 +1283,7 @@
     <name>lbl_VQ8_1428</name>
     <text>VQ8</text>
     <x>1428</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1296,7 +1296,7 @@
     <name>lbl_VQ8_1436</name>
     <text>VQ8</text>
     <x>1436</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1309,7 +1309,7 @@
     <name>lbl_VQ7_1446</name>
     <text>VQ7</text>
     <x>1446</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">
@@ -1322,7 +1322,7 @@
     <name>lbl_VQ7_1453</name>
     <text>VQ7</text>
     <x>1453</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1345,7 +1345,7 @@
     <name>lbl_S1_150</name>
     <text>S1</text>
     <x>150</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1368,7 +1368,7 @@
     <name>lbl_S2_336</name>
     <text>S2</text>
     <x>336</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1391,7 +1391,7 @@
     <name>lbl_S3_553</name>
     <text>S3</text>
     <x>553</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1414,7 +1414,7 @@
     <name>lbl_S4_679</name>
     <text>S4</text>
     <x>679</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1453,7 +1453,7 @@
     <name>lbl_VS1_936</name>
     <text>VS1</text>
     <x>936</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1476,7 +1476,7 @@
     <name>lbl_VS2_1007</name>
     <text>VS2</text>
     <x>1007</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1499,7 +1499,7 @@
     <name>lbl_VS3_1077</name>
     <text>VS3</text>
     <x>1077</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1522,7 +1522,7 @@
     <name>lbl_VS4_1148</name>
     <text>VS4</text>
     <x>1148</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1545,7 +1545,7 @@
     <name>lbl_VS5_1219</name>
     <text>VS5</text>
     <x>1219</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1568,7 +1568,7 @@
     <name>lbl_VS6_1289</name>
     <text>VS6</text>
     <x>1289</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1591,7 +1591,7 @@
     <name>lbl_VS7_1360</name>
     <text>VS7</text>
     <x>1360</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="action_button" version="3.0.0">
@@ -1614,7 +1614,7 @@
     <name>lbl_VS8_1430</name>
     <text>VS8</text>
     <x>1430</x><y>180</y><width>16</width><height>36</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
     <font><font family="Liberation Sans" style="REGULAR" size="10.0"/></font>
   </widget>
   <widget type="rectangle" version="2.0.0">

@@ -11,11 +11,14 @@ import numpy
 import pytest
 
 from inversion_fbpic.lib.serializable_config import SerializableConfig
+from lume_fbpic import archive
 from lume_fbpic.actions import make_pwfa_actions
 from lume_fbpic.density_profiles import LinearRampFlattop, UpDownRampProfile
 from lume_fbpic.model import LUMEFBPICModel
 from lume_fbpic.pwfa_config import FlatTopBunch, GaussianBunch, PWFAGrid
-from lume_fbpic.simulator import FBPICSimulator, PWFASimulator
+from lume_fbpic.pwfa_simulator import PWFASimulator
+from lume_fbpic.utils import ELECTRON_MC2_EV
+from reference_descriptor import reference_descriptor
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docs" / "examples"))
 import pwfa_clara_febe as clara_example  # noqa: E402
@@ -47,7 +50,9 @@ def pwfa_model(tmp_path) -> LUMEFBPICModel:
     driver = FlatTopBunch(
         gamma=2.0e3, density=5.0e24, radius=2.0e-6, zmin=15.0e-6, zmax=20.0e-6
     )
-    simulator = PWFASimulator(grid, plasma, driver, working_directory=tmp_path)
+    simulator = PWFASimulator(
+        grid, plasma, driver, target_species="driver", working_directory=tmp_path
+    )
     return LUMEFBPICModel(simulator, make_pwfa_actions(simulator), dummy_run=True)
 
 
@@ -110,10 +115,11 @@ def test_the_descriptor_actions_work_on_a_pwfa_simulator(pwfa_model, particle_gr
 
     values = model.get(["descriptor_mean_uz", "descriptor_total_beam_charge_pc"])
 
-    assert (
-        100 < values["descriptor_mean_uz"] < 200
-    )  # the synthetic bunch's mean uz is ~150
-    assert values["descriptor_total_beam_charge_pc"] > 0
+    expected = reference_descriptor(particle_group, uz_min=1.0, central_fraction=0.95)
+    assert values == {
+        "descriptor_mean_uz": expected["mean_uz"],
+        "descriptor_total_beam_charge_pc": expected["total_beam_charge_pc"],
+    }
 
 
 def test_a_witness_adds_witness_actions(pwfa_model):
@@ -156,9 +162,9 @@ def test_a_bunch_action_for_a_missing_witness_raises(pwfa_model):
 
 
 def test_bunch_actions_come_back_from_an_archive(pwfa_model, tmp_path):
-    pwfa_model.archive(tmp_path / "p.h5")
+    archive.save(pwfa_model, tmp_path / "p.h5")
 
-    restored = LUMEFBPICModel.from_archive(tmp_path / "p.h5")
+    restored = archive.load(tmp_path / "p.h5")
 
     action = restored.supported_variables["driver_gamma"]
     assert type(action).__name__ == "BunchFieldAction"
@@ -168,11 +174,13 @@ def test_bunch_actions_come_back_from_an_archive(pwfa_model, tmp_path):
 def test_archive_round_trips_a_pwfa_model_and_picks_the_pwfa_class(
     pwfa_model, tmp_path
 ):
-    pwfa_model.archive(tmp_path / "p.h5")
+    simulator = pwfa_model.simulator
+    simulator.grid = attrs.evolve(simulator.grid, save_directory="scan_07")
+    archive.save(pwfa_model, tmp_path / "p.h5")
 
     with h5py.File(tmp_path / "p.h5") as f:
         assert f.attrs["config_kind"] == "pwfa"
-    restored = LUMEFBPICModel.from_archive(tmp_path / "p.h5")
+    restored = archive.load(tmp_path / "p.h5")
 
     assert type(restored.simulator) is PWFASimulator
     assert {k: v.to_dict() for k, v in restored.simulator.config().items()} == {
@@ -181,24 +189,36 @@ def test_archive_round_trips_a_pwfa_model_and_picks_the_pwfa_class(
     assert restored.get(["driver_gamma"]) == pwfa_model.get(["driver_gamma"])
 
 
-def test_an_lwfa_class_cannot_load_a_pwfa_archive(pwfa_model, tmp_path):
-    pwfa_model.archive(tmp_path / "p.h5")
-
-    with pytest.raises(ValueError, match="cannot load"):
-        FBPICSimulator.from_archive(tmp_path / "p.h5")
-
-
 def test_a_short_run_writes_the_driver_and_reads_it_back(tmp_path):
     simulator = _short_run_simulator(tmp_path)
 
     simulator.run()
 
-    assert simulator.finished is True
+    assert simulator.final_particles is not None
     assert (tmp_path / "diags" / "hdf5" / "data00000002.h5").exists()
+    # the charge is the bunch's to rounding; 3 steps of wake change its energy by about 2e-7
     assert simulator.stats["charge_pc"] == pytest.approx(
-        simulator.driver.charge * 1e12, rel=0.05
+        simulator.driver.charge * 1e12, rel=1e-12
     )
-    assert simulator.stats["energy_mean_mev"] == pytest.approx(1021.5, rel=0.01)
+    assert simulator.stats["energy_mean_mev"] == pytest.approx(
+        (simulator.driver.gamma - 1) * ELECTRON_MC2_EV / 1e6, rel=1e-6
+    )
+
+
+def test_the_end_of_a_run_is_dumped_and_read_back_whatever_the_write_period(tmp_path):
+    simulator = _short_run_simulator(tmp_path)  # 3 steps, write_period 2
+
+    simulator.run()
+
+    directory = tmp_path / "diags" / "hdf5"
+    assert sorted(path.name for path in directory.glob("data*.h5")) == [
+        "data00000000.h5",
+        "data00000002.h5",
+        "data00000003.h5",
+    ]
+    with h5py.File(directory / "data00000003.h5") as f:
+        z = f["data/3/particles/driver/position/z"][:]
+    numpy.testing.assert_array_equal(simulator.final_particles.z, z)
 
 
 def test_gaussian_bunch_charge_is_its_field_and_rejects_bad_values():
@@ -225,7 +245,7 @@ def test_the_gaussian_example_has_a_witness_and_gaussian_actions():
     assert "driver_density" not in names
     assert model.simulator.target_species == "witness"
     assert model.simulator.grid.nz == 209 and model.simulator.grid.nr == 64
-    assert model.simulator.grid.n_steps == 281
+    assert model.simulator.grid.n_steps == 280
 
     model.set({"witness_position": 1.0e-4})
     assert model.simulator.witness.zf == 1.0e-4
@@ -238,18 +258,23 @@ def test_a_short_run_with_gaussian_bunches_reads_the_witness_back(tmp_path):
     simulator.grid = attrs.evolve(simulator.grid, nz=40, nr=16, write_period=2)
     simulator.driver = attrs.evolve(simulator.driver, n_macroparticles=200)
     simulator.witness = attrs.evolve(simulator.witness, n_macroparticles=100)
-    simulator.configure()
-
     simulator.run()
 
-    assert simulator.finished is True
-    assert simulator.stats["charge_pc"] == pytest.approx(100.0, rel=1e-6)
-    assert simulator.stats["energy_mean_mev"] == pytest.approx(1.0e4, rel=0.01)
+    assert simulator.final_particles is not None
+    witness = simulator.witness
+    assert simulator.stats["charge_pc"] == pytest.approx(
+        witness.charge * 1e12, rel=1e-12
+    )
+    # the mean of the witness's 100 sampled energies, within 5 standard errors
+    assert simulator.stats["energy_mean_mev"] == pytest.approx(
+        (witness.gamma - 1) * ELECTRON_MC2_EV / 1e6,
+        abs=5 * witness.sig_gamma * ELECTRON_MC2_EV / 1e6 / numpy.sqrt(100),
+    )
     assert len(simulator.final_particles) == 100
 
 
 def test_the_gaussian_example_plots_the_fields_of_a_short_run(tmp_path):
-    pytest.importorskip("matplotlib")
+    image = pytest.importorskip("matplotlib.image")
     model = pwfa_gaussian_example.build_model(n_steps=3)
     simulator = model.simulator
     simulator.working_directory = tmp_path
@@ -267,13 +292,15 @@ def test_the_gaussian_example_plots_the_fields_of_a_short_run(tmp_path):
         "transverse_force.png",
         "longitudinal_field_lineout.png",
     ]
-    assert all(f.stat().st_size > 1000 for f in files)
+    for f in files:
+        assert image.imread(f).ndim == 3, f.name  # a readable image
     with pytest.raises(FileNotFoundError, match="no dumps"):
         pwfa_gaussian_example.plot_results(tmp_path / "plots")
 
 
 def _short_run_simulator(tmp_path, **grid_changes) -> PWFASimulator:
-    """A configured 3-step run of a flat-top driver in a bare-electron plasma, with dumps at step 2."""
+    """A configured 3-step run of a flat-top driver in a bare-electron plasma, with dumps at steps
+    0 and 2 and at the end, step 3."""
     grid = PWFAGrid(
         zmin=-10.0e-6,
         zmax=30.0e-6,
@@ -297,7 +324,9 @@ def _short_run_simulator(tmp_path, **grid_changes) -> PWFASimulator:
     driver = FlatTopBunch(
         gamma=2.0e3, density=5.0e24, radius=2.0e-6, zmin=15.0e-6, zmax=20.0e-6
     )
-    simulator = PWFASimulator(grid, plasma, driver, working_directory=tmp_path)
+    simulator = PWFASimulator(
+        grid, plasma, driver, target_species="driver", working_directory=tmp_path
+    )
     simulator.configure()
     return simulator
 
@@ -383,12 +412,12 @@ def test_the_clara_example_follows_the_papers_tables(witness, n0_fraction):
             133_333,
             1.5e-6 / 299792458.0,
             (2, 2, 4),
-        ),  # the coarser 20 cm run; the paper: 500, 1 fs, (4, 4, 4)
+        ),  # the coarser 20 cm run; the paper: 500, about 1 fs, (4, 4, 4)
         (
             {"dz": 0.30e-6, "plasma_ppc": (4, 4, 4)},
             500,
             666_667,
-            1.0e-15,
+            0.30e-6 / 299792458.0,
             (4, 4, 4),
         ),  # the paper's
     ],
@@ -399,7 +428,7 @@ def test_the_clara_example_resolution(arguments, nz, n_steps, time_step, plasma_
 
     assert simulator.grid.nz == nz
     assert simulator.grid.n_steps == n_steps  # the whole 20 cm cell
-    assert simulator.grid.time_step == pytest.approx(time_step, rel=1e-3)
+    assert simulator.grid.time_step == pytest.approx(time_step, rel=1e-12)  # dz / c
     assert (
         simulator.plasma.p_nz,
         simulator.plasma.p_nr,
@@ -449,7 +478,7 @@ def _write_witness_dump(directory, iteration, time, *, outlier=False):
             ux, uy, uz = (
                 rng.normal(0.0, 0.01, n),
                 rng.normal(0.0, 0.01, n),
-                numpy.full(n, 500.0),
+                rng.normal(500.0, 5.0, n),
             )
             if outlier and name == "witness":
                 x[0] = 1.0e-3
@@ -465,30 +494,60 @@ def _write_witness_dump(directory, iteration, time, *, outlier=False):
         for name in ("r", "t", "z"):
             mesh[name] = rng.normal(size=(1, 12, 100)) * 1.0e8
         step.create_group("fields/B")["t"] = rng.normal(size=(1, 12, 100))
+        step["fields/rho"] = rng.normal(size=(1, 12, 100))
     return path
 
 
 def test_the_dump_metrics_follow_the_papers_cut(tmp_path):
+    from beamphysics import ParticleGroup
+    from scipy.constants import e
+
     path = _write_witness_dump(tmp_path, 10, 1.0e-10, outlier=True)
 
-    distance, energy, spread, charge, emittance, size = clara_example._dump_metrics(
-        path, clara_example.CASES["longer"]
-    )
+    metrics = clara_example._dump_metrics(path, clara_example.CASES["longer"])
 
-    assert distance == pytest.approx(100.0 * 299792458.0 * 1.0e-10)
-    assert charge == pytest.approx(
-        1.0 * 999.0 / 1000.0, rel=1e-6
-    )  # pC: the outlier is cut
-    assert energy == pytest.approx(500.0 * 0.51099895, rel=1e-3)
-    assert size == pytest.approx(14.0, rel=0.1)
-    assert emittance == pytest.approx(
-        14.0 * 0.01, rel=0.2
-    )  # sigma_x * sigma_ux = 0.14 mm mrad
-    assert spread < 0.1
+    # The same statistics of the witness without its outlier (particle 0, the only one outside
+    # the cut), from beamphysics.
+    with h5py.File(path) as f:
+        witness = f["data/10/particles/witness"]
+        kept = {
+            name: witness[name][1:]
+            for name in (
+                "position/x",
+                "position/y",
+                "position/z",
+                "momentum/x",
+                "momentum/y",
+                "momentum/z",
+                "weighting",
+            )
+        }
+    momentum_ev = 1 / e * 299792458.0  # kg m/s -> eV/c
+    particles = ParticleGroup(
+        data={
+            **{axis: kept[f"position/{axis}"] for axis in "xyz"},
+            **{f"p{axis}": kept[f"momentum/{axis}"] * momentum_ev for axis in "xyz"},
+            "t": numpy.zeros(999),
+            "status": numpy.ones(999, dtype=int),
+            "weight": kept["weighting"] * e,
+            "species": "electron",
+        }
+    )
+    expected = [
+        100.0 * 299792458.0 * 1.0e-10,
+        particles["mean_energy"] / 1e6,
+        100.0 * particles["sigma_energy"] / particles["mean_energy"],
+        particles.charge * 1e12,
+        0.5 * (particles["norm_emit_x"] + particles["norm_emit_y"]) * 1e6,
+        particles["sigma_x"] * 1e6,
+    ]
+    # The example converts the momenta with beamphysics's electron rest energy, which differs
+    # from CODATA's m_e c^2 / e, used here, by 3.4e-12.
+    numpy.testing.assert_allclose(metrics, expected, rtol=1e-11)
 
 
 def test_plot_results_writes_the_four_plots_from_the_dumps(tmp_path):
-    pytest.importorskip("matplotlib")
+    image = pytest.importorskip("matplotlib.image")
     for iteration, time in ((0, 0.0), (10, 1.0e-10), (20, 2.0e-10)):
         _write_witness_dump(tmp_path, iteration, time)
     expected = [
@@ -503,7 +562,8 @@ def test_plot_results_writes_the_four_plots_from_the_dumps(tmp_path):
     )
 
     assert [f.name for f in files] == expected
-    assert all(f.stat().st_size > 1000 for f in files)
+    for f in files:
+        assert image.imread(f).ndim == 3, f.name  # a readable image
     shorter = clara_example.plot_results(
         tmp_path, witness="shorter", output=tmp_path / "plots_shorter"
     )
@@ -513,3 +573,11 @@ def test_plot_results_writes_the_four_plots_from_the_dumps(tmp_path):
 def test_plot_results_needs_dumps(tmp_path):
     with pytest.raises(FileNotFoundError, match="no dumps"):
         clara_example.plot_results(tmp_path)
+
+
+def test_a_bunch_of_another_kind_has_no_actions(pwfa_model):
+    simulator = pwfa_model.simulator
+    simulator.driver = simulator.plasma  # a config object that is not a bunch
+
+    with pytest.raises(ValueError, match="no actions for a bunch"):
+        make_pwfa_actions(simulator)

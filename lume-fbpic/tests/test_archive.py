@@ -10,25 +10,21 @@ import h5py
 import numpy
 import pytest
 
+from archive_helpers import load_simulator, recorded_values, simulator_model
 from downramp_actions import make_actions
+from reference_descriptor import reference_descriptor
+from lume_fbpic import archive, descriptor
 from lume_fbpic.actions import LaserFieldAction, make_descriptor_actions
-from lume_fbpic.model import LUMEFBPICModel, _read_output_values
-from lume_fbpic.simulator import FBPICSimulator
-
-
-def _recorded_values(path):
-    """The recorded output values of the archive at `path`."""
-    with h5py.File(path, "r") as f:
-        return _read_output_values(f)
+from lume_fbpic.model import LUMEFBPICModel
 
 
 def _archive_with_outputs(model, path, outputs):
     """Archive `model` as a run whose recorded `outputs` (by action name) it never held."""
-    model.simulator.stats = dict(outputs)
+    model.simulator.recorded_outputs = dict(outputs)
     try:
-        model.archive(path)
+        archive.save(model, path)
     finally:
-        model.simulator.stats = {}
+        model.simulator.recorded_outputs = {}
 
 
 @pytest.fixture()
@@ -44,7 +40,6 @@ def _pretend_run_finishes(simulator, mocker, particle_group, stats):
     def run():
         simulator.final_particles = particle_group
         simulator.stats = dict(stats)
-        simulator.finished = True
 
     mocker.patch.object(simulator, "run", side_effect=run)
 
@@ -55,12 +50,12 @@ def test_archive_does_not_store_particles_by_default(
     simulator.final_particles = particle_group
     simulator.stats = {"charge_pc": 1.0}
 
-    simulator.archive(tmp_path / "a.h5")
+    archive.save(simulator_model(simulator), tmp_path / "a.h5")
 
     with h5py.File(tmp_path / "a.h5") as f:
         assert "final_particles" not in f
         assert "stats" not in f
-    restored = FBPICSimulator.from_archive(tmp_path / "a.h5")
+    restored = load_simulator(tmp_path / "a.h5")
     assert restored.final_particles is None
     assert restored.stats == {}
 
@@ -71,9 +66,11 @@ def test_archive_stores_final_particles_as_a_particle_group(
     simulator.final_particles = particle_group
     simulator.stats = {"charge_pc": 1.5, "energy_mean_mev": 2.5}
 
-    simulator.archive(tmp_path / "a.h5", save_final_particles=True)
+    archive.save(
+        simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
+    )
 
-    restored = FBPICSimulator.from_archive(tmp_path / "a.h5")
+    restored = load_simulator(tmp_path / "a.h5")
     assert len(restored.final_particles) == len(particle_group)
     numpy.testing.assert_allclose(restored.final_particles.pz, particle_group.pz)
     numpy.testing.assert_allclose(
@@ -88,7 +85,9 @@ def test_archive_with_particles_opens_directly_as_a_particle_file(
     from beamphysics import ParticleGroup
 
     simulator.final_particles = particle_group
-    simulator.archive(tmp_path / "a.h5", save_final_particles=True)
+    archive.save(
+        simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
+    )
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # a non-compliant openPMD layout warns
@@ -100,13 +99,15 @@ def test_archive_with_particles_opens_directly_as_a_particle_file(
 
 def test_saving_particles_before_any_run_is_an_error(simulator, tmp_path):
     with pytest.raises(ValueError, match="final particles"):
-        simulator.archive(tmp_path / "a.h5", save_final_particles=True)
+        archive.save(
+            simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
+        )
 
 
 def test_model_archive_stores_the_action_definitions_in_order(full_model, tmp_path):
-    full_model.archive(tmp_path / "m.h5")
+    archive.save(full_model, tmp_path / "m.h5")
 
-    restored = LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True)
+    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
 
     assert list(restored.supported_variables) == list(full_model.supported_variables)
     assert [type(a) for a in restored.supported_variables.values()] == [
@@ -119,9 +120,9 @@ def test_model_archive_stores_the_action_definitions_in_order(full_model, tmp_pa
 
 def test_restored_model_sees_the_archived_config(full_model, tmp_path):
     full_model.set({"laser_energy": 6.0})
-    full_model.archive(tmp_path / "m.h5")
+    archive.save(full_model, tmp_path / "m.h5")
 
-    restored = LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True)
+    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
 
     assert restored.get(["laser_energy"])["laser_energy"] == 6.0
 
@@ -133,9 +134,9 @@ def test_restored_model_returns_outputs_when_particles_were_saved(
     simulator.stats = {"charge_pc": 7.0, "energy_mean_mev": 8.0, "energy_std_mev": 0.5}
     names = ["charge_pc", "descriptor_mean_uz", "descriptor_total_beam_charge_pc"]
     expected = full_model.get(names)
-    full_model.archive(tmp_path / "m.h5", save_final_particles=True)
+    archive.save(full_model, tmp_path / "m.h5", save_final_particles=True)
 
-    restored = LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True)
+    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
 
     got = restored.get(names)
     for name in names:
@@ -155,9 +156,9 @@ def test_archive_stores_the_current_input_and_output_values(
     model.set(
         {"laser_energy": 9.0}
     )  # changes the config after the run, without running
-    model.archive(tmp_path / "m.h5")
+    archive.save(model, tmp_path / "m.h5")
 
-    values = _recorded_values(tmp_path / "m.h5")
+    values = recorded_values(tmp_path / "m.h5")
 
     assert values["charge_pc"] == 7.0
     assert values["energy_mean_mev"] == 8.0
@@ -166,9 +167,9 @@ def test_archive_stores_the_current_input_and_output_values(
     )  # the inputs are in the config, not stored as values
     # the config holds the current input, not the 6.0 that ran
     assert (
-        LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True).get(
-            ["laser_energy"]
-        )["laser_energy"]
+        archive.load(tmp_path / "m.h5", dummy_run=True).get(["laser_energy"])[
+            "laser_energy"
+        ]
         == 9.0
     )
 
@@ -177,34 +178,36 @@ def test_model_that_never_ran_stores_its_inputs_in_the_config_and_nan_outputs(
     full_model, tmp_path
 ):
     full_model.set({"laser_energy": 4.0})
-    full_model.archive(tmp_path / "m.h5")
+    archive.save(full_model, tmp_path / "m.h5")
 
-    values = _recorded_values(tmp_path / "m.h5")
+    values = recorded_values(tmp_path / "m.h5")
 
     assert (
-        LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True).get(
-            ["laser_energy"]
-        )["laser_energy"]
+        archive.load(tmp_path / "m.h5", dummy_run=True).get(["laser_energy"])[
+            "laser_energy"
+        ]
         == 4.0
     )
     assert math.isnan(values["charge_pc"])
     assert "final_particles" not in values  # no scalar value for particles
 
 
-def test_from_archive_rejects_a_simulator_only_archive(simulator, tmp_path):
-    simulator.archive(tmp_path / "s.h5")
+def test_load_rejects_a_file_without_actions(simulator, tmp_path):
+    archive.save(simulator_model(simulator), tmp_path / "s.h5")
+    with h5py.File(tmp_path / "s.h5", "a") as f:
+        del f["actions"]
 
     with pytest.raises(ValueError, match="no actions"):
-        LUMEFBPICModel.from_archive(tmp_path / "s.h5")
+        archive.load(tmp_path / "s.h5")
 
 
-def test_from_archive_rejects_an_unknown_action_class(full_model, tmp_path):
-    full_model.archive(tmp_path / "m.h5")
+def test_load_rejects_an_unknown_action_class(full_model, tmp_path):
+    archive.save(full_model, tmp_path / "m.h5")
     with h5py.File(tmp_path / "m.h5", "a") as f:
         f["actions/0000"].attrs["class"] = "NoSuchAction"
 
     with pytest.raises(ValueError, match="NoSuchAction"):
-        LUMEFBPICModel.from_archive(tmp_path / "m.h5")
+        archive.load(tmp_path / "m.h5")
 
 
 def test_an_action_class_from_outside_lume_fbpic_actions_cannot_be_loaded(
@@ -218,14 +221,14 @@ def test_an_action_class_from_outside_lume_fbpic_actions_cannot_be_loaded(
         [MyLaserAction(name="mine", field_name="waist", unit="m")],
         dummy_run=True,
     )
-    model.archive(tmp_path / "m.h5")  # a custom action can still be written
+    archive.save(model, tmp_path / "m.h5")  # a custom action can still be written
 
     with pytest.raises(ValueError, match="Unknown action class 'MyLaserAction'"):
-        LUMEFBPICModel.from_archive(tmp_path / "m.h5")
+        archive.load(tmp_path / "m.h5")
 
 
 def test_action_parameters_are_stored_as_attributes_not_json(full_model, tmp_path):
-    full_model.archive(tmp_path / "m.h5")
+    archive.save(full_model, tmp_path / "m.h5")
 
     with h5py.File(tmp_path / "m.h5") as f:
         entry = f["actions/0000"]
@@ -248,9 +251,9 @@ def test_action_parameters_round_trip_with_their_types(
         [*make_actions(simulator), *make_descriptor_actions(uz_min=12.5)],
         dummy_run=True,
     )
-    model.archive(tmp_path / "m.h5")
+    archive.save(model, tmp_path / "m.h5")
 
-    restored = LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True)
+    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
 
     assert [a.model_dump() for a in restored.supported_variables.values()] == [
         a.model_dump() for a in model.supported_variables.values()
@@ -270,7 +273,7 @@ def test_an_action_with_an_unstorable_parameter_cannot_be_archived(simulator, tm
     )
 
     with pytest.raises(TypeError, match="tags"):
-        model.archive(tmp_path / "m.h5")
+        archive.save(model, tmp_path / "m.h5")
 
 
 def test_a_failed_archive_leaves_no_file_and_an_existing_one_as_it_was(
@@ -287,25 +290,27 @@ def test_a_failed_archive_leaves_no_file_and_an_existing_one_as_it_was(
     path = tmp_path / "m.h5"
 
     with pytest.raises(TypeError):
-        bad.archive(path)
+        archive.save(bad, path)
     assert not path.exists()  # nothing was written
 
     path.write_bytes(b"an earlier archive")
     with pytest.raises(TypeError):
-        bad.archive(path)
+        archive.save(bad, path)
     assert path.read_bytes() == b"an earlier archive"
 
     good = LUMEFBPICModel(simulator, make_actions(simulator), dummy_run=True)
-    mocker.patch.object(good, "_archive_actions", side_effect=RuntimeError("midway"))
+    mocker.patch(
+        "lume_fbpic.archive._write_actions", side_effect=RuntimeError("midway")
+    )
     with pytest.raises(
         RuntimeError, match="midway"
     ):  # an error after the config is written
-        good.archive(path)
+        archive.save(good, path)
     assert path.read_bytes() == b"an earlier archive"
     assert [p.name for p in tmp_path.iterdir()] == ["m.h5"]  # no partial file either
 
 
-def test_outputs_recorded_in_the_simulators_stats_are_archived(full_model, tmp_path):
+def test_the_simulators_recorded_outputs_are_archived(full_model, tmp_path):
     full_model.set({"laser_energy": 4.0})
 
     _archive_with_outputs(
@@ -314,7 +319,7 @@ def test_outputs_recorded_in_the_simulators_stats_are_archived(full_model, tmp_p
         {"descriptor_mean_uz": 171.6, "descriptor_total_beam_charge_pc": 510.0},
     )
 
-    values = _recorded_values(tmp_path / "m.h5")
+    values = recorded_values(tmp_path / "m.h5")
     assert values["descriptor_mean_uz"] == 171.6
     assert values["descriptor_total_beam_charge_pc"] == 510.0
     assert math.isnan(values["descriptor_cov_uz_uz"])  # not recorded
@@ -328,7 +333,7 @@ def recorded_model(full_model, tmp_path) -> LUMEFBPICModel:
         tmp_path / "m.h5",
         {"descriptor_mean_uz": 171.6, "descriptor_total_beam_charge_pc": 510.0},
     )
-    return LUMEFBPICModel.from_archive(tmp_path / "m.h5", dummy_run=True)
+    return archive.load(tmp_path / "m.h5", dummy_run=True)
 
 
 def test_loaded_model_serves_the_recorded_outputs_when_there_are_no_particles(
@@ -357,14 +362,20 @@ def test_live_values_win_over_recorded_ones(recorded_model, particle_group):
 
     live = recorded_model.get(["descriptor_mean_uz"])["descriptor_mean_uz"]
 
-    assert live != 171.6
-    assert 100 < live < 200  # the synthetic bunch's mean uz is ~150
+    assert (
+        live
+        == reference_descriptor(
+            particle_group,
+            uz_min=descriptor.UZ_MIN,
+            central_fraction=descriptor.CENTRAL_FRACTION,
+        )["mean_uz"]
+    )
 
 
 def test_recorded_outputs_survive_archiving_again(recorded_model, tmp_path):
-    recorded_model.archive(tmp_path / "again.h5")
+    archive.save(recorded_model, tmp_path / "again.h5")
 
-    assert _recorded_values(tmp_path / "again.h5")["descriptor_mean_uz"] == 171.6
+    assert recorded_values(tmp_path / "again.h5")["descriptor_mean_uz"] == 171.6
 
 
 def test_reset_restores_the_initial_config_without_running(recorded_model, mocker):
@@ -381,11 +392,40 @@ def test_reset_restores_the_initial_config_without_running(recorded_model, mocke
 
 def test_reset_brings_back_the_recorded_outputs(recorded_model):
     recorded_model.set({"laser_energy": 9.0})
-    recorded_model.simulator.stats = {
-        "descriptor_mean_uz": 1.0
-    }  # a run replaced the results
+    recorded_model.simulator.recorded_outputs = {"descriptor_mean_uz": 1.0}
     assert recorded_model.get(["descriptor_mean_uz"])["descriptor_mean_uz"] == 1.0
 
     recorded_model.reset()
 
     assert recorded_model.get(["descriptor_mean_uz"])["descriptor_mean_uz"] == 171.6
+
+
+def test_load_reads_only_the_simulators_config_groups(full_model, tmp_path):
+    archive.save(full_model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        f.create_group("not_config")
+
+    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
+
+    assert list(restored.simulator.config()) == list(full_model.simulator.config())
+
+
+def test_a_config_named_like_an_archive_group_cannot_be_archived(
+    full_model, tmp_path, mocker
+):
+    simulator = full_model.simulator
+    mocker.patch.object(simulator, "config", return_value={"stats": simulator.laser})
+
+    with pytest.raises(ValueError, match="name of an archive group"):
+        archive.save(full_model, tmp_path / "m.h5")
+
+
+def test_the_model_archives_itself_and_is_rebuilt_from_its_archive(
+    full_model, tmp_path
+):
+    path = full_model.archive(tmp_path / "m.h5")
+
+    restored = LUMEFBPICModel.from_archive(path, dummy_run=True)
+
+    assert list(restored.supported_variables) == list(full_model.supported_variables)
+    assert restored.get(["laser_energy"]) == full_model.get(["laser_energy"])

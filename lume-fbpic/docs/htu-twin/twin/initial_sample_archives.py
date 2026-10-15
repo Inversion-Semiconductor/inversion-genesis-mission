@@ -5,12 +5,16 @@
 `<output dir>/<run>.h5`, a `LUMEFBPICModel` archive (`LUMEFBPICModel.archive()`) with
 
 - the config rebuilt from the run's inputs, on the production hyperparameters of
-  `ionization_injection_runscript_00.py`;
+  `ionization_injection_runscript_00.py` (`ionization_injection.PRODUCTION`);
 - the action inputs, read from that config;
-- the 33 `descriptor_*` outputs as recorded in the dataset (the charge converted from C to pC).
+- the 33 `descriptor_*` outputs as recorded in the dataset (the charge converted from C to pC);
+- the dataset record itself, as an `inversion_fbpic` `Parameters` (the simulator's `parameters`,
+  group `parameters` of the archive): the run name, the dataset file name, the descriptor
+  selection the dataset used, and the run's inputs and outputs exactly as recorded, so an archive
+  says what it was rebuilt from.
 
 `LUMEFBPICModel.from_archive()` loads one and its `get()` returns the recorded descriptor values,
-so it can be served with `serve.py`.
+so it can be served with `python -m lume_fbpic_twin.serve`.
 
 These are RECONSTRUCTED archives, not the runs themselves:
 
@@ -38,10 +42,15 @@ import typing
 
 import attrs
 
-from lume_fbpic.actions import LaserFieldAction, MomentDescriptorAction
+from lume_fbpic.actions import (
+    DESCRIPTOR_PREFIX,
+    MomentDescriptorAction,
+    evolve_laser,
+)
+from lume_fbpic.density_profiles import atom_density
 from lume_fbpic.model import LUMEFBPICModel
 
-from inversion_fbpic.lib.density_core import _DensityProfile
+from inversion_fbpic.lib.datapoint import Parameters
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "examples"))
 import ionization_injection  # noqa: E402  (docs/examples/ionization_injection.py)
@@ -51,44 +60,37 @@ DEFAULT_DATASET = (
     / "lpa/Simulation_FBPIC/runs/initial_sample/sample_dataset/sample_dataset.json"
 )
 
-# Production settings of runs/initial_sample/ionization_injection_runscript_00.py (its
-# HYPERPARAMETERS), which `ionization_injection.py` coarsens for a one-node CPU run.
-PRODUCTION = {
-    "nz": 1500,
-    "nr": 300,
-    "nm": 5,
-    "number_dumps": 50,
-    "write_period": 50,
-    "use_mpi": True,  # submission_script_00.sh runs 8 ranks under srun
-    "p_nt": 15,
-    "laser_n_azimuthal_modes": 5,
-    "laser_num_points": (600, 900),
-}
-
-# Dataset input -> action name, for the inputs that have an action.
-_ACTION_FOR_INPUT = {
-    "laser_energy_J": "laser_energy",
-    "laser_focal_position_m": "laser_focal_position",
-    "laser_pulse_duration_fwhm_s": "laser_temporal_width",
-    "nitrogen_dopant_fraction": "nitrogen_dopant_fraction",
-}
-
 
 def build_archive(
-    record: dict[str, typing.Any], dataset_metadata: dict[str, typing.Any], path: Path
+    record: dict[str, typing.Any],
+    dataset_metadata: dict[str, typing.Any],
+    path: Path,
+    *,
+    run: str,
+    dataset: str,
 ) -> Path:
-    """Write the archive for one dataset run and return its path."""
+    """Write the archive for one dataset run and return its path. `run` is the run's name in
+    the dataset and `dataset` the dataset's file name; both go into the archive's `parameters`.
+    """
     model = ionization_injection.build_model()
     model.dummy_run = True
     _use_production_settings(model)
     _check_descriptor_settings(model, dataset_metadata)
     _check_fixed_inputs(model, record["input"])
     _apply_inputs(model, record["input"])
-    # The recorded outputs go where the output actions read them when there are no particles.
-    model.simulator.stats = {
-        f"descriptor_{name}": value
+    model.simulator.recorded_outputs = {
+        DESCRIPTOR_PREFIX + name: value
         for name, value in _descriptor_outputs(record["output"]).items()
     }
+    model.simulator.parameters = Parameters(
+        data={
+            "run": run,
+            "dataset": dataset,
+            "selection": dict(dataset_metadata),
+            "inputs": dict(record["input"]),
+            "outputs": dict(record["output"]),
+        }
+    )
     model.archive(path)
     return path
 
@@ -104,7 +106,13 @@ def main(argv: list[str] | None = None) -> None:
     dataset = json.loads(args.dataset.read_text())
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for run, record in dataset["runs"].items():
-        path = build_archive(record, dataset["metadata"], args.output_dir / f"{run}.h5")
+        path = build_archive(
+            record,
+            dataset["metadata"],
+            args.output_dir / f"{run}.h5",
+            run=run,
+            dataset=args.dataset.name,
+        )
         print(f"wrote {path}")
 
 
@@ -112,9 +120,9 @@ def _apply_inputs(model: LUMEFBPICModel, inputs: dict[str, float]) -> None:
     """Set the inputs that have an action (the rest were checked to equal the baseline)."""
     values = {}
     for name, value in inputs.items():
-        if name in _ACTION_FOR_INPUT:
-            values[_ACTION_FOR_INPUT[name]] = value
-        elif name.startswith("zernike_"):
+        if name in ionization_injection.DATASET_ACTIONS:
+            values[ionization_injection.DATASET_ACTIONS[name]] = value
+        elif name.startswith(ionization_injection.ZERNIKE_PREFIX):
             values[name] = value
     model.set(values)
 
@@ -149,14 +157,9 @@ def _check_fixed_inputs(model: LUMEFBPICModel, inputs: dict[str, float]) -> None
         "laser_spot_size_m": simulator.laser.waist,
         "laser_super_gaussian_order": simulator.laser.super_gaussian_order,
         "laser_wavelength_m": simulator.laser.wavelength,
-        # n_plasma = 2 * n_gas, and n_gas is the He + N atom density (each profile's
-        # nominal_density is its atom density times its ionization-level count).
+        # n_plasma = 2 * n_gas, and n_gas is the He + N atom density
         "peak_plasma_density_cm3": 2.0
-        * (
-            he.nominal_density / _DensityProfile._get_num_ionization_levels(he.species)
-            + nitrogen.nominal_density
-            / _DensityProfile._get_num_ionization_levels(nitrogen.species)
-        )
+        * (atom_density(he) + atom_density(nitrogen))
         / 1.0e6,
     }
     for name, value in inputs.items():
@@ -168,8 +171,8 @@ def _check_fixed_inputs(model: LUMEFBPICModel, inputs: dict[str, float]) -> None
     unknown = (
         set(inputs)
         - set(baseline)
-        - set(_ACTION_FOR_INPUT)
-        - {k for k in inputs if k.startswith("zernike_")}
+        - set(ionization_injection.DATASET_ACTIONS)
+        - {k for k in inputs if k.startswith(ionization_injection.ZERNIKE_PREFIX)}
     )
     if unknown:
         raise ValueError(
@@ -192,26 +195,25 @@ def _descriptor_outputs(output: dict[str, float]) -> dict[str, float]:
 def _use_production_settings(model: LUMEFBPICModel) -> None:
     """Replace the example's coarsened grid and laser grid by the production ones."""
     simulator = model.simulator
+    production = ionization_injection.PRODUCTION
     simulator.hyparams = attrs.evolve(
         simulator.hyparams,
-        nz=PRODUCTION["nz"],
-        nr=PRODUCTION["nr"],
-        nm=PRODUCTION["nm"],
-        number_dumps=PRODUCTION["number_dumps"],
-        write_period=PRODUCTION["write_period"],
-        use_mpi=PRODUCTION["use_mpi"],
+        nz=production["nz"],
+        nr=production["nr"],
+        nm=production["nm"],
+        number_dumps=production["number_dumps"],
+        write_period=production["write_period"],
+        use_mpi=production["use_mpi"],
     )
     simulator.densities = [
-        attrs.evolve(density, p_nt=PRODUCTION["p_nt"])
+        attrs.evolve(density, p_nt=production["p_nt"])
         for density in simulator.densities
     ]
-    # LaserFieldAction._set also clears the derived energy/a0 sibling, which a plain
-    # attrs.evolve of these fields would trip over.
-    for field, value in (
-        ("n_azimuthal_modes", PRODUCTION["laser_n_azimuthal_modes"]),
-        ("num_points", PRODUCTION["laser_num_points"]),
-    ):
-        LaserFieldAction(name=field, field_name=field, unit=None)._set(simulator, value)
+    simulator.laser = evolve_laser(
+        simulator.laser,
+        n_azimuthal_modes=production["laser_n_azimuthal_modes"],
+        num_points=production["laser_num_points"],
+    )
 
 
 if __name__ == "__main__":

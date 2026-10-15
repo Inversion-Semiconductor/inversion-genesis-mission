@@ -1,6 +1,6 @@
 """Serve an archived `LUMEFBPICModel` as EPICS PVs through `lume-pva`.
 
-`python serve.py <archive.h5 | directory> ... [--prefix LPA:SIM:]` loads the archives
+`python -m lume_fbpic_twin.serve <archive.h5 | directory> ... [--prefix LPA:SIM:]` loads the archives
 (`LUMEFBPICModel.from_archive()`; a directory means its `*.h5` files) and serves every read-only
 scalar action -- the stats and the moment-descriptor features -- over PVA and CA, each named
 `<prefix><action name>`; `lume-pva` adds `<prefix>RESET` and `<prefix>SNAPSHOT`.
@@ -8,10 +8,10 @@ scalar action -- the stats and the moment-descriptor features -- over PVA and CA
 The archives are held by an `ArchiveSelector`: one writable enum PV, `<prefix>LPA_Archive`, lists
 them by file name (without `.h5`) and putting one makes it the active run. The first is active at
 start. The served values and, with `--twin`, the bunch the twin tracks follow the active run. They
-must all have the same variables (be made with the same action list). The values are the archive's: the live results when it
-holds the final particles, otherwise the recorded output values (as in the archives made by
-`docs/htu-twin/twin/initial_sample_archives.py`). `final_particles` is not served, as `lume-pva` has no
-handler for a particle group.
+must all have the same variables (be made with the same action list). The values are the
+archive's: the live results when it holds the final particles, otherwise the recorded output
+values (as in the archives made by `docs/htu-twin/twin/initial_sample_archives.py`).
+`final_particles` is not served, as `lume-pva` has no handler for a particle group.
 
 The model is always loaded with `dummy_run=True`, so a put can change a parameter but can never
 start a simulation. The input actions (laser energy, ...) are served read-only, or read-write with
@@ -19,15 +19,15 @@ start a simulation. The input actions (laser energy, ...) are served read-only, 
 results.
 
 With `--twin` the archive's final particles are the source of the HTU transport twin
-(`build_chain` in `docs/htu-twin/twin/twin_stage.py`): the twin's own variables (magnets, steering, chicane, slit,
-magspec, ...) are served read-write and re-track on every put, its `Source_*` variables read the
+(`lume_fbpic_twin.twin_stage.build_chain()`): the twin's own variables (magnets, steering,
+chicane, slit, magspec, ...) are served read-write and re-track on every put, its `Source_*` variables read the
 LPA bunch read-only, and the archive's outputs are served read-only next to them. The archive must
 hold the final particles (`save_final_particles=True`) unless `--synthesize-bunch` is given (below).
 `htu` (geecs-lume-twin) must be importable, and the default prefix becomes `HTU:SIM:`, the one the
 twin's Phoebus displays use.
 
-A put is acknowledged at once and the served values update when the twin has re-tracked (about
-3 s), because Phoebus waits one second for a put reply on its UI thread and would otherwise report
+A put is acknowledged at once and the served values update when the twin has re-tracked (a few
+seconds), because Phoebus waits one second for a put reply on its UI thread and would otherwise report
 a write error and freeze. `--wait-for-puts` acknowledges only after the re-track
 (`PutMode.Complete`), for scan clients that set and wait. The twin's camera images are made coarser
 (`--screen-binning`, 4 by default): the bunch has far fewer macroparticles than the twin's
@@ -39,27 +39,31 @@ An archive without final particles (one reconstructed from a dataset, as
 `synthetic_bunch_particles`): an APPROXIMATION of the real bunch, matching the descriptor's means,
 variances and main correlations, not its tails. The served descriptor values stay the recorded ones.
 
-Needs `lume-pva` (not a dependency of this package); it is imported only when serving. Run it from
-this directory or by path; it imports `archive_selector.py` beside it and the `lume_fbpic` package.
+Needs `lume-pva` (the `serve` extra of this package); it is imported only when serving.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from pathlib import Path
 import typing
 
 from lume_fbpic.model import LUMEFBPICModel
-from archive_selector import DEFAULT_SELECTOR_NAME, ArchiveSelector
+from lume_fbpic_twin.archive_selector import DEFAULT_SELECTOR_NAME, ArchiveSelector
+
+# The PV prefix of the archives served alone.
+LPA_PREFIX = "LPA:SIM:"
+# The PV prefix with `--twin`. POSIT: the twin's own, `htu.config_tool.DEFAULT_PREFIX`, which its
+# Phoebus displays use.
+TWIN_PREFIX = "HTU:SIM:"
 
 
 def build_config(
     model,
     *,
     include_inputs: bool = False,
-    prefix: str = "LPA:SIM:",
+    prefix: str = LPA_PREFIX,
     protocol: list[str] | None = None,
     serve_always: set[str] | None = None,
     wait_for_puts: bool = False,
@@ -130,7 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--prefix",
         default=None,
-        help="PV name prefix (default LPA:SIM:, or HTU:SIM: with --twin)",
+        help=f"PV name prefix (default {LPA_PREFIX}, or {TWIN_PREFIX} with --twin)",
     )
     parser.add_argument(
         "--include-inputs",
@@ -224,21 +228,19 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(str(error))
     serve_always = {args.selector_name}
     if args.twin:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "twin"))
-        from twin_stage import build_chain
+        from lume_fbpic_twin.twin_stage import build_chain  # needs htu and torch
 
         try:
             served = build_chain(selector, screen_binning=args.screen_binning)
         except ValueError as error:
             parser.error(str(error))
         serve_always |= set(served.lume_model_instances[1].supported_variables)
-        # Putting any twin variable passes the LPA bunch on first; do it once now so the twin
-        # starts with the LPA bunch as its source.
-        current = served.get(["EMQ1H_Current"])["EMQ1H_Current"]
-        served.set({"EMQ1H_Current": float(current)})
+        # A set of the chain, even an empty one, passes the LPA bunch on: do it once now so the
+        # twin starts with the LPA bunch as its source.
+        served.set({})
     else:
         served = selector
-    prefix = args.prefix or ("HTU:SIM:" if args.twin else "LPA:SIM:")
+    prefix = args.prefix or (TWIN_PREFIX if args.twin else LPA_PREFIX)
     config = build_config(
         served,
         include_inputs=args.include_inputs,

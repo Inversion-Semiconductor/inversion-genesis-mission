@@ -3084,104 +3084,104 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_title</name>
-    <text>LPA bunch (twin source):</text>
     <x>30</x>
     <y>1028</y>
     <width>190</width>
     <height>24</height>
+    <text>LPA bunch (twin source):</text>
     <font>
       <font family="Liberation Sans" style="BOLD" size="12.0" />
     </font>
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_run_label</name>
-    <text>Run:</text>
     <x>225</x>
     <y>1028</y>
     <width>40</width>
     <height>24</height>
+    <text>Run:</text>
   </widget>
   <widget type="combo" version="2.0.0">
     <name>lpa_strip_run</name>
-    <pv_name>pva://HTU:SIM:LPA_Archive</pv_name>
     <x>267</x>
     <y>1028</y>
     <width>170</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:LPA_Archive</pv_name>
     <items_from_pv>true</items_from_pv>
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_label0</name>
-    <text>Energy [MeV]</text>
     <x>453</x>
     <y>1028</y>
     <width>90</width>
     <height>24</height>
+    <text>Energy [MeV]</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>lpa_strip_value0</name>
-    <pv_name>pva://HTU:SIM:Source_Energy_MeV</pv_name>
     <x>543</x>
     <y>1028</y>
     <width>70</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:Source_Energy_MeV</pv_name>
     <precision>2</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_label1</name>
-    <text>Spread [%]</text>
     <x>627</x>
     <y>1028</y>
     <width>80</width>
     <height>24</height>
+    <text>Spread [%]</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>lpa_strip_value1</name>
-    <pv_name>pva://HTU:SIM:Source_EnergySpread_pct</pv_name>
     <x>707</x>
     <y>1028</y>
     <width>60</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:Source_EnergySpread_pct</pv_name>
     <precision>1</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_label2</name>
-    <text>Charge [pC]</text>
     <x>781</x>
     <y>1028</y>
     <width>85</width>
     <height>24</height>
+    <text>Charge [pC]</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>lpa_strip_value2</name>
-    <pv_name>pva://HTU:SIM:Source_Charge_pC</pv_name>
     <x>866</x>
     <y>1028</y>
     <width>70</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:Source_Charge_pC</pv_name>
     <precision>1</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_label3</name>
-    <text>Macroparticles</text>
     <x>950</x>
     <y>1028</y>
     <width>100</width>
     <height>24</height>
+    <text>Macroparticles</text>
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>lpa_strip_value3</name>
-    <pv_name>pva://HTU:SIM:Source_NumParticles</pv_name>
     <x>1050</x>
     <y>1028</y>
     <width>70</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:Source_NumParticles</pv_name>
     <precision>0</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -3204,22 +3204,22 @@
   </widget>
   <widget type="label" version="2.0.0">
     <name>lpa_strip_status_label</name>
-    <text>Twin:</text>
     <x>1288</x>
     <y>1028</y>
     <width>45</width>
     <height>24</height>
+    <text>Twin:</text>
     <font>
       <font family="Liberation Sans" style="BOLD" size="12.0" />
     </font>
   </widget>
   <widget type="led" version="2.0.0">
     <name>lpa_strip_status_led</name>
-    <pv_name>pva://HTU:SIM:STATUS</pv_name>
     <x>1336</x>
     <y>1030</y>
     <width>20</width>
     <height>20</height>
+    <pv_name>pva://HTU:SIM:STATUS</pv_name>
     <off_color>
       <color red="0" green="170" blue="0" />
     </off_color>
@@ -3229,10 +3229,11 @@
   </widget>
   <widget type="textupdate" version="2.0.0">
     <name>lpa_strip_status_text</name>
-    <pv_name>pva://HTU:SIM:STATUS</pv_name>
     <x>1362</x>
     <y>1028</y>
     <width>90</width>
     <height>24</height>
+    <pv_name>pva://HTU:SIM:STATUS</pv_name>
+    <show_units>false</show_units>
   </widget>
 </display>

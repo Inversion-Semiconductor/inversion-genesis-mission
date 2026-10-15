@@ -1,4 +1,4 @@
-"""Tests for `serve.build_config` (docs/htu-twin/serving/serve.py) (the Runner config; no server is started)."""
+"""Tests for `lume_fbpic_twin.serve` (the Runner config; no server is started)."""
 
 from __future__ import annotations
 
@@ -6,10 +6,14 @@ import sys
 
 import pytest
 
-from downramp_actions import make_actions
-from lume_fbpic.actions import make_descriptor_actions
-from lume_fbpic.model import LUMEFBPICModel
-from serve import build_config, expand_archives
+pytest.importorskip("lume_fbpic_twin")
+
+from downramp_actions import make_actions  # noqa: E402
+from lume_fbpic import archive  # noqa: E402
+from lume_fbpic.actions import make_descriptor_actions  # noqa: E402
+from lume_fbpic.model import LUMEFBPICModel  # noqa: E402
+from lume_fbpic_twin import serve  # noqa: E402
+from lume_fbpic_twin.serve import build_config, expand_archives  # noqa: E402
 
 
 @pytest.fixture()
@@ -61,24 +65,20 @@ def test_config_uses_the_prefix_and_protocol(full_model):
 
 def test_synthesizing_a_bunch_needs_the_twin(full_model, tmp_path):
     pytest.importorskip("lume_pva")
-    from serve import main
-
-    full_model.archive(tmp_path / "a.h5")
+    archive.save(full_model, tmp_path / "a.h5")
 
     with pytest.raises(SystemExit):
-        main([str(tmp_path / "a.h5"), "--synthesize-bunch"])
+        serve.main([str(tmp_path / "a.h5"), "--synthesize-bunch"])
 
 
 def test_the_twin_needs_particles_or_the_flag_to_synthesize_them(
     full_model, tmp_path, capsys
 ):
     pytest.importorskip("lume_pva")
-    from serve import main
-
-    full_model.archive(tmp_path / "a.h5")  # no final particles
+    archive.save(full_model, tmp_path / "a.h5")  # no final particles
 
     with pytest.raises(SystemExit):
-        main([str(tmp_path / "a.h5"), "--twin"])
+        serve.main([str(tmp_path / "a.h5"), "--twin"])
 
     assert "--synthesize-bunch" in capsys.readouterr().err
 
@@ -112,14 +112,12 @@ def test_an_empty_directory_or_a_missing_path_is_an_error(tmp_path):
 
 def test_archives_with_the_same_file_name_are_refused(full_model, tmp_path, capsys):
     pytest.importorskip("lume_pva")
-    from serve import main
-
     for directory in ("one", "two"):
         (tmp_path / directory).mkdir()
-        full_model.archive(tmp_path / directory / "run.h5")
+        archive.save(full_model, tmp_path / directory / "run.h5")
 
     with pytest.raises(SystemExit):
-        main([str(tmp_path / "one" / "run.h5"), str(tmp_path / "two" / "run.h5")])
+        serve.main([str(tmp_path / "one" / "run.h5"), str(tmp_path / "two" / "run.h5")])
 
     assert "unique" in capsys.readouterr().err
 
@@ -128,13 +126,11 @@ def test_the_twin_names_every_archive_that_lacks_particles(
     full_model, tmp_path, capsys
 ):
     pytest.importorskip("lume_pva")
-    from serve import main
-
-    full_model.archive(tmp_path / "a.h5")
-    full_model.archive(tmp_path / "b.h5")
+    archive.save(full_model, tmp_path / "a.h5")
+    archive.save(full_model, tmp_path / "b.h5")
 
     with pytest.raises(SystemExit):
-        main([str(tmp_path), "--twin"])
+        serve.main([str(tmp_path), "--twin"])
 
     error = capsys.readouterr().err
     assert "'a'" in error and "'b'" in error and "--synthesize-bunch" in error
@@ -142,7 +138,7 @@ def test_the_twin_names_every_archive_that_lacks_particles(
 
 def test_the_selector_is_served_read_write(full_model):
     pytest.importorskip("lume_pva")
-    from archive_selector import ArchiveSelector
+    from lume_fbpic_twin.archive_selector import ArchiveSelector
 
     selector = ArchiveSelector({"a": full_model})
 
@@ -152,3 +148,9 @@ def test_the_selector_is_served_read_write(full_model):
     assert (
         str(config["variables"]["laser_energy"]["mode"]) == "ro"
     )  # an LPA input: read-only
+
+
+def test_the_twin_prefix_is_the_twins_own():
+    config_tool = pytest.importorskip("htu.config_tool")
+
+    assert serve.TWIN_PREFIX == config_tool.DEFAULT_PREFIX

@@ -1,65 +1,49 @@
-"""Simulators for `LUMEFBPICModel`: `BaseSimulator` and its subclasses `FBPICSimulator` (LWFA) and
-`PWFASimulator` (beam-driven PWFA).
+"""`BaseSimulator`, the abstract simulator of `LUMEFBPICModel`.
 
-`BaseSimulator` is the abstract base of the simulators. It owns what does not depend on the kind
-of simulation: the lifecycle (`run()`, `reset()`), reading `final_particles` and `stats` back from
-fbpic's openPMD output, and the HDF5 archive. A subclass supplies its config
-(`config()`/`set_config()`/`from_config()`), the validation and the run itself.
-`FBPICSimulator` wraps `inversion_fbpic.lib.simulation.Simulation` for LWFA-type simulations
-(hyperparameters, laser, density profiles); `PWFASimulator` builds an fbpic `Simulation` directly,
-from a grid, a plasma density profile and electron bunches.
+It owns what does not depend on the kind of simulation: the lifecycle (`configure()`, `run()`,
+`reset()`), the results (`final_particles` and `stats`, read back from fbpic's openPMD output with
+`lume_fbpic.utils`, and their `moment_descriptor()`), and the state of a simulator loaded from an
+archive (its recorded outputs and input files). A subclass
+names its config objects (`CONFIG_NAMES`) and supplies the run:
+`LWFASimulator` (`lume_fbpic.lwfa_simulator`) for LWFA, and `PWFASimulator`
+(`lume_fbpic.pwfa_simulator`) for beam-driven PWFA. Archives are written and read by
+`lume_fbpic.archive`.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from scipy.constants import c, e, m_e
 import attrs
-import h5py
-import hashlib
-import json
-import numpy
+import tempfile
 import typing
 
-# Config classes register themselves in `SerializableConfig` when their module is imported, which
-# is how `from_hdf5()` finds the class of a stored config. The `inversion_fbpic.lib` ones are all
-# imported by the `inversion_fbpic.lib` package itself; lume_fbpic's own density profiles are
-# imported here, so that a fresh process can load an archive that uses one.
-import lume_fbpic.density_profiles  # noqa: F401
-from lume_fbpic import archive_config
-from inversion_fbpic.lib.simulation import (
-    Simulation as FBPICSimulation,
-    SimulationHyperparameters,
-)
-from inversion_fbpic.lib.density_core import _DensityProfile
-from inversion_fbpic.lib.laser import _LaserPulse
-from lume_fbpic.pwfa_config import PWFAGrid, _ParticleBunch
-
-from openpmd_viewer.addons import LpaDiagnostics
-
 from beamphysics import ParticleGroup
-from beamphysics.writers import pmd_init
 
-
-# Electron rest energy in eV. Used to convert fbpic's normalized momentum (u = gamma*beta)
-# into openPMD-beamphysics' px/py/pz convention, which is in eV/c (numerically pc in eV),
-# not SI kg*m/s. Verified directly against the installed beamphysics source
-# (ParticleGroup.energy = sqrt(px**2+py**2+pz**2+mass**2), mass in eV) and a synthetic
-# uz=100 check (expected ~50.6 MeV kinetic energy, confirmed numerically).
-ELECTRON_MC2_EV = m_e * c**2 / e
-
-# Groups of an archive that are not config: the model's actions, the input files, and the results.
-_RESERVED_GROUPS = {"actions", "final_particles", "inputs", "stats"}
+from inversion_fbpic.lib.datapoint import Parameters
+from lume_fbpic import archive_config, descriptor, utils
 
 
 class BaseSimulator(ABC):
     """What every lume-fbpic simulator shares, whatever it simulates.
 
-    A subclass holds its config as SerializableConfig objects and provides `config()`,
-    `set_config()`, `from_config()`, `configure()`, `diagnostics_directory()` and
-    `run_simulation()`. `configure()` calls `_prepare_inputs()`. It sets `CONFIG_KIND`, the name written to its archives; the subclass is
-    registered under it, which is how `BaseSimulator.from_archive()` finds the right class.
+    A subclass holds its config as SerializableConfig objects, one attribute each (a list of
+    them for some), names them in `CONFIG_NAMES` (with `OPTIONAL_CONFIG_NAMES` and
+    `SAVE_DIRECTORY_CONFIG`), takes them as keyword arguments of its constructor and provides
+    `run_simulation()`. It also sets `CONFIG_KIND`, the name written to its archives: it is
+    registered under that name, which is how `lume_fbpic.archive.load()` finds the right class.
+
+    `parameters` is an optional `inversion_fbpic` `Parameters`: a dict of values that describe
+    where the config came from (for example the dataset record it was rebuilt from). It is
+    archived and loaded with the config, but it is not config: nothing reads it to run, it is
+    not in the fingerprint, and `reset()` leaves it as it is.
+
+    `recorded_outputs` are output values recorded without the particles they came from (an
+    archive of a reconstructed run), by action name; the output actions read them while there
+    are no `final_particles`. Results read back from a run replace them.
+
+    `embedded_inputs` are the input files embedded in the archive the simulator was loaded from,
+    by (config, index, field); see `lume_fbpic.archive_config`.
 
     Parameters
     ----------
@@ -70,6 +54,12 @@ class BaseSimulator(ABC):
     """
 
     CONFIG_KIND: str = ""
+    # The config objects, by attribute name, in the order of `config()`.
+    CONFIG_NAMES: tuple[str, ...] = ()
+    # Those of `CONFIG_NAMES` that may be None; `config()` leaves them out then.
+    OPTIONAL_CONFIG_NAMES: tuple[str, ...] = ()
+    # The one of `CONFIG_NAMES` whose `save_directory` a run writes its diagnostics under.
+    SAVE_DIRECTORY_CONFIG: str = ""
     _registry: dict[str, type["BaseSimulator"]] = {}
 
     def __init__(
@@ -78,193 +68,70 @@ class BaseSimulator(ABC):
         target_species: str,
         working_directory: str | Path | None = None,
     ) -> None:
-        self.configured = False
-        self.finished = False
         self.target_species = target_species
         self.working_directory = (
             Path(working_directory) if working_directory else Path.cwd()
         )
         self.final_particles: ParticleGroup | None = None
         self.stats: dict[str, typing.Any] = {}
-        # (final_particles, selection key, descriptor) -- see actions._descriptor
-        self._descriptor_cache: tuple[typing.Any, tuple, dict[str, float]] | None = None
-        # The config, final particles and stats `reset()` restores; see `_remember_state()`.
-        self._initial_state: (
-            tuple[dict[str, typing.Any], ParticleGroup | None, dict] | None
+        self.parameters: Parameters | None = None
+        self.recorded_outputs: dict[str, float] = {}
+        self.embedded_inputs: dict[
+            tuple[str, int | None, str], archive_config.InputFile
+        ] = {}
+        # (final_particles, {selection: descriptor}); see `moment_descriptor()`
+        self._descriptor_cache: (
+            tuple[typing.Any, dict[tuple, dict[str, float]]] | None
         ) = None
-        # Input files embedded in the archive this was loaded from, by (config, index, field);
-        # see `archive_config`.
-        self._embedded: dict[tuple[str, int | None, str], archive_config.InputFile] = {}
+        # The config, results and recorded outputs `reset()` restores; see `_remember_state()`.
+        self._initial_state: tuple | None = None
+        # Where `archive.load()` wrote the embedded input files when it was given no working
+        # directory; held so that it lasts as long as the simulator.
+        self._inputs_directory: tempfile.TemporaryDirectory | None = None
 
     def __init_subclass__(cls, **kwargs: typing.Any) -> None:
         super().__init_subclass__(**kwargs)
         if cls.CONFIG_KIND:
             BaseSimulator._registry[cls.CONFIG_KIND] = cls
 
-    def archive(
-        self,
-        h5=None,
-        *,
-        save_final_particles: bool = False,
-        input_dirs: str | Path | typing.Sequence[str | Path] | None = None,
-    ):
-        """Archive the current config into one HDF5 file/group.
-
-        Each config object (see `config()`) is stored as a group, written by
-        `SerializableConfig.to_hdf5()`; a list of config objects is a group with one child per
-        object. No path is stored. The output paths (`save_directory`, `lasy_file`) are stored as
-        the basename of their default (a loaded config has the default), and an input file as its
-        basename and md5, in the `inputs` group: the file
-        is found, to load the archive, in `input_dirs`. An input file that is not in `input_dirs`
-        is embedded in the archive instead (with a warning over 10 MB), and a loaded archive uses
-        the embedded copy. The time-series diagnostics `fbpic` writes under `diags/` are never
-        archived (they persist separately on disk). With `save_final_particles=True` the final
-        bunch is stored too, as a `ParticleGroup` in the openPMD-beamphysics format other lume
-        libraries read (the archive file itself opens with `ParticleGroup(h5=<path>)`), together
-        with `stats`.
-
-        Parameters
-        ----------
-        h5 : str, Path, or h5py.File, optional
-            Destination. If None, a fingerprint-based filename is used.
-        save_final_particles : bool, optional
-            Also store `final_particles` (group `final_particles`) and `stats` (group `stats`).
-            Raises `ValueError` if there are no final particles yet (nothing has run, or
-            `load_results()` has not been called). Defaults to False.
-        input_dirs : str, Path or list of them, optional
-            Directories that hold the input files, by basename. Defaults to the current
-            directory. An input file in one of them with another md5 than the one the config
-            names gets a warning, and is referred to, not embedded.
-
-        An archive written to a path is written to a temporary file first and moved into place
-        when it is complete, so an error leaves no partial file and a file that was there stays
-        as it was. (A file passed in as a handle is written to directly.)
-
-        Returns
-        -------
-        The h5 argument (or generated filename) passed in.
-
-        Raises
-        ------
-        FileNotFoundError
-            If an input file named by the config does not exist: the simulation could not run.
-        """
-        if save_final_particles and self.final_particles is None:
-            raise ValueError(
-                "save_final_particles=True but there are no final particles; run the "
-                "simulation or call load_results() first."
-            )
-        config = self.config()
-        refs = archive_config.collect_inputs(config, self._embedded)
-        if h5 is None:
-            h5 = self.archive_name()
-        if isinstance(h5, (str, Path)):
-            with archive_config.atomic_h5(h5) as g:
-                self._write_archive(g, config, refs, save_final_particles, input_dirs)
-        else:
-            self._write_archive(h5, config, refs, save_final_particles, input_dirs)
-        return h5
-
-    def archive_name(self) -> str:
-        """The file name `archive()` uses by default: from the fingerprint of the config."""
-        return f"lume_fbpic_{self.fingerprint()}.h5"
-
-    @abstractmethod
     def config(self) -> dict[str, typing.Any]:
         """The config, by name: each value a SerializableConfig or a list of them. A new dict
         (and new lists) on every call, so it can be kept and later given to `set_config()`.
         """
+        config = {}
+        for name in self.CONFIG_NAMES:
+            value = getattr(self, name)
+            if value is not None or name not in self.OPTIONAL_CONFIG_NAMES:
+                config[name] = list(value) if isinstance(value, list) else value
+        return config
 
-    @abstractmethod
     def configure(self) -> None:
-        """Validate that the current config set is complete."""
-
-    @abstractmethod
-    def diagnostics_directory(self, working_directory: Path) -> Path:
-        """The openPMD directory a run executed under `working_directory` writes."""
-
-    def fingerprint(self) -> str:
-        """Stable hash of the current config: the same on any machine, and for any
-        `save_directory`.
-
-        It is of the kind of simulator, the target species, the config without paths (see
-        `archive()`) and the md5 of each input file.
-        """
-        configs = {
-            name: [
-                {
-                    key: value
-                    for key, value in archive_config.normalized(item).to_dict().items()
-                    if key != "git_hash"
-                }
-                for item in (value if isinstance(value, (list, tuple)) else [value])
-            ]
-            for name, value in self.config().items()
-        }
-        inputs = [
-            (ref.key, ref.file.md5)
-            for ref in archive_config.collect_inputs(self.config(), self._embedded)
-        ]
-        text = json.dumps(
-            [self.CONFIG_KIND, self.target_species, configs, inputs],
-            sort_keys=True,
-            default=str,
-        )
-        return hashlib.sha256(text.encode()).hexdigest()[:16]
-
-    @classmethod
-    def from_archive(
-        cls,
-        h5,
-        *,
-        working_directory: str | Path | None = None,
-        stats: dict[str, typing.Any] | None = None,
-        input_dirs: str | Path | typing.Sequence[str | Path] | None = None,
-    ) -> "BaseSimulator":
-        """Build a simulator from an archive written by `archive()`.
-
-        The class is the one registered for the archive's `config_kind`. Called on a subclass, it
-        raises if the archive is of another kind. `stats` is used as the `stats` of an archive that
-        holds no final particles (which then has none of its own).
-
-        An input file the archive refers to is looked for by basename in `input_dirs` (default
-        the current directory); one with another md5 than at `archive()` is used with a warning.
-        An input file embedded in the archive is used as it is, and is written to
-        `working_directory/inputs/` for the config to read it.
-
-        What is loaded is the state `reset()` restores.
+        """Validate that the current config is complete, and write out the input files embedded
+        in the archive it was loaded from (`_prepare_inputs()`). `run()` calls it before every
+        run.
 
         Raises:
-            FileNotFoundError: If a referenced input file is not in `input_dirs`.
+            ValueError: If a config object that is not optional is missing (or an empty list).
         """
-        contents = _read_archive(
-            h5,
-            input_dirs,
-            Path(working_directory) if working_directory else Path.cwd(),
+        for name in self.CONFIG_NAMES:
+            value = getattr(self, name)
+            if name not in self.OPTIONAL_CONFIG_NAMES and (
+                value is None or value == []
+            ):
+                raise ValueError(f"{name} is required.")
+        self._prepare_inputs()
+
+    def diagnostics_directory(self, working_directory: Path) -> Path:
+        """The openPMD directory a run executed under `working_directory` writes."""
+        # POSIT: fbpic writes its openPMD files in the subdirectory `hdf5` of a diagnostic's
+        # `write_dir`, which is `save_directory`.
+        return (
+            working_directory
+            / getattr(self, self.SAVE_DIRECTORY_CONFIG).save_directory
+            / "hdf5"
         )
-        kind = contents["config_kind"]
-        if kind not in BaseSimulator._registry:
-            raise ValueError(f"The archive is of an unknown kind {kind!r}")
-        simulator_class = BaseSimulator._registry[kind]
-        if cls is not BaseSimulator and not issubclass(simulator_class, cls):
-            raise ValueError(
-                f"The archive is of kind {kind!r}, which {cls.__name__} cannot load"
-            )
-        simulator = simulator_class.from_config(
-            contents["config"],
-            target_species=contents["target_species"],
-            working_directory=working_directory,
-        )
-        simulator.final_particles = contents["final_particles"]
-        simulator.stats = contents["stats"]
-        simulator._embedded = contents["embedded"]
-        if simulator.final_particles is None and stats is not None:
-            simulator.stats = dict(stats)
-        simulator._remember_state()
-        return simulator
 
     @classmethod
-    @abstractmethod
     def from_config(
         cls,
         config: dict[str, typing.Any],
@@ -273,6 +140,11 @@ class BaseSimulator(ABC):
         working_directory: str | Path | None = None,
     ) -> "BaseSimulator":
         """Build a simulator from a `config()`-shaped dict."""
+        return cls(
+            **config,
+            target_species=target_species,
+            working_directory=working_directory,
+        )
 
     def load_results(self, working_directory: str | Path | None = None) -> None:
         """Read `final_particles` and `stats` from a finished run's diagnostics.
@@ -285,15 +157,55 @@ class BaseSimulator(ABC):
             Path(working_directory) if working_directory else self.working_directory
         )
         self._update_output(self.diagnostics_directory(directory))
-        self.finished = True
+
+    def moment_descriptor(
+        self,
+        uz_min: float | None,
+        central_fraction: float | None,
+        longitudinal_bins: int,
+    ) -> dict[str, float]:
+        """`lume_fbpic.descriptor.compute()` of `final_particles` for one selection; empty if
+        there are no particles or fewer than two are selected.
+
+        Kept for the current `final_particles`, one descriptor per selection, so that the
+        actions of all its features share one computation.
+        """
+        particles = self.final_particles
+        if particles is None:
+            return {}
+        if self._descriptor_cache is None or self._descriptor_cache[0] is not particles:
+            self._descriptor_cache = (particles, {})
+        descriptors = self._descriptor_cache[1]
+        key = (uz_min, central_fraction, longitudinal_bins)
+        if key not in descriptors:
+            try:
+                descriptors[key] = descriptor.compute(
+                    particles,
+                    uz_min=uz_min,
+                    central_fraction=central_fraction,
+                    longitudinal_bins=longitudinal_bins,
+                )
+            except ValueError:  # fewer than two usable particles after the selection
+                descriptors[key] = {}
+        return descriptors[key]
+
+    @classmethod
+    def of_kind(cls, kind: str) -> type["BaseSimulator"]:
+        """The simulator class whose `CONFIG_KIND` is `kind`.
+
+        Raises:
+            ValueError: If no class has it.
+        """
+        if kind not in BaseSimulator._registry:
+            raise ValueError(f"unknown kind {kind!r} of simulator")
+        return BaseSimulator._registry[kind]
 
     def reset(self) -> None:
-        """Restore the config, final particles and stats the simulator started with.
+        """Restore the config, results and recorded outputs the simulator started with.
 
         That is the state when it was constructed or, for one loaded from an archive, the
         archived state. Nothing is run -- a full fbpic run is far too expensive to trigger
-        implicitly from `reset()` (unlike Cheetah's cheap eager re-`track()`) -- so `finished`
-        is False afterward; `configured` is left as it is.
+        implicitly from `reset()` (unlike Cheetah's cheap eager re-`track()`).
 
         Raises:
             RuntimeError: If the subclass never recorded a starting state (`_remember_state()`).
@@ -302,24 +214,23 @@ class BaseSimulator(ABC):
             raise RuntimeError(
                 "the simulator has no starting state; call _remember_state()"
             )
-        config, final_particles, stats = self._initial_state
+        config, self.final_particles, stats, recorded = self._initial_state
         self.set_config(config)
-        self.final_particles = final_particles
         self.stats = dict(stats)
-        self.finished = False
+        self.recorded_outputs = dict(recorded)
 
     def run(self) -> None:
         """Run the simulation from the current config, then read the results back.
 
-        A simulator that has not been configured is configured first (see `configure()`, which
-        raises `ValueError` if the config is incomplete).
+        The config is checked with `configure()` first, on every run (it raises `ValueError` if the
+        config is incomplete): it can have changed since the last one, through `set_config()`, an
+        action or a new `working_directory`, and `configure()` is cheap next to a run.
 
         A `run()` call means "run this now", not "skip if a previous run in this working
         directory already matches this config" (that skip-if-hashed default is meant for
         repeated script invocations, not a live model's `set()`).
         """
-        if not self.configured:
-            self.configure()
+        self.configure()
         self.run_simulation()
         self.load_results()
 
@@ -331,20 +242,46 @@ class BaseSimulator(ABC):
         diagnostics afterward, once, wherever they are visible.
         """
 
-    @abstractmethod
+    def set_archived_state(
+        self,
+        *,
+        final_particles: ParticleGroup | None,
+        stats: dict[str, typing.Any],
+        recorded_outputs: dict[str, float],
+        parameters: Parameters | None,
+        embedded_inputs: dict,
+        inputs_directory: tempfile.TemporaryDirectory | None,
+    ) -> None:
+        """Take the results and metadata of an archive, which `lume_fbpic.archive.load()` read,
+        as the state `reset()` restores. `inputs_directory` holds the embedded input files when
+        the archive was loaded without a working directory; it lasts as long as the simulator.
+        """
+        self.final_particles = final_particles
+        self.stats = dict(stats)
+        self.recorded_outputs = dict(recorded_outputs)
+        self.parameters = parameters
+        self.embedded_inputs = embedded_inputs
+        self._inputs_directory = inputs_directory
+        self._remember_state()
+
     def set_config(self, config: dict[str, typing.Any]) -> None:
         """Replace the config with a `config()`-shaped dict."""
+        for name in self.CONFIG_NAMES:
+            value = (
+                config.get(name) if name in self.OPTIONAL_CONFIG_NAMES else config[name]
+            )
+            setattr(self, name, list(value) if isinstance(value, list) else value)
 
     def _prepare_inputs(self) -> None:
-        """Write the embedded input files under `working_directory/inputs/` and point the config
-        at them, for those not already there. `configure()` calls it, so that a run in another
-        working directory than the one the archive was loaded in finds them. A field that was
-        pointed at another existing file since is left as it is."""
-        if not self._embedded:
+        """Write the embedded input files under `working_directory/inputs/<md5>/` and point the
+        config at them, for those not already there. `configure()` calls it, so that a run in
+        another working directory than the one the archive was loaded in finds them. A field that
+        was pointed at another existing file since is left as it is."""
+        if not self.embedded_inputs:
             return
         config = self.config()
         changed = False
-        for (name, index, field), file in self._embedded.items():
+        for (name, index, field), file in self.embedded_inputs.items():
             item = config[name] if index is None else config[name][index]
             current = Path(getattr(item, field))
             if (
@@ -366,389 +303,19 @@ class BaseSimulator(ABC):
             self.set_config(config)
 
     def _remember_state(self) -> None:
-        """Record the current config, final particles and stats as the state `reset()` restores.
-
-        A subclass calls it at the end of its `__init__`; `from_archive()` calls it once the
-        archive is loaded.
-        """
-        self._initial_state = (self.config(), self.final_particles, dict(self.stats))
+        """Record the current config, results and recorded outputs as the state `reset()`
+        restores. A subclass calls it at the end of its `__init__`."""
+        self._initial_state = (
+            self.config(),
+            self.final_particles,
+            dict(self.stats),
+            dict(self.recorded_outputs),
+        )
 
     def _update_output(self, diags_path: Path) -> None:
-        """Cache `final_particles` and scalar `stats` from the diagnostics in `diags_path`."""
-        ts = LpaDiagnostics(str(diags_path), check_all_files=True)
-        iteration = ts.iterations[-1]
-        x, y, z, ux, uy, uz, w = ts.get_particle(
-            ["x", "y", "z", "ux", "uy", "uz", "w"],
-            iteration=iteration,
-            species=self.target_species,
-            plot=False,
+        """Read `final_particles` and `stats` from the diagnostics in `diags_path`; they replace
+        any `recorded_outputs`."""
+        self.final_particles, self.stats = utils.load_final_particles(
+            diags_path, self.target_species
         )
-        self.final_particles = ParticleGroup(
-            data={
-                "x": x,
-                "y": y,
-                "z": z,
-                "px": ux * ELECTRON_MC2_EV,
-                "py": uy * ELECTRON_MC2_EV,
-                "pz": uz * ELECTRON_MC2_EV,
-                "t": numpy.zeros_like(x),
-                "status": numpy.ones_like(x, dtype=int),
-                "weight": w * e,
-                "species": "electron",
-            }
-        )
-        if len(w):
-            gamma = numpy.sqrt(1.0 + ux**2 + uy**2 + uz**2)
-            energy_mev = (gamma - 1.0) * m_e * c**2 / e / 1e6
-            energy_mean = float(numpy.average(energy_mev, weights=w))
-            energy_std = float(
-                numpy.sqrt(numpy.average((energy_mev - energy_mean) ** 2, weights=w))
-            )
-            charge_pc = float(numpy.sum(w)) * e * 1e12
-        else:
-            energy_mean = energy_std = charge_pc = 0.0
-        self.stats = {
-            "charge_pc": charge_pc,
-            "energy_mean_mev": energy_mean,
-            "energy_std_mev": energy_std,
-        }
-
-    def _write_archive(
-        self,
-        g,
-        config: dict[str, typing.Any],
-        refs: list[archive_config.InputRef],
-        save_final_particles: bool,
-        input_dirs: typing.Any,
-    ) -> None:
-        """Write the archive of `config` into the open file or group `g`; see `archive()`."""
-        g.attrs["dataType"] = "lume-fbpic"
-        g.attrs["software"] = "lume-fbpic"
-        g.attrs["config_kind"] = self.CONFIG_KIND
-        g.attrs["target_species"] = self.target_species
-
-        for name, value in config.items():
-            if isinstance(value, (list, tuple)):
-                group = g.create_group(name)
-                group.attrs["list"] = True
-                for i, item in enumerate(value):
-                    archive_config.write_config(group, str(i), item)
-            else:
-                archive_config.write_config(g, name, value)
-        if refs:
-            archive_config.store_inputs(g.create_group("inputs"), refs, input_dirs)
-
-        if save_final_particles:
-            # openPMD root attributes pointing at the `final_particles` group make the archive
-            # itself readable as a particle file: `ParticleGroup(h5=<archive path>)`.
-            pmd_init(g, basePath="/", particlesPath="final_particles")
-            self.final_particles.write(g.create_group("final_particles"))
-            stats_group = g.create_group("stats")
-            for name, value in self.stats.items():
-                stats_group.attrs[name] = value
-
-
-class FBPICSimulator(BaseSimulator):
-    """Wraps `inversion_fbpic.lib.simulation.Simulation` for use as a LUMEModel simulator.
-
-    Holds the current hyperparameters/laser/density-profile config objects and rebuilds a
-    fresh `inversion_fbpic.lib.simulation.Simulation` on every `run()` call -- matches how
-    fbpic simulations actually work: a parameter change requires a full PIC rebuild, not an
-    incremental update (unlike e.g. Cheetah's cheap `track()`).
-
-    Parameters
-    ----------
-    hyparams : SimulationHyperparameters
-    laser : _LaserPulse
-    densities : list[_DensityProfile]
-    target_species : str
-        Name of the electron species (matching a density profile's `elec_name`) to read back
-        as `final_particles` after a run.
-    working_directory : str | Path, optional
-        Directory fbpic writes diagnostics under. Defaults to the current working directory.
-    """
-
-    CONFIG_KIND = "lwfa"
-
-    def __init__(
-        self,
-        hyparams: SimulationHyperparameters,
-        laser: _LaserPulse,
-        densities: list[_DensityProfile],
-        *,
-        target_species: str,
-        working_directory: str | Path | None = None,
-    ) -> None:
-        super().__init__(
-            target_species=target_species, working_directory=working_directory
-        )
-        self.hyparams = hyparams
-        self.laser = laser
-        self.densities = list(densities)
-        self._remember_state()
-
-    def config(self) -> dict[str, typing.Any]:
-        return {
-            "hyparams": self.hyparams,
-            "laser": self.laser,
-            "densities": list(self.densities),
-        }
-
-    def configure(self) -> None:
-        """Validate that the current config set is complete."""
-        if self.hyparams is None:
-            raise ValueError("hyparams is required.")
-        if self.laser is None:
-            raise ValueError("laser is required.")
-        if not self.densities:
-            raise ValueError("At least one density profile is required.")
-        self._prepare_inputs()
-        self.configured = True
-
-    def diagnostics_directory(self, working_directory: Path) -> Path:
-        return working_directory / self.hyparams.save_directory / "hdf5"
-
-    @classmethod
-    def from_config(
-        cls,
-        config: dict[str, typing.Any],
-        *,
-        target_species: str,
-        working_directory: str | Path | None = None,
-    ) -> "FBPICSimulator":
-        return cls(
-            config["hyparams"],
-            config["laser"],
-            config["densities"],
-            target_species=target_species,
-            working_directory=working_directory,
-        )
-
-    def run_simulation(self) -> FBPICSimulation:
-        """Build a fresh `Simulation` and run it, WITHOUT reading any output back.
-
-        Passes `skip_if_hashed=False` to both `setup_simulation()` and `run_simulation()`.
-        """
-        simulation = FBPICSimulation(
-            elements=[self.hyparams, self.laser, *self.densities]
-        )
-        simulation.setup_simulation(
-            working_directory=self.working_directory, skip_if_hashed=False
-        )
-        simulation.run_simulation(skip_if_hashed=False)
-        return simulation
-
-    def set_config(self, config: dict[str, typing.Any]) -> None:
-        self.hyparams = config["hyparams"]
-        self.laser = config["laser"]
-        self.densities = list(config["densities"])
-
-
-class PWFASimulator(BaseSimulator):
-    """A lab-frame, beam-driven plasma wakefield simulation, built directly on fbpic.
-
-    Holds a `PWFAGrid`, a plasma density profile (`species=None` for bare electrons), a driver
-    bunch and optionally a witness bunch, all frozen config objects, and rebuilds a fresh fbpic
-    `Simulation` on every run. The plasma, the driver and the witness are written to the
-    diagnostics as the species `plasma`, `driver` and `witness`; `target_species` (default
-    `driver`) is the one read back as `final_particles`.
-
-    Parameters
-    ----------
-    grid : PWFAGrid
-    plasma : _DensityProfile
-    driver : _ParticleBunch
-    witness : _ParticleBunch, optional
-    target_species : str
-        `driver` or `witness`.
-    working_directory : str | Path, optional
-        Directory fbpic writes diagnostics under. Defaults to the current working directory.
-    """
-
-    CONFIG_KIND = "pwfa"
-
-    def __init__(
-        self,
-        grid: PWFAGrid,
-        plasma: _DensityProfile,
-        driver: _ParticleBunch,
-        witness: _ParticleBunch | None = None,
-        *,
-        target_species: str = "driver",
-        working_directory: str | Path | None = None,
-    ) -> None:
-        super().__init__(
-            target_species=target_species, working_directory=working_directory
-        )
-        self.grid = grid
-        self.plasma = plasma
-        self.driver = driver
-        self.witness = witness
-        self._remember_state()
-
-    def config(self) -> dict[str, typing.Any]:
-        config = {"grid": self.grid, "plasma": self.plasma, "driver": self.driver}
-        if self.witness is not None:
-            config["witness"] = self.witness
-        return config
-
-    def configure(self) -> None:
-        """Validate that the current config set is complete."""
-        for name in ("grid", "plasma", "driver"):
-            if getattr(self, name) is None:
-                raise ValueError(f"{name} is required.")
-        if self.target_species not in self._species_names():
-            raise ValueError(
-                f"target_species {self.target_species!r} is not one of {self._species_names()}"
-            )
-        self._prepare_inputs()
-        self.configured = True
-
-    def diagnostics_directory(self, working_directory: Path) -> Path:
-        return working_directory / self.grid.save_directory / "hdf5"
-
-    @classmethod
-    def from_config(
-        cls,
-        config: dict[str, typing.Any],
-        *,
-        target_species: str,
-        working_directory: str | Path | None = None,
-    ) -> "PWFASimulator":
-        return cls(
-            config["grid"],
-            config["plasma"],
-            config["driver"],
-            config.get("witness"),
-            target_species=target_species,
-            working_directory=working_directory,
-        )
-
-    def run_simulation(self) -> typing.Any:
-        """Build a fresh fbpic `Simulation` and run it, WITHOUT reading any output back.
-
-        A `random_seed` seeds numpy's global generator, which draws the bunches; the state of the
-        generator from before the run is restored when it ends.
-        """
-        state = numpy.random.get_state() if self.grid.random_seed is not None else None
-        try:
-            return self._run_seeded()
-        finally:
-            if state is not None:
-                numpy.random.set_state(state)
-
-    def set_config(self, config: dict[str, typing.Any]) -> None:
-        self.grid = config["grid"]
-        self.plasma = config["plasma"]
-        self.driver = config["driver"]
-        self.witness = config.get("witness")
-
-    def _run_seeded(self) -> typing.Any:
-        """Seed the generator, then build a fresh fbpic `Simulation` and run it."""
-        from fbpic.fields.smoothing import BinomialSmoother
-        from fbpic.main import Simulation
-        from fbpic.openpmd_diag import FieldDiagnostic, ParticleDiagnostic
-
-        grid = self.grid
-        if grid.random_seed is not None:
-            numpy.random.seed(grid.random_seed)
-        smoother = BinomialSmoother(
-            n_passes={"z": grid.smoother_passes, "r": grid.smoother_passes},
-            compensator={
-                "z": grid.smoother_compensator,
-                "r": grid.smoother_compensator,
-            },
-        )
-        simulation = Simulation(
-            grid.nz,
-            grid.zmax,
-            grid.nr,
-            grid.rmax,
-            grid.nm,
-            grid.time_step,
-            zmin=grid.zmin,
-            boundaries=grid.boundaries,
-            use_cuda=grid.use_cuda,
-            smoother=smoother,
-        )
-        species = {}
-        species["plasma"], _ = self.plasma.add_to_simulation(
-            simulation, is_boosted=False
-        )
-        species["driver"] = self.driver.add_to_simulation(simulation)
-        if self.witness is not None:
-            species["witness"] = self.witness.add_to_simulation(simulation)
-        simulation.set_moving_window(v=c)
-
-        write_dir = str(self.working_directory / grid.save_directory)
-        simulation.diags = [
-            FieldDiagnostic(
-                grid.write_period,
-                simulation.fld,
-                comm=simulation.comm,
-                write_dir=write_dir,
-            ),
-            ParticleDiagnostic(
-                grid.write_period,
-                {
-                    k: v
-                    for k, v in species.items()
-                    if k != "plasma" or grid.write_plasma
-                },
-                comm=simulation.comm,
-                write_dir=write_dir,
-            ),
-        ]
-        simulation.step(grid.n_steps)
-        return simulation
-
-    def _species_names(self) -> list[str]:
-        return ["driver", "witness"] if self.witness is not None else ["driver"]
-
-
-def _read_archive(
-    h5, input_dirs: typing.Any = None, working_directory: str | Path | None = None
-) -> dict[str, typing.Any]:
-    """Return the contents of an `archive()` file: `config_kind`, `config` (name -> object or
-    list of objects), `target_species`, `embedded` (its embedded input files), and
-    `final_particles` (None) / `stats` ({}) unless the archive was written with
-    `save_final_particles=True`."""
-    if isinstance(h5, (str, Path)):
-        with h5py.File(h5, "r") as g:
-            return _read_archive(g, input_dirs, working_directory)
-    paths, embedded = archive_config.load_inputs(
-        h5.get("inputs"), input_dirs, working_directory or Path.cwd()
-    )
-
-    def overrides(name: str, index: int | None) -> dict[str, str]:
-        return {
-            field: path
-            for (config, i, field), path in paths.items()
-            if config == name and i == index
-        }
-
-    config: dict[str, typing.Any] = {}
-    for name in h5:
-        if name in _RESERVED_GROUPS:
-            continue
-        group = h5[name]
-        if group.attrs.get("list"):
-            config[name] = [
-                archive_config.read_config(group[str(i)], overrides(name, i))
-                for i in range(len(group))
-            ]
-        else:
-            config[name] = archive_config.read_config(group, overrides(name, None))
-    final_particles = None
-    stats: dict[str, typing.Any] = {}
-    if "final_particles" in h5:
-        final_particles = ParticleGroup(h5=h5)
-        stats = {name: float(value) for name, value in h5["stats"].attrs.items()}
-    return {
-        "config_kind": str(h5.attrs["config_kind"]),
-        "config": config,
-        "embedded": embedded,
-        "target_species": str(h5.attrs["target_species"]),
-        "final_particles": final_particles,
-        "stats": stats,
-    }
+        self.recorded_outputs = {}

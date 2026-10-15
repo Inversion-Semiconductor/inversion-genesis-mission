@@ -1,4 +1,4 @@
-"""Tests for `ArchiveSelector` (docs/htu-twin/serving/archive_selector.py)."""
+"""Tests for `lume_fbpic_twin.archive_selector.ArchiveSelector`."""
 
 from __future__ import annotations
 
@@ -6,59 +6,41 @@ import math
 
 import numpy
 import pytest
-from scipy.constants import c, e
-from lume_fbpic.simulator import ELECTRON_MC2_EV
+from scipy.constants import e
+from scipy.stats import norm
+from lume_fbpic.utils import ELECTRON_MC2_EV
 
-from downramp_actions import make_actions
-from lume_fbpic.actions import make_descriptor_actions
-from lume_fbpic.model import LUMEFBPICModel
-from archive_selector import (
+pytest.importorskip("lume_fbpic_twin")
+
+from bunches import lab_snapshot  # noqa: E402
+from downramp_actions import make_actions  # noqa: E402
+from reference_descriptor import reference_descriptor  # noqa: E402
+from lume_fbpic import archive  # noqa: E402
+from lume_fbpic.actions import make_descriptor_actions  # noqa: E402
+from lume_fbpic.model import LUMEFBPICModel  # noqa: E402
+from lume_fbpic_twin.archive_selector import (  # noqa: E402
     ArchiveSelector,
     _slice_charge_fractions,
     particles_from_descriptor,
 )
 
-from inversion_fbpic.utils import distributions
 
-from beamphysics import ParticleGroup
+from beamphysics import ParticleGroup  # noqa: E402
 
 
-def _bunch(
-    uz_mean: float, charge_pc: float, seed: int = 0, n: int = 3000
-) -> ParticleGroup:
-    rng = numpy.random.default_rng(seed)
-    return ParticleGroup(
-        data={
-            "x": rng.normal(0.0, 3.0e-6, n),
-            "y": rng.normal(0.0, 1.5e-6, n),
-            "z": rng.normal(0.003, 4.0e-6, n),
-            "px": rng.normal(0.0, 2.0, n) * ELECTRON_MC2_EV,
-            "py": rng.normal(0.0, 1.0, n) * ELECTRON_MC2_EV,
-            "pz": rng.normal(uz_mean, 30.0, n) * ELECTRON_MC2_EV,
-            "t": numpy.zeros(n),
-            "status": numpy.ones(n, dtype=int),
-            "weight": numpy.full(n, charge_pc * 1.0e-12 / n),
-            "species": "electron",
-        }
+def _bunch(uz_mean: float, charge_pc: float) -> ParticleGroup:
+    return lab_snapshot(
+        3000, uz_mean=uz_mean, uz_std=30.0, electrons=charge_pc * 1.0e-12 / e / 3000
     )
 
 
 def _descriptor_outputs(pg) -> dict[str, float]:
-    phase_space = numpy.stack(
-        [
-            pg.x,
-            pg.px / ELECTRON_MC2_EV,
-            pg.y,
-            pg.py / ELECTRON_MC2_EV,
-            pg.z,
-            pg.pz / ELECTRON_MC2_EV,
-        ],
-        axis=-1,
-    )
-    descriptor = distributions.compute_moment_descriptor(
-        phase_space, numpy.asarray(pg.weight) / e
-    )
-    return {f"descriptor_{k}": v for k, v in descriptor.items()}
+    return {
+        f"descriptor_{key}": value
+        for key, value in reference_descriptor(
+            pg, uz_min=None, central_fraction=None
+        ).items()
+    }
 
 
 def _reconstructed_model(
@@ -67,10 +49,10 @@ def _reconstructed_model(
     """A model loaded from an archive that records a descriptor and holds no particles."""
     actions = [*make_actions(simulator), *make_descriptor_actions()]
     source = LUMEFBPICModel(simulator, actions, dummy_run=True)
-    source.simulator.stats = _descriptor_outputs(_bunch(uz_mean, charge_pc))
-    source.archive(tmp_path / f"{name}.h5")
-    source.simulator.stats = {}
-    return LUMEFBPICModel.from_archive(tmp_path / f"{name}.h5", dummy_run=True)
+    source.simulator.recorded_outputs = _descriptor_outputs(_bunch(uz_mean, charge_pc))
+    archive.save(source, tmp_path / f"{name}.h5")
+    source.simulator.recorded_outputs = {}
+    return archive.load(tmp_path / f"{name}.h5", dummy_run=True)
 
 
 @pytest.fixture()
@@ -238,12 +220,22 @@ def test_the_synthetic_bunch_is_built_from_the_active_runs_descriptor(selector):
 
     selector.set({"LPA_Archive": "run_b"})
 
-    assert numpy.array_equal(
-        first.x, again.x
-    )  # built from the same recorded values each time
+    assert again is first  # built once from the recorded values, then kept
     assert float(numpy.sum(selector.final_particles.weight)) == pytest.approx(
         2.0 * charge_a, rel=1e-6
     )
+
+
+def test_the_synthetic_bunch_is_built_again_when_the_descriptor_changes(selector):
+    first = selector.final_particles
+    model = selector.active_model
+    model.simulator.recorded_outputs = {
+        **model.simulator.recorded_outputs,
+        "descriptor_mean_ux": model.simulator.recorded_outputs["descriptor_mean_ux"]
+        + 1.0,
+    }
+
+    assert selector.final_particles is not first
 
 
 def test_real_particles_take_precedence_over_a_synthetic_bunch(simulator, tmp_path):
@@ -269,8 +261,10 @@ def test_the_descriptor_outputs_stay_the_recorded_values(selector):
 
 def test_a_run_with_no_recorded_descriptor_cannot_be_synthesized(simulator, tmp_path):
     actions = [*make_actions(simulator), *make_descriptor_actions()]
-    LUMEFBPICModel(simulator, actions, dummy_run=True).archive(tmp_path / "none.h5")
-    model = LUMEFBPICModel.from_archive(tmp_path / "none.h5", dummy_run=True)
+    archive.save(
+        LUMEFBPICModel(simulator, actions, dummy_run=True), tmp_path / "none.h5"
+    )
+    model = archive.load(tmp_path / "none.h5", dummy_run=True)
 
     with pytest.raises(ValueError, match="no recorded descriptor"):
         ArchiveSelector({"a": model}, synthetic_bunch_particles=2000)
@@ -279,13 +273,13 @@ def test_a_run_with_no_recorded_descriptor_cannot_be_synthesized(simulator, tmp_
 def test_an_incomplete_recorded_descriptor_cannot_be_synthesized(simulator, tmp_path):
     actions = [*make_actions(simulator), *make_descriptor_actions()]
     source = LUMEFBPICModel(simulator, actions, dummy_run=True)
-    source.simulator.stats = {
+    source.simulator.recorded_outputs = {
         "descriptor_mean_uz": 171.6,
         "descriptor_total_beam_charge_pc": 510.0,
     }
-    source.archive(tmp_path / "some.h5")
-    source.simulator.stats = {}
-    model = LUMEFBPICModel.from_archive(tmp_path / "some.h5", dummy_run=True)
+    archive.save(source, tmp_path / "some.h5")
+    source.simulator.recorded_outputs = {}
+    model = archive.load(tmp_path / "some.h5", dummy_run=True)
 
     with pytest.raises(ValueError, match="lacks"):
         ArchiveSelector({"a": model}, synthetic_bunch_particles=2000)
@@ -298,83 +292,43 @@ def test_a_synthetic_bunch_needs_at_least_two_particles(simulator, tmp_path):
         ArchiveSelector({"a": model}, synthetic_bunch_particles=1)
 
 
-def _lab_snapshot(n=4000, seed=0) -> ParticleGroup:
-    rng = numpy.random.default_rng(seed)
-    return ParticleGroup(
-        data={
-            "x": rng.normal(0.0, 3.0e-6, n),
-            "y": rng.normal(0.0, 1.5e-6, n),
-            "z": rng.normal(0.003, 4.0e-6, n),
-            "px": rng.normal(0.0, 2.0, n) * ELECTRON_MC2_EV,
-            "py": rng.normal(0.0, 1.0, n) * ELECTRON_MC2_EV,
-            "pz": rng.normal(150.0, 40.0, n) * ELECTRON_MC2_EV,
-            "t": numpy.zeros(n),
-            "status": numpy.ones(n, dtype=int),
-            "weight": numpy.full(n, 1.0e3 * e),
-            "species": "electron",
-        }
-    )
-
-
-def _descriptor_of(pg) -> dict[str, float]:
-    phase_space = numpy.stack(
-        [
-            pg.x,
-            pg.px / ELECTRON_MC2_EV,
-            pg.y,
-            pg.py / ELECTRON_MC2_EV,
-            pg.z,
-            pg.pz / ELECTRON_MC2_EV,
-        ],
-        axis=-1,
-    )
-    return distributions.compute_moment_descriptor(
-        phase_space, numpy.asarray(pg.weight) / e
-    )
-
-
-def _phase_space(pg):
-    return numpy.stack(
-        [
-            pg.x,
-            pg.px / ELECTRON_MC2_EV,
-            pg.y,
-            pg.py / ELECTRON_MC2_EV,
-            pg.z,
-            pg.pz / ELECTRON_MC2_EV,
-        ],
-        axis=-1,
-    )
+def _all_particles_descriptor(pg) -> dict[str, float]:
+    return reference_descriptor(pg, uz_min=None, central_fraction=None)
 
 
 def test_a_synthetic_bunch_reproduces_the_descriptors_moments():
-    descriptor = _descriptor_of(_lab_snapshot(n=20_000))
+    n = 100_000
+    descriptor = _all_particles_descriptor(lab_snapshot(n=20_000))
 
-    synthetic = particles_from_descriptor(descriptor, n_particles=100_000, seed=3)
+    synthetic = particles_from_descriptor(descriptor, n_particles=n, seed=3)
+    synthetic.drift_to_t(0.0)  # the descriptor is of a lab snapshot
+    again = _all_particles_descriptor(synthetic)
 
-    again = distributions.compute_moment_descriptor(
-        _phase_space(synthetic), numpy.asarray(synthetic.weight) / e
+    # The charge is set exactly; the moments are sampled, so they are within 5 standard errors
+    # of n particles: sigma / sqrt(n) for a mean, sqrt(2 / n) relative for a variance and
+    # 1 / sqrt(n) for a correlation.
+    assert again["total_beam_charge_pc"] == descriptor["total_beam_charge_pc"]
+    assert again["mean_uz"] == pytest.approx(
+        descriptor["mean_uz"], abs=5 * numpy.sqrt(descriptor["cov_uz_uz"] / n)
     )
-    assert again["total_beam_charge_pc"] == pytest.approx(
-        descriptor["total_beam_charge_pc"], rel=1e-9
-    )
-    assert again["mean_uz"] == pytest.approx(descriptor["mean_uz"], rel=0.01)
     for key in ("cov_uz_uz", "cov_x_x", "cov_y_y", "cov_ux_ux", "cov_uy_uy", "cov_z_z"):
-        assert again[key] == pytest.approx(descriptor[key], rel=0.05), key
+        assert again[key] == pytest.approx(
+            descriptor[key], rel=5 * numpy.sqrt(2 / n)
+        ), key
     for a, b, key in (("x", "ux", "cov_x_ux"), ("y", "uy", "cov_y_uy")):
         scale = numpy.sqrt(descriptor[f"cov_{a}_{a}"] * descriptor[f"cov_{b}_{b}"])
-        assert (
-            abs(again[key] - descriptor[key]) < 0.02 * scale
-        ), key  # correlation within 0.02
+        assert again[key] == pytest.approx(
+            descriptor[key], abs=5 * scale / numpy.sqrt(n)
+        ), key
 
 
 def test_a_synthetic_bunch_is_in_the_bunch_frame_with_equal_charges():
-    descriptor = _descriptor_of(_lab_snapshot())
+    descriptor = _all_particles_descriptor(lab_snapshot())
 
     synthetic = particles_from_descriptor(descriptor, n_particles=1000)
 
     assert len(synthetic) == 1000
-    assert numpy.allclose(numpy.asarray(synthetic.t), -numpy.asarray(synthetic.z) / c)
+    assert numpy.all(numpy.asarray(synthetic.z) == 0.0)
     assert numpy.all(numpy.asarray(synthetic.status) == 1)
     weight = numpy.asarray(synthetic.weight)
     assert numpy.allclose(weight, weight[0])
@@ -385,7 +339,7 @@ def test_a_synthetic_bunch_is_in_the_bunch_frame_with_equal_charges():
 
 
 def test_a_synthetic_bunch_depends_on_the_seed_only():
-    descriptor = _descriptor_of(_lab_snapshot())
+    descriptor = _all_particles_descriptor(lab_snapshot())
 
     a = particles_from_descriptor(descriptor, n_particles=500, seed=1)
     b = particles_from_descriptor(descriptor, n_particles=500, seed=1)
@@ -396,28 +350,34 @@ def test_a_synthetic_bunch_depends_on_the_seed_only():
 
 
 def test_energy_rises_along_z_when_the_descriptors_bins_do():
+    means, rms = numpy.array([60.0, 90.0, 200.0, 400.0]), 25.0
     descriptor = {
-        **_descriptor_of(_lab_snapshot()),
-        **{
-            f"longitudinal_mean_uz_{i:02d}": m
-            for i, m in enumerate((60.0, 90.0, 200.0, 400.0))
-        },
-        **{f"longitudinal_rms_uz_{i:02d}": 25.0 for i in range(4)},
+        **_all_particles_descriptor(lab_snapshot()),
+        **{f"longitudinal_mean_uz_{i:02d}": m for i, m in enumerate(means)},
+        **{f"longitudinal_rms_uz_{i:02d}": rms for i in range(len(means))},
+        "mean_uz": 180.0,
+        "cov_uz_uz": 17_000.0,
     }
-    descriptor["mean_uz"] = 180.0
-    descriptor["cov_uz_uz"] = 17_000.0
 
     synthetic = particles_from_descriptor(descriptor, n_particles=40_000, seed=0)
+    synthetic.drift_to_t(0.0)  # back to the snapshot the bins were cut in
 
-    z = numpy.asarray(synthetic.z)
+    # Bin k holds the particles whose z is in the k-th charge quantile of the Gaussian in z, the
+    # tail first; their uz has the bin's mean, within 5 standard errors of the bin's count.
+    fractions = _slice_charge_fractions(
+        means, numpy.full(len(means), rms), mean=180.0, variance=17_000.0
+    )
+    edges = numpy.sqrt(descriptor["cov_z_z"]) * norm.ppf(numpy.cumsum(fractions)[:-1])
+    bins = numpy.digitize(numpy.asarray(synthetic.z), edges)
     uz = numpy.asarray(synthetic.pz) / ELECTRON_MC2_EV
-    assert (
-        numpy.corrcoef(z, uz)[0, 1] > 0.6
-    )  # the head (larger z) carries the high energies
+    for k, mean in enumerate(means):
+        assert uz[bins == k].mean() == pytest.approx(
+            mean, abs=5 * rms / numpy.sqrt(numpy.count_nonzero(bins == k))
+        ), k
 
 
 def test_a_descriptor_missing_a_feature_is_an_error():
-    descriptor = _descriptor_of(_lab_snapshot())
+    descriptor = _all_particles_descriptor(lab_snapshot())
     del descriptor["cov_x_ux"]
 
     with pytest.raises(ValueError, match="cov_x_ux"):

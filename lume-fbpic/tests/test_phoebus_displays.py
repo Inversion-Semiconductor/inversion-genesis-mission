@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from lume_fbpic.actions import make_descriptor_actions
+pytest.importorskip("lume_fbpic_twin")  # the generators import its PV names
+
+from lume_fbpic.actions import make_descriptor_actions  # noqa: E402
 
 _DOCS = Path(__file__).resolve().parents[1] / "docs" / "htu-twin" / "phoebus"
 
@@ -59,7 +61,7 @@ _SYNOPTIC = """<?xml version="1.0" encoding="UTF-8"?>
     <name>lbl_vertical</name>
     <text>PMQ1V</text>
     <x>31</x><y>55</y><width>16</width><height>56</height>
-    <rotation_step>90.0</rotation_step>
+    <rotation_step>1</rotation_step>
   </widget>
   <widget type="tabs" version="2.0.0">
     <name>cameras</name>
@@ -171,6 +173,16 @@ def test_the_committed_lpa_display_is_up_to_date(lpa_display):
 
 
 # --- the linked synoptic
+
+
+def test_the_committed_linked_synoptic_is_up_to_date(linked_synoptic):
+    twin = _DOCS.parents[3] / "geecs-lume-twin" / "display"
+    if not (twin / "htu_synoptic.bob").is_file():
+        pytest.skip("the twin's displays are not in this checkout")
+
+    committed = (_DOCS / "htu_synoptic_lpa.bob").read_text(encoding="utf-8")
+
+    assert committed == linked_synoptic.build(twin, _DOCS)
 
 
 def test_other_buttons_are_pointed_at_the_twins_display_directory(
@@ -338,25 +350,13 @@ def test_the_run_selector_is_a_combo_box_that_takes_its_items_from_the_pv(
         assert combos[0].findtext("items_from_pv") == "true"
 
 
-def test_rotation_steps_are_converted_from_degrees_to_phoebus_ordinals(
-    linked_synoptic, twin_dir
-):
-    root = ET.fromstring(linked_synoptic.build(twin_dir))
+def test_the_source_pvs_are_the_twins_source_variables(lpa_display, linked_synoptic):
+    htu_model = pytest.importorskip("htu.model")
+    sources = {
+        variable.name
+        for variable in htu_model.build_writable_variables()
+        if isinstance(variable, (htu_model.SourceVariable, htu_model.SourceIntVariable))
+    }
 
-    steps = [s.text for s in root.iter("rotation_step")]
-
-    assert steps == ["1"]  # 90.0 degrees -> ordinal 1 (NINETY)
-
-
-def test_a_rotation_that_is_not_a_multiple_of_90_degrees_is_refused(
-    linked_synoptic, twin_dir
-):
-    text = (
-        (twin_dir / "htu_synoptic.bob")
-        .read_text(encoding="utf-8")
-        .replace("90.0", "45.0")
-    )
-    (twin_dir / "htu_synoptic.bob").write_text(text, encoding="utf-8")
-
-    with pytest.raises(ValueError, match="multiple of 90"):
-        linked_synoptic.build(twin_dir)
+    assert {pv for pv, _ in lpa_display.SOURCE} == sources
+    assert {pv for _, pv, *_ in linked_synoptic.STRIP} <= sources

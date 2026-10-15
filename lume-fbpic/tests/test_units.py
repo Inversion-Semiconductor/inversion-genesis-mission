@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
+from lume_fbpic import archive
 from lume_fbpic.actions import (
     DensityFieldAction,
     DopantFractionAction,
@@ -12,6 +15,13 @@ from lume_fbpic.actions import (
     StatAction,
 )
 from lume_fbpic.model import LUMEFBPICModel
+from lume_fbpic.units import UNIT_TAG, is_unit
+
+# Bracketed tags in config docstrings that are not units, and why. Type hints, lists of allowed
+# values and ranges are recognized by their form (see `_is_not_a_unit()`); these are the others.
+_NOT_UNITS = {
+    "waists": "LasyLaserPulse.hi_range: a size in laser waists, relative, not a physical unit",
+}
 
 
 def test_a_density_action_takes_the_unit_of_its_field(model):
@@ -124,20 +134,49 @@ def test_an_explicit_none_unit_survives_an_archive(simulator, tmp_path):
         dummy_run=True,
     )
     assert _unit(model, "energy") is None and _unit(model, "focus") == "m"
-    model.archive(tmp_path / "a.h5")
+    archive.save(model, tmp_path / "a.h5")
 
-    loaded = LUMEFBPICModel.from_archive(tmp_path / "a.h5")
+    loaded = archive.load(tmp_path / "a.h5")
 
     assert _unit(loaded, "energy") is None  # given as None: not replaced by the default
     assert _unit(loaded, "charge") is None
     assert _unit(loaded, "focus") == "m"  # left unset: the default, as before
 
 
+def test_every_unit_tag_in_a_config_docstring_is_a_unit_beamphysics_knows():
+    import inversion_fbpic.lib  # noqa: F401  (registers its config classes)
+    import lume_fbpic.density_profiles  # noqa: F401
+    import lume_fbpic.pwfa_config  # noqa: F401
+    from inversion_fbpic.lib.serializable_config import SerializableConfig
+
+    unknown = _unknown_unit_tags(_subclasses(SerializableConfig))
+
+    assert not unknown, (
+        f"unit tags that beamphysics does not know, so their fields get no unit: {unknown}; "
+        "write a symbol it knows (for example µm, not um), or list the tag in "
+        "_NOT_UNITS if it is not a unit"
+    )
+
+
+def test_the_unit_tag_guard_catches_a_unit_beamphysics_does_not_know():
+    class Config:
+        @classmethod
+        def _parameter_descriptions(cls):
+            return {
+                "size": ["(float) [um] A size."],
+                "name": ["(str) [str] A name."],
+                "mode": ['(str) ["a", "b"] A mode.'],
+                "length": ["(float) [m] A length."],
+            }
+
+    assert _unknown_unit_tags([Config]) == [("Config", "size", "um")]
+
+
 def test_the_derived_units_are_valid_and_survive_an_archive(model, tmp_path):
     from beamphysics.units import pmd_unit
 
-    model.archive(tmp_path / "a.h5")
-    loaded = LUMEFBPICModel.from_archive(tmp_path / "a.h5")
+    archive.save(model, tmp_path / "a.h5")
+    loaded = archive.load(tmp_path / "a.h5")
 
     for name, variable in model.supported_variables.items():
         unit = getattr(variable, "unit", None)
@@ -148,3 +187,44 @@ def test_the_derived_units_are_valid_and_survive_an_archive(model, tmp_path):
 
 def _unit(model: LUMEFBPICModel, name: str) -> str | None:
     return getattr(model.supported_variables[name], "unit", None)
+
+
+def _is_not_a_unit(tag: str) -> bool:
+    """Whether a bracketed tag is plainly not a unit: a list of allowed values, a range or a
+    type hint (it holds a quote, a comma, a `|` or a bracket), a Python type, a class name, or one
+    of `_NOT_UNITS`."""
+    return (
+        tag in _NOT_UNITS
+        or re.search(r"[\"',|\[]", tag) is not None
+        or tag in ("bool", "dict", "float", "int", "list", "str", "tuple")
+        or re.fullmatch(r"[A-Z][A-Za-z]+", tag) is not None
+    )
+
+
+def _subclasses(cls: type) -> list[type]:
+    found = []
+    for subclass in cls.__subclasses__():
+        found += [subclass, *_subclasses(subclass)]
+    return found
+
+
+def _unknown_unit_tags(classes) -> list[tuple[str, str, str]]:
+    """The (class, field, tag) of each bracketed tag in the field documentation of `classes`
+    that is neither a unit `beamphysics` knows nor plainly something else."""
+    found = set()
+    for cls in classes:
+        for field, text in cls._parameter_descriptions().items():
+            for tag in UNIT_TAG.findall(" ".join(text)):
+                if not is_unit(tag) and not _is_not_a_unit(tag):
+                    found.add((cls.__name__, field, tag))
+    return sorted(found)
+
+
+def test_a_list_of_actions_can_serve_several_models(simulator):
+    actions = [LaserFieldAction(name="focus", field_name="focal_position")]
+
+    first = LUMEFBPICModel(simulator, actions, dummy_run=True)
+
+    assert actions[0].unit is None  # the action given is left as it is
+    assert _unit(first, "focus") == "m"
+    assert _unit(LUMEFBPICModel(simulator, actions, dummy_run=True), "focus") == "m"

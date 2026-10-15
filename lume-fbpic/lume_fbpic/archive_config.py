@@ -4,12 +4,15 @@ Each config object is written with `SerializableConfig.to_hdf5()` into a group o
 config can hold two kinds of path, and neither goes into the archive as a path:
 
 - Output paths (`save_directory`, `lasy_file`): where a run writes, decided when it runs. Only
-  the basename of the class default is stored (`diags`, `lasy_laser`), and a loaded config has
-  the class default; the simulator's working directory decides the rest.
+  the basename of the value is stored (`diags`, `scan_07`, `lasy_laser`), and a loaded config
+  has that name in the directory of the class default (`save_directory="scan_07"`, and
+  `lasy_file="diags/<name>"`); the simulator's working directory decides the rest.
 - Input files (fields marked `input_path`, such as the table of `InterpolateFromH5Profile`): the
   archive keeps only the file's basename and its md5. The file itself is looked for in the
-  `input_dirs` given to `archive()` and `from_archive()`. When it is not in `input_dirs` at
-  `archive()` it is embedded in the archive, and a loaded archive then uses the embedded copy.
+  `input_dirs` given to `archive.save()` and `archive.load()`. When it is not in `input_dirs` at
+  `save()` it is embedded in the archive, and a loaded archive then uses the embedded copy,
+  written out as `inputs/<md5>/<basename>` under the working directory (a temporary directory
+  when the archive is loaded without one).
 
 The configs are written and read through an in-memory HDF5 file: the library makes a path relative
 to the file it writes into and resolves one against the file it reads from, and neither is wanted
@@ -19,9 +22,11 @@ here.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import copy
 import hashlib
 import os
+import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,13 +57,21 @@ _PATH_VALUED_FIELDS = ("base_density_profile", "modifiers")
 
 _CHUNK_BYTES = 8 * 2**20
 
+# The md5s computed inside `cached_checksums()`, by resolved path; None outside it.
+_CHECKSUMS: contextvars.ContextVar[dict[Path, str] | None] = contextvars.ContextVar(
+    "_CHECKSUMS", default=None
+)
+
 
 @dataclass
 class InputFile:
     """An input file of a config: its basename and md5, and where the bytes are.
 
     The bytes are on disk at `path`, or in memory as `data` for a file that was embedded in an
-    archive and has not been written out. `extracted` is where `write_to()` last wrote them.
+    archive. `extracted` is where `write_to()` last wrote them. An embedded file keeps its bytes
+    in memory for as long as the simulator loaded from the archive, so that the simulator can be
+    archived again even if the written-out copy is gone; that is the cost of embedding a large
+    file (see `EMBED_WARNING_BYTES`).
     """
 
     basename: str
@@ -82,8 +95,12 @@ class InputFile:
                 offset += len(chunk)
 
     def write_to(self, directory: Path) -> Path:
-        """Write the embedded bytes as `directory/basename` and return that path."""
-        target = Path(directory) / self.basename
+        """Write the embedded bytes as `directory/<md5>/basename` and return that path.
+
+        The md5 directory keeps apart files with the same basename and different contents,
+        whether from one archive or from several loaded in the same working directory.
+        """
+        target = Path(directory) / self.md5 / self.basename
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.is_file() or checksum(target) != self.md5:
             target.write_bytes(self.data.tobytes())
@@ -109,12 +126,12 @@ class InputRef:
 def atomic_h5(path: Path | str) -> typing.Iterator[h5py.File]:
     """An HDF5 file open for writing at `path`.
 
-    It is written to a temporary file next to `path` and moved into place when the block ends
-    without an error. After an error `path` is as it was (a file that existed stays as it was)
-    and no partial file is left.
+    It is written to a temporary file next to `path`, with a name of its own so that concurrent
+    writers do not share it, and moved into place when the block ends without an error. After an
+    error `path` is as it was (a file that existed stays as it was) and no partial file is left.
     """
     path = Path(path)
-    temporary = path.with_name(path.name + ".partial")
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.partial")
     try:
         with h5py.File(temporary, "w") as handle:
             yield handle
@@ -124,13 +141,35 @@ def atomic_h5(path: Path | str) -> typing.Iterator[h5py.File]:
         raise
 
 
+@contextlib.contextmanager
+def cached_checksums() -> typing.Iterator[None]:
+    """Within the block, `checksum()` reads each file once: an archive is written in one block,
+    and a file it names does not change meanwhile. Nested blocks share the outer one's md5s.
+    """
+    if _CHECKSUMS.get() is not None:
+        yield
+        return
+    token = _CHECKSUMS.set({})
+    try:
+        yield
+    finally:
+        _CHECKSUMS.reset(token)
+
+
 def checksum(path: Path | str) -> str:
-    """The md5 of a file, read in chunks."""
+    """The md5 of a file, read in chunks (once per file inside `cached_checksums()`)."""
+    cache = _CHECKSUMS.get()
+    key = Path(path).resolve()
+    if cache is not None and key in cache:
+        return cache[key]
     digest = hashlib.md5(usedforsecurity=False)
     with open(path, "rb") as stream:
         while chunk := stream.read(_CHUNK_BYTES):
             digest.update(chunk)
-    return digest.hexdigest()
+    result = digest.hexdigest()
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def collect_inputs(
@@ -206,12 +245,12 @@ def items(
 
 
 def load_inputs(
-    group: h5py.Group, input_dirs: typing.Any, working_directory: str | Path
+    group: h5py.Group, input_dirs: typing.Any, directory: str | Path
 ) -> tuple[dict, dict]:
     """Find the input files an archive's `inputs` group records.
 
     Returns `(paths, embedded)`. `paths` is the path to use for each (config, index, field). An
-    embedded file is written to `working_directory/inputs/` first, because a config is built from
+    embedded file is written to `directory/inputs/<md5>/` first, because a config is built from
     the file. `embedded` holds the embedded files, for `collect_inputs()` when the loaded model
     is archived again.
 
@@ -240,7 +279,7 @@ def load_inputs(
                 basename, md5, int(record.attrs["size"]), data=record["data"][()]
             )
             embedded[key] = file
-            paths[key] = str(file.write_to(Path(working_directory) / "inputs"))
+            paths[key] = str(file.write_to(Path(directory) / "inputs"))
             continue
         found = next((d / basename for d in dirs if (d / basename).is_file()), None)
         if found is None:
@@ -259,16 +298,20 @@ def load_inputs(
     return paths, embedded
 
 
-def normalized(config: SerializableConfig) -> SerializableConfig:
-    """A copy of `config` that holds no path: output paths as the basename of their default, input
-    files by basename. Not rebuilt (an input file is read when a config is built), so the original, with
-    its paths, is untouched."""
+def normalized(
+    config: SerializableConfig, *, output_names: bool = True
+) -> SerializableConfig:
+    """A copy of `config` that holds no path: output paths by their basename (with
+    `output_names=False`, the basename of their default, so that the copy does not depend on
+    where a run writes), input files by basename. Not rebuilt (an input file is read when a
+    config is built), so the original, with its paths, is untouched."""
     result = copy.copy(config)
     for cls, names in OUTPUT_PATH_FIELDS.items():
         if isinstance(config, cls):
             for name in names:
                 default = _default(config, name)
-                basename = Path(default).name
+                value = getattr(config, name) if output_names else default
+                basename = Path(value).name or Path(default).name
                 object.__setattr__(
                     result,
                     name,
@@ -283,7 +326,8 @@ def read_config(
     group: h5py.Group, overrides: dict[str, typing.Any] | None = None
 ) -> SerializableConfig:
     """Read the config in `group`. `overrides` are the parameters to set; the paths of input
-    files go in this way. The output paths are the class defaults."""
+    files go in this way. An output path is its stored name in the directory of the class
+    default."""
     with h5py.File("stage", "w", driver="core", backing_store=False) as stage:
         group.file.copy(group, stage, name="config")
         config = SerializableConfig.from_hdf5(
@@ -292,7 +336,11 @@ def read_config(
     for cls, names in OUTPUT_PATH_FIELDS.items():
         if isinstance(config, cls):
             for name in names:
-                object.__setattr__(config, name, _default(config, name))
+                default = _default(config, name)
+                value = Path(default).parent / Path(getattr(config, name)).name
+                object.__setattr__(
+                    config, name, value if isinstance(default, Path) else str(value)
+                )
     return config
 
 

@@ -20,11 +20,10 @@ Substitutions, none of which makes it a bit-exact reproduction:
 - `Simulation` passes `n_order=-1` (the original: 32) and always requests CUDA, which fbpic
   downgrades to CPU when it is not installed.
 
-The constants below are the coarsened configuration that was run on a multi-core CPU machine
-(14 threads, no GPU), not `sim_0000`'s production grid: `nz=1000`, `nr=100`, `nm=2`, a (300, 450)
-/ 2-mode LASY grid, `p_nt=4`, 10 lab-frame dumps, and no `uz >= 10` selection (at `nz=400` it
-left no particles), so apply `uz_min` downstream. At `nz=400` no electrons were accelerated
-(maximum `uz` 0.3), so `NZ` should not be lowered.
+The constants below are a coarsened configuration for a CPU, not `sim_0000`'s production grid
+(`PRODUCTION`): `nz=1000`, `nr=100`, `nm=2`, a (300, 450) / 2-mode LASY grid, `p_nt=4`, 10
+lab-frame dumps, and no `uz >= 10` selection, so apply `uz_min` downstream. `NZ` is about as
+coarse as the injection allows: on a much coarser grid (`nz=400`) no electrons are accelerated.
 """
 
 from __future__ import annotations
@@ -38,15 +37,14 @@ from lume_fbpic.actions import (
     DopantFractionAction,
     FinalParticlesAction,
     LaserFieldAction,
-    StatAction,
     ZernikeCoefficientAction,
     make_descriptor_actions,
+    make_stat_actions,
 )
-from lume_fbpic.density_profiles import GeneralizedGaussianProfile
+from lume_fbpic.density_profiles import GeneralizedGaussianProfile, nominal_density
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.simulator import FBPICSimulator
+from lume_fbpic.lwfa_simulator import LWFASimulator
 
-from inversion_fbpic.lib.density_core import _DensityProfile
 from inversion_fbpic.lib.laser import LasyLaserPulse
 from inversion_fbpic.lib.simulation import SimulationHyperparameters
 
@@ -64,9 +62,8 @@ LASER_SPOT_SIZE_M = 24e-6
 LASER_SUPER_GAUSSIAN_ORDER = 3.0
 LASER_FOCAL_POSITION_M = 3.5e-3
 
-# --- hyperparameters: the coarsened CPU configuration of the module docstring. sim_0000's own
-# values were NZ, NR, N_AZIMUTHAL_MODES = 1500, 300, 5, NUMBER_DUMPS = WRITE_PERIOD = 50,
-# P_NT = 15.
+# --- hyperparameters: the coarsened CPU configuration of the module docstring; sim_0000's own
+# are `PRODUCTION`.
 NZ, NR, N_AZIMUTHAL_MODES = 1000, 100, 2
 ZMIN, ZMAX, RMAX = -70.0e-6, 0.0, 200.0e-6
 GAMMA_BOOST = 1.5
@@ -74,11 +71,35 @@ NUMBER_DUMPS = 10
 WRITE_PERIOD = 10
 P_NZ, P_NR, P_NT = 2, 2, 4
 
-# --- LASY laser grid, coarsened to match (sim_0000: 5 modes, (600, 900) points) ---
+# --- LASY laser grid, coarsened to match (sim_0000's in `PRODUCTION`) ---
 LASER_N_AZIMUTHAL_MODES = 2
 LASER_NUM_POINTS = (300, 450)
 Z0_ANTENNA = 0.0
 T_START = 0.0
+
+# The production settings of sim_0000, which the constants above coarsen. POSIT: the
+# HYPERPARAMETERS of runs/initial_sample/ionization_injection_runscript_00.py.
+PRODUCTION = {
+    "nz": 1500,
+    "nr": 300,
+    "nm": 5,
+    "number_dumps": 50,
+    "write_period": 50,
+    "use_mpi": True,  # submission_script_00.sh runs 8 ranks under srun
+    "p_nt": 15,
+    "laser_n_azimuthal_modes": 5,
+    "laser_num_points": (600, 900),
+}
+
+# The actions of `build_model()` that set an input of sample_dataset.json, by the input's name;
+# the Zernike coefficients' actions are named after their inputs, `ZERNIKE_PREFIX` + coefficient.
+DATASET_ACTIONS = {
+    "laser_energy_J": "laser_energy",
+    "laser_focal_position_m": "laser_focal_position",
+    "laser_pulse_duration_fwhm_s": "laser_temporal_width",
+    "nitrogen_dopant_fraction": "nitrogen_dopant_fraction",
+}
+ZERNIKE_PREFIX = "zernike_"
 
 
 def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
@@ -124,16 +145,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         lasy_file=Path("diags") / "lasy_laser",
     )
 
-    # Two profiles (see the module docstring): same shape, ion density scaled by
-    # each species' own ionization-level count to compensate for add_to_simulation()'s
-    # nominal_density / num_ionization_levels formula.
-    he_levels = _DensityProfile._get_num_ionization_levels("He")
-    n_levels = _DensityProfile._get_num_ionization_levels("N")
-    he_atom_density = n_gas * (1.0 - NITROGEN_DOPANT_FRACTION)
-    n_atom_density = n_gas * NITROGEN_DOPANT_FRACTION
-
+    # Two profiles (see the module docstring), of the same shape, with the He and N atom
+    # densities of the gas.
     density_he = GeneralizedGaussianProfile(
-        nominal_density=he_levels * he_atom_density,
+        nominal_density=nominal_density("He", n_gas * (1.0 - NITROGEN_DOPANT_FRACTION)),
         species="He",
         ionization=0,
         p_nz=P_NZ,
@@ -146,7 +161,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         elec_name=None,  # never diagnosed upstream either
     )
     density_n = GeneralizedGaussianProfile(
-        nominal_density=n_levels * n_atom_density,
+        nominal_density=nominal_density("N", n_gas * NITROGEN_DOPANT_FRACTION),
         species="N",
         ionization=0,
         p_nz=P_NZ,
@@ -160,7 +175,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         elec_select=None,  # the nz=1000 run had the template's uz>=10 filter removed
     )
 
-    simulator = FBPICSimulator(
+    simulator = LWFASimulator(
         hyparams,
         laser,
         [density_he, density_n],
@@ -182,17 +197,15 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         DopantFractionAction(
             name="nitrogen_dopant_fraction", host_index=0, dopant_index=1
         ),
-        # One action per Zernike coefficient, named like the dataset's `zernike_<name>` inputs
-        # (for example `zernike_astigmatism_4`, `zernike_coma_x`); phase amplitudes in radians.
+        # One action per Zernike coefficient, named like the dataset's inputs (for example
+        # `zernike_astigmatism_4`, `zernike_coma_x`); phase amplitudes in radians.
         *[
             ZernikeCoefficientAction(
-                name=f"zernike_{coefficient}", coefficient=coefficient
+                name=ZERNIKE_PREFIX + coefficient, coefficient=coefficient
             )
             for coefficient in laser.zernike_coefficients
         ],
-        StatAction(name="charge_pc", stat_name="charge_pc", read_only=True),
-        StatAction(name="energy_mean_mev", stat_name="energy_mean_mev", read_only=True),
-        StatAction(name="energy_std_mev", stat_name="energy_std_mev", read_only=True),
+        *make_stat_actions(),
         FinalParticlesAction(name="final_particles", read_only=True),
         # The 33 moment-descriptor scalars build_dataset.py writes (uz >= 30, central 95%).
         *make_descriptor_actions(),
@@ -203,5 +216,5 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
 
 if __name__ == "__main__":
     model = build_model()
-    model.set({"laser_energy": LASER_ENERGY_J})  # set() applies the value, then runs
+    model.set({})  # runs the simulation (an empty set changes nothing first)
     print(model.get(["charge_pc", "energy_mean_mev"]))

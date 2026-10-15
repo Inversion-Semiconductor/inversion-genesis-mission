@@ -8,17 +8,28 @@ unless they explicitly call `simulator.run()`.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-import pytest
+# fbpic's numba kernels use every core by default, and threaded charge and current deposition adds
+# up in an order that depends on the thread count; one thread makes the runs repeat on any
+# machine. The environment covers a numba not imported yet, `set_num_threads()` one that another
+# package's tests already imported (the root `pytest.ini` collects every package).
+os.environ["NUMBA_NUM_THREADS"] = "1"
 
-# The example scripts (docs/examples), serve.py and archive_selector.py (docs/htu-twin/serving) and twin_stage.py
-# (docs/htu-twin/twin) are scripts, not package modules.
+import numba  # noqa: E402
+import pytest  # noqa: E402
+
+numba.set_num_threads(1)
+
+# The example scripts (docs/examples), the twin scripts (docs/htu-twin/twin) and the display
+# generators and their widgets (docs/htu-twin/phoebus) are scripts, not package modules. The twin
+# modules are the package `lume_fbpic_twin` (docs/htu-twin).
 _DOCS = Path(__file__).resolve().parents[1] / "docs"
 for _directory in (
     _DOCS / "examples",
-    _DOCS / "htu-twin" / "serving",
+    _DOCS / "htu-twin" / "phoebus",
     _DOCS / "htu-twin" / "twin",
 ):
     sys.path.insert(0, str(_directory))
@@ -29,7 +40,7 @@ from inversion_fbpic.lib.density_profiles import SmoothSineFlattop  # noqa: E402
 
 from downramp_actions import make_actions  # noqa: E402
 from lume_fbpic.model import LUMEFBPICModel  # noqa: E402
-from lume_fbpic.simulator import FBPICSimulator  # noqa: E402
+from lume_fbpic.lwfa_simulator import LWFASimulator  # noqa: E402
 
 HYPERPARAMETERS_KWARGS: dict = {
     "zmin": -1.0e-5,
@@ -91,8 +102,8 @@ def densities() -> list[SmoothSineFlattop]:
 
 
 @pytest.fixture()
-def simulator(hyparams, laser, densities, tmp_path) -> FBPICSimulator:
-    return FBPICSimulator(
+def simulator(hyparams, laser, densities, tmp_path) -> LWFASimulator:
+    return LWFASimulator(
         hyparams,
         laser,
         densities,
@@ -109,25 +120,6 @@ def model(simulator) -> LUMEFBPICModel:
 @pytest.fixture()
 def particle_group():
     """A small synthetic electron bunch (px/py/pz in eV/c, weights in coulombs)."""
-    import numpy
-    from scipy.constants import c, e, m_e
+    from bunches import lab_snapshot
 
-    from beamphysics import ParticleGroup
-
-    mc2_ev = m_e * c**2 / e
-    n = 400
-    rng = numpy.random.default_rng(3)
-    return ParticleGroup(
-        data={
-            "x": rng.normal(1.0e-6, 3.0e-6, n),
-            "y": rng.normal(0.0, 1.5e-6, n),
-            "z": rng.normal(0.003, 4.0e-6, n),
-            "px": rng.normal(0.5, 2.0, n) * mc2_ev,
-            "py": rng.normal(0.0, 1.0, n) * mc2_ev,
-            "pz": rng.normal(150.0, 30.0, n) * mc2_ev,
-            "t": numpy.zeros(n),
-            "status": numpy.ones(n, dtype=int),
-            "weight": numpy.full(n, 1.0e3 * e),
-            "species": "electron",
-        }
-    )
+    return lab_snapshot(400, seed=3)

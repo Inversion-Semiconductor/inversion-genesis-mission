@@ -5,17 +5,13 @@ script reads it and writes a copy, next to `lpa_bunch.bob`, with three changes:
 
 - a new bottom row shows the LPA bunch the twin is tracking (energy, energy spread, charge,
   macroparticles, read from the `Source_*` PVs), a combo box that selects the LPA run (the
-  `LPA_Archive` PV, one option per archive `serve.py` was given), a button that opens
+  `LPA_Archive` PV, one option per archive the server was given), a button that opens
   `lpa_bunch.bob`, and whether the twin is simulating (a LED, green when idle and amber when
   simulating, and the state's name, from the `STATUS` PV that lume-pva serves);
 - the `SRC` element's button opens `lpa_bunch.bob` instead of the twin's source display. It is a
   single action on purpose: Phoebus draws a button with several actions as a drop-down menu, and a
   click on the small `SRC` element would then only open the menu. The LPA display shows every
   `Source_*` value the twin's source display does, and the `Source_*` PVs are read-only;
-- every `rotation_step` is converted from degrees to the ordinal Phoebus expects. The twin's
-  generator writes `90.0` (an angle) for its vertical labels, but the property is an enum
-  (0 = none, 1 = 90 degrees, 2 = 180, 3 = 270) and Phoebus logs a warning for each label and does not
-  rotate it;
 - every other display file the synoptic refers to -- the `open_display` buttons (`quad_controls.bob`,
   ...) and the camera tabs embedded in it (`camera_view.bob`) -- is pointed at the twin's display
   directory through a `TWIN_DISPLAYS` macro, so they keep working from here.
@@ -39,19 +35,22 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-# Phoebus's `rotation_step` enum, by ordinal: 0 none, 1 = 90 degrees, 2 = 180, 3 = 270.
-ROTATION_ORDINAL = {0.0: 0, 90.0: 1, 180.0: 2, 270.0: 3, -90.0: 3}
+import widgets  # docs/htu-twin/phoebus/widgets.py, this directory
+
+from lume_fbpic_twin.archive_selector import DEFAULT_SELECTOR_NAME
+from lume_fbpic_twin.serve import TWIN_PREFIX
 
 CAMERA_TABS_HEIGHT = (
     700  # the 680 px camera view plus room, so its bottom axis label is not clipped
 )
 STRIP_HEIGHT = 44
 LPA_DISPLAY = "lpa_bunch.bob"
-SELECTOR = "LPA_Archive"  # the enum PV `serve.py` serves, one option per archive
 STATUS = "STATUS"  # lume-pva's read-only enum PV: 0 Idle, 1 Simulating
-PREFIX = "pva://HTU:SIM:"
+PREFIX = "pva://" + TWIN_PREFIX
+LPA_DESCRIPTION = "LPA bunch: the twin's source readbacks and the moment descriptor"
 
-# (label, PV name, label width, value width, decimals)
+# (label, PV name, label width, value width, decimals). POSIT: the PVs are twin source variables
+# (`htu.model.SourceVariable`, `SourceIntVariable`); a test checks it.
 STRIP = (
     ("Energy [MeV]", "Source_Energy_MeV", 90, 70, 2),
     ("Spread [%]", "Source_EnergySpread_pct", 80, 60, 1),
@@ -72,14 +71,6 @@ def build(twin_display_dir: Path, output_dir: Path | None = None) -> str:
     root = ET.parse(source).getroot()
 
     default = _macro_value(twin_display_dir, output_dir)
-
-    for step in root.iter("rotation_step"):
-        angle = float(step.text)
-        if angle not in ROTATION_ORDINAL:
-            raise ValueError(
-                f"rotation_step {step.text!r} is not a multiple of 90 degrees"
-            )
-        step.text = str(ROTATION_ORDINAL[angle])
 
     # Every <file>, whatever holds it: button actions, and the tabs that embed the camera views.
     for file in root.iter("file"):
@@ -105,50 +96,51 @@ def build(twin_display_dir: Path, output_dir: Path | None = None) -> str:
     actions = src_buttons[0].find("actions")
     for action in list(actions):
         actions.remove(action)
-    _lpa_action(actions)
+    widgets.open_display(actions, LPA_DISPLAY, LPA_DESCRIPTION)
     tooltip = src_buttons[0].find("tooltip")
     if tooltip is not None:
-        tooltip.text = (
-            "LPA bunch: the twin's source readbacks and the moment descriptor"
-        )
+        tooltip.text = LPA_DESCRIPTION
 
-    height = int(root.findtext("height"))
+    height, width = int(root.findtext("height")), int(root.findtext("width"))
     root.find("height").text = str(height + STRIP_HEIGHT)
     y = height + 8
 
-    rule = ET.SubElement(root, "widget", type="rectangle", version="2.0.0")
-    _text(rule, "name", "lpa_strip_rule")
-    _geometry(rule, 30, height + 2, 1440, 1)
-    _text(rule, "line_width", "0")
-    background = ET.SubElement(rule, "background_color")
-    ET.SubElement(background, "color", red="150", green="150", blue="150", alpha="255")
-
+    widgets.rule(root, "lpa_strip_rule", 30, height + 2, width - 60)
     x = 30
-    _label(root, "lpa_strip_title", "LPA bunch (twin source):", x, y, 190, bold=True)
+    widgets.label(
+        root, "lpa_strip_title", "LPA bunch (twin source):", x, y, 190, 24, bold=True
+    )
     x += 195
-    _label(root, "lpa_strip_run_label", "Run:", x, y, 40)
-    _combo(root, "lpa_strip_run", SELECTOR, x + 42, y, 170, 24)
+    widgets.label(root, "lpa_strip_run_label", "Run:", x, y, 40, 24)
+    widgets.combo(
+        root, "lpa_strip_run", PREFIX + DEFAULT_SELECTOR_NAME, x + 42, y, 170, 24
+    )
     x += 42 + 170 + 16
     for index, (text, pv, label_w, value_w, decimals) in enumerate(STRIP):
-        _label(root, f"lpa_strip_label{index}", text, x, y, label_w)
-        _value(
-            root, f"lpa_strip_value{index}", pv, x + label_w, y, value_w, 24, decimals
+        widgets.label(root, f"lpa_strip_label{index}", text, x, y, label_w, 24)
+        widgets.value(
+            root,
+            f"lpa_strip_value{index}",
+            PREFIX + pv,
+            x + label_w,
+            y,
+            value_w,
+            24,
+            precision=decimals,
         )
         x += label_w + value_w + 14
-
-    button = ET.SubElement(root, "widget", type="action_button", version="3.0.0")
-    _text(button, "name", "lpa_strip_button")
-    _lpa_action(ET.SubElement(button, "actions"))
-    _text(button, "text", "LPA bunch...")
-    _geometry(button, x, y - 1, 130, 26)
-    _status(root, x + 130 + 24, y)
-
-    ET.indent(root, space="  ")
-    return (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        + ET.tostring(root, encoding="unicode")
-        + "\n"
+    widgets.button(
+        root,
+        "lpa_strip_button",
+        "LPA bunch...",
+        LPA_DISPLAY,
+        LPA_DESCRIPTION,
+        x,
+        y - 1,
+        130,
     )
+    _status(root, x + 130 + 24, y)
+    return widgets.to_xml(root)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -162,43 +154,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     output.write_text(build(Path(argv[0]), output.parent))
     print(f"wrote {output}")
-
-
-def _combo(root, name, pv, x, y, w, h):
-    widget = ET.SubElement(root, "widget", type="combo", version="2.0.0")
-    _text(widget, "name", name)
-    _text(widget, "pv_name", PREFIX + pv)
-    _geometry(widget, x, y, w, h)
-    _text(widget, "items_from_pv", "true")
-
-
-def _geometry(widget: ET.Element, x: int, y: int, w: int, h: int) -> None:
-    for tag, value in (("x", x), ("y", y), ("width", w), ("height", h)):
-        _text(widget, tag, str(value))
-
-
-def _label(root, name, text, x, y, w, h=24, bold=False):
-    widget = ET.SubElement(root, "widget", type="label", version="2.0.0")
-    _text(widget, "name", name)
-    _text(widget, "text", text)
-    _geometry(widget, x, y, w, h)
-    if bold:
-        font = ET.SubElement(ET.SubElement(widget, "font"), "font")
-        font.set("family", "Liberation Sans")
-        font.set("style", "BOLD")
-        font.set("size", "12.0")
-
-
-def _lpa_action(parent: ET.Element) -> None:
-    action = ET.SubElement(parent, "action", type="open_display")
-    _text(action, "file", LPA_DISPLAY)
-    ET.SubElement(action, "macros")
-    _text(action, "target", "window")
-    _text(
-        action,
-        "description",
-        "LPA bunch: the twin's source readbacks and the moment descriptor",
-    )
 
 
 def _macro_value(twin_display_dir: Path, output_dir: Path | None) -> str:
@@ -221,38 +176,22 @@ def _repository_root(path: Path) -> Path | None:
     return None
 
 
-def _status(root, x, y):
+def _status(root: ET.Element, x: int, y: int) -> None:
     """The twin's activity: a LED, green while it is idle and amber while it simulates, and the
     state's name, from lume-pva's `STATUS` PV."""
-    _label(root, "lpa_strip_status_label", "Twin:", x, y, 45, bold=True)
-    led = ET.SubElement(root, "widget", type="led", version="2.0.0")
-    _text(led, "name", "lpa_strip_status_led")
-    _text(led, "pv_name", PREFIX + STATUS)
-    _geometry(led, x + 48, y + 2, 20, 20)
-    for tag, rgb in (("off_color", (0, 170, 0)), ("on_color", (255, 150, 0))):
-        color = ET.SubElement(ET.SubElement(led, tag), "color")
-        for channel, value in zip(("red", "green", "blue"), rgb):
-            color.set(channel, str(value))
-    text = ET.SubElement(root, "widget", type="textupdate", version="2.0.0")
-    _text(text, "name", "lpa_strip_status_text")
-    _text(text, "pv_name", PREFIX + STATUS)
-    _geometry(text, x + 74, y, 90, 24)
-
-
-def _text(parent: ET.Element, tag: str, text: str) -> ET.Element:
-    child = ET.SubElement(parent, tag)
-    child.text = text
-    return child
-
-
-def _value(root, name, pv, x, y, w, h, decimals):
-    widget = ET.SubElement(root, "widget", type="textupdate", version="2.0.0")
-    _text(widget, "name", name)
-    _text(widget, "pv_name", PREFIX + pv)
-    _geometry(widget, x, y, w, h)
-    _text(widget, "precision", str(decimals))
-    _text(widget, "precision_from_pv", "false")
-    _text(widget, "show_units", "false")
+    widgets.label(root, "lpa_strip_status_label", "Twin:", x, y, 45, 24, bold=True)
+    widgets.led(
+        root,
+        "lpa_strip_status_led",
+        PREFIX + STATUS,
+        x + 48,
+        y + 2,
+        20,
+        20,
+        off_color=(0, 170, 0),
+        on_color=(255, 150, 0),
+    )
+    widgets.value(root, "lpa_strip_status_text", PREFIX + STATUS, x + 74, y, 90, 24)
 
 
 if __name__ == "__main__":

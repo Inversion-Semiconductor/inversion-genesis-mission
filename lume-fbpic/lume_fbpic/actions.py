@@ -6,154 +6,159 @@ the whole held object via `attrs.evolve()` rather than mutating a field in place
 `lume-cheetah`'s actions, which `setattr()` directly on Cheetah's plain mutable elements.
 
 The `unit` of an action can be left out. `LUMEFBPICModel` then fills it in with
-`default_unit()`: for an action on a config field, the unit tagged in brackets in that field's
-documentation (`[m]`, `[J]`, `[m^-3]`, ...), and for a statistic its entry in `STAT_UNITS`. A
-unit given explicitly, `None` included, is kept.
+`default_unit()`, from `lume_fbpic.units`: for an action on a config field, the unit tagged in
+brackets in that field's documentation (`[m]`, `[J]`, `[m^-3]`, ...), and for a statistic its entry
+in `STAT_UNITS`. A unit given explicitly, `None` included, is kept.
 """
 
 from __future__ import annotations
 
-import re
 import typing
 
 import attrs
-import numpy
-from beamphysics.units import pmd_unit
-from scipy.constants import e
 
 from lume.actions import Action, ReadOnlyActionMixin, WritableActionMixin
 from lume.variables import ParticleGroupVariable, ScalarVariable
 
+from lume_fbpic import descriptor
+from lume_fbpic.density_profiles import atom_density, nominal_density
 from lume_fbpic.pwfa_config import FlatTopBunch, GaussianBunch
-from lume_fbpic.simulator import (
-    ELECTRON_MC2_EV,
-    BaseSimulator,
-    FBPICSimulator,
-    PWFASimulator,
-)
+from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.pwfa_simulator import PWFASimulator
+from lume_fbpic.simulator import BaseSimulator
+from lume_fbpic.units import STAT_UNITS, config_unit
 
-from inversion_fbpic.lib.density_core import _DensityProfile
-from inversion_fbpic.utils.distributions import (
-    COORD_NAMES,
-    LONGITUDINAL_PROFILE_BINS,
-    SPLINE,
-    compute_moment_descriptor,
-    crop_central_particles,
-    select_by_uz,
-)
+from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS
 
 
-# Units of the statistics a simulator keeps in `stats`, by name.
-STAT_UNITS = {"charge_pc": "pC", "energy_mean_mev": "MeV", "energy_std_mev": "MeV"}
+# The prefix of the names `make_descriptor_actions()` gives by default.
+DESCRIPTOR_PREFIX = "descriptor_"
+
+# A laser's amplitude field -> the other one, derived from it (see `evolve_laser()`).
+_AMPLITUDE_SIBLING = {"a0": "energy", "energy": "a0"}
+
+# The writable fields of a PWFA bunch that `make_pwfa_actions()` makes actions for, by the class of
+# the bunch: action name (after the `driver_` or `witness_` prefix) -> field.
+_BUNCH_FIELDS = {
+    FlatTopBunch: {"gamma": "gamma", "density": "density", "radius": "radius"},
+    GaussianBunch: {
+        "gamma": "gamma",
+        "charge": "charge",
+        "sigma_r": "sig_r",
+        "sigma_z": "sig_z",
+        "position": "zf",
+    },
+}
 
 
-class BunchFieldAction(WritableActionMixin[PWFASimulator], ScalarVariable):
-    """Writable scalar mapped onto one field of a PWFA simulator's `driver` or `witness` bunch."""
+class _ConfigFieldAction(WritableActionMixin[BaseSimulator], ScalarVariable):
+    """Writable scalar mapped onto field `field_name` of one of the simulator's config objects,
+    which a subclass reaches with `_config()` and puts back with `_replace()`. The config objects
+    are frozen, so a set replaces the object with an `attrs.evolve()`d copy."""
 
-    bunch: str
+    # The class of simulator the action works on; `LUMEFBPICModel` checks it.
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
+
     field_name: str
 
-    def default_unit(self, simulator: PWFASimulator) -> str | None:
-        return _config_unit(self._bunch(simulator), self.field_name)
+    def default_unit(self, simulator: BaseSimulator) -> str | None:
+        return config_unit(self._config(simulator), self.field_name)
 
-    def _bunch(self, simulator: PWFASimulator) -> typing.Any:
-        if self.bunch not in ("driver", "witness"):
-            raise ValueError(f"bunch must be 'driver' or 'witness', not {self.bunch!r}")
+    def _config(self, simulator: BaseSimulator) -> typing.Any:
+        """The config object this action's field is on."""
+        raise NotImplementedError
+
+    def _get(self, simulator: BaseSimulator) -> typing.Any:
+        return getattr(self._config(simulator), self.field_name)
+
+    def _replace(self, simulator: BaseSimulator, config: typing.Any) -> None:
+        """Put `config` in place of the config object `_config()` returns."""
+        raise NotImplementedError
+
+    def _set(self, simulator: BaseSimulator, value: typing.Any) -> None:
+        self._replace(
+            simulator, attrs.evolve(self._config(simulator), **{self.field_name: value})
+        )
+
+
+class BunchFieldAction(_ConfigFieldAction):
+    """Writable scalar mapped onto one field of a PWFA simulator's `driver` or `witness` bunch."""
+
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = PWFASimulator
+
+    bunch: typing.Literal["driver", "witness"]
+
+    def _config(self, simulator: PWFASimulator) -> typing.Any:
         bunch = getattr(simulator, self.bunch)
         if bunch is None:
             raise ValueError(f"the simulator has no {self.bunch}")
         return bunch
 
-    def _get(self, simulator: PWFASimulator) -> typing.Any:
-        return getattr(self._bunch(simulator), self.field_name)
-
-    def _set(self, simulator: PWFASimulator, value: typing.Any) -> None:
-        setattr(
-            simulator,
-            self.bunch,
-            attrs.evolve(self._bunch(simulator), **{self.field_name: value}),
-        )
+    def _replace(self, simulator: PWFASimulator, config: typing.Any) -> None:
+        setattr(simulator, self.bunch, config)
 
 
-class DensityFieldAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
+class DensityFieldAction(_ConfigFieldAction):
     """Writable scalar mapped onto one field of one of the simulator's density profiles,
     addressed by index into `simulator.densities`."""
 
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
+
     density_index: int
-    field_name: str
 
-    def default_unit(self, simulator: FBPICSimulator) -> str | None:
-        return _config_unit(simulator.densities[self.density_index], self.field_name)
+    def _config(self, simulator: LWFASimulator) -> typing.Any:
+        return simulator.densities[self.density_index]
 
-    def _get(self, simulator: FBPICSimulator) -> typing.Any:
-        return getattr(simulator.densities[self.density_index], self.field_name)
-
-    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
+    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
         densities = list(simulator.densities)
-        densities[self.density_index] = attrs.evolve(
-            densities[self.density_index], **{self.field_name: value}
-        )
+        densities[self.density_index] = config
         simulator.densities = densities
 
 
-class DopantFractionAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
+class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
     """Writable dopant fraction of a two-gas mixture, held in two density profiles of
     `simulator.densities` (`host_index` for the background gas, `dopant_index` for the dopant).
 
-    The fraction is `dopant atoms / (host atoms + dopant atoms)`. A profile's atom density is
-    its `nominal_density / num_ionization_levels(species)` -- `_DensityProfile.add_to_simulation`
-    divides by the level count -- so setting a new fraction rewrites BOTH `nominal_density`
-    values, scaled back up by each species' level count, while keeping the total atom density
-    (host + dopant) constant. That is the scan variable `nitrogen_dopant_fraction` of the
+    The fraction is `dopant atoms / (host atoms + dopant atoms)`, with each profile's atom density
+    from `lume_fbpic.density_profiles.atom_density()`. Setting a new fraction rewrites BOTH
+    `nominal_density` values while keeping the total atom density (host + dopant) constant. That is the scan variable `nitrogen_dopant_fraction` of the
     `initial_sample` dataset, where `n_N = n_gas * fraction` and `n_He = n_gas * (1 - fraction)`
     with `n_gas` fixed. Both profiles must have a `species`, and the fraction must lie strictly
     between 0 and 1 (a profile's `nominal_density` has to stay positive).
     """
 
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
+
     dopant_index: int
     host_index: int
 
-    def default_unit(self, simulator: FBPICSimulator) -> str | None:
+    def default_unit(self, simulator: LWFASimulator) -> str | None:
         return "1"  # a fraction
 
-    def _atom_densities(self, simulator: FBPICSimulator) -> tuple[float, float]:
-        """Return `(host, dopant)` neutral-atom densities in m^-3."""
-        host = simulator.densities[self.host_index]
-        dopant = simulator.densities[self.dopant_index]
+    def _get(self, simulator: LWFASimulator) -> typing.Any:
+        host, dopant = self._profiles(simulator)
+        return atom_density(dopant) / (atom_density(host) + atom_density(dopant))
+
+    def _profiles(self, simulator: LWFASimulator) -> tuple[typing.Any, typing.Any]:
+        """The host and the dopant profiles."""
         return (
-            host.nominal_density / self._num_levels(host),
-            dopant.nominal_density / self._num_levels(dopant),
+            simulator.densities[self.host_index],
+            simulator.densities[self.dopant_index],
         )
 
-    def _get(self, simulator: FBPICSimulator) -> typing.Any:
-        host, dopant = self._atom_densities(simulator)
-        return dopant / (host + dopant)
-
-    @staticmethod
-    def _num_levels(profile: typing.Any) -> int:
-        """Ionization-level count of a density profile's species (the divisor `add_to_simulation`
-        applies to the profile's `nominal_density`)."""
-        if profile.species is None:
-            raise ValueError(
-                "A dopant fraction needs profiles with a species; got species=None."
-            )
-        return _DensityProfile._get_num_ionization_levels(profile.species)
-
-    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
+    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
         if not 0.0 < value < 1.0:
             raise ValueError(
                 f"Dopant fraction must be strictly between 0 and 1, got {value}."
             )
-        host_atoms, dopant_atoms = self._atom_densities(simulator)
-        total = host_atoms + dopant_atoms
+        host, dopant = self._profiles(simulator)
+        total = atom_density(host) + atom_density(dopant)
         densities = list(simulator.densities)
-        host = densities[self.host_index]
-        dopant = densities[self.dopant_index]
         densities[self.host_index] = attrs.evolve(
-            host, nominal_density=self._num_levels(host) * total * (1.0 - value)
+            host, nominal_density=nominal_density(host.species, total * (1.0 - value))
         )
         densities[self.dopant_index] = attrs.evolve(
-            dopant, nominal_density=self._num_levels(dopant) * total * value
+            dopant, nominal_density=nominal_density(dopant.species, total * value)
         )
         simulator.densities = densities
 
@@ -168,6 +173,8 @@ class FinalParticlesAction(ReadOnlyActionMixin[BaseSimulator], ParticleGroupVari
     `lume-pva` makes for all variables on each cycle).
     """
 
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
+
     def validate_value(self, value: typing.Any) -> None:
         if value is not None:
             super().validate_value(value)
@@ -176,108 +183,90 @@ class FinalParticlesAction(ReadOnlyActionMixin[BaseSimulator], ParticleGroupVari
         return simulator.final_particles
 
 
-class HyperparameterFieldAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
+class HyperparameterFieldAction(_ConfigFieldAction):
     """Writable scalar mapped onto one field of the simulator's `hyparams` config object."""
 
-    field_name: str
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
 
-    def default_unit(self, simulator: FBPICSimulator) -> str | None:
-        return _config_unit(simulator.hyparams, self.field_name)
+    def _config(self, simulator: LWFASimulator) -> typing.Any:
+        return simulator.hyparams
 
-    def _get(self, simulator: FBPICSimulator) -> typing.Any:
-        return getattr(simulator.hyparams, self.field_name)
-
-    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
-        simulator.hyparams = attrs.evolve(
-            simulator.hyparams, **{self.field_name: value}
-        )
+    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
+        simulator.hyparams = config
 
 
-class LaserFieldAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
-    """Writable scalar mapped onto one field of the simulator's `laser` config object.
+class LaserFieldAction(_ConfigFieldAction):
+    """Writable scalar mapped onto one field of the simulator's `laser` config object, set with
+    `evolve_laser()`."""
 
-    Every constructed `_LaserPulse` has *both* `energy` and `a0` populated -- whichever
-    wasn't given at construction is derived and stored too (tracked on the private
-    `_amplitude_source` attribute). A plain `attrs.evolve()` on *any* field -- not just
-    `energy`/`a0` themselves -- would otherwise carry over both and re-trip
-    `_LaserPulse`'s "provide exactly one" check. So every `_set()` here nulls out
-    whichever of the pair should not survive the change: the sibling when setting
-    `energy`/`a0` directly, or whichever one is currently the derived one otherwise.
-    """
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
 
-    field_name: str
+    def _config(self, simulator: LWFASimulator) -> typing.Any:
+        return simulator.laser
 
-    def default_unit(self, simulator: FBPICSimulator) -> str | None:
-        return _config_unit(simulator.laser, self.field_name)
+    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
+        simulator.laser = config
 
-    def _get(self, simulator: FBPICSimulator) -> typing.Any:
-        return getattr(simulator.laser, self.field_name)
-
-    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
-        laser = simulator.laser
-        changes: dict[str, typing.Any] = {self.field_name: value}
-        if self.field_name in ("energy", "a0"):
-            changes["a0" if self.field_name == "energy" else "energy"] = None
-        else:
-            derived = "a0" if laser._amplitude_source == "energy" else "energy"
-            changes[derived] = None
-        simulator.laser = attrs.evolve(laser, **changes)
+    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
+        simulator.laser = evolve_laser(simulator.laser, **{self.field_name: value})
 
 
 class MomentDescriptorAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable):
     """Read-only scalar: ONE feature of the moment descriptor of `simulator.final_particles`.
 
-    The descriptor is `inversion_fbpic.utils.distributions.compute_moment_descriptor` -- the
-    33 features (3 momentum centroids, 21 covariance entries, 2 x `longitudinal_bins`
-    longitudinal `uz` features, charge) that `build_dataset.py` writes for each simulation.
-    The particles are selected the way `build_dataset.py` selects them first: `uz >= uz_min`,
-    then the central `central_fraction` on each of the six phase-space axes (either `None`
-    skips that step). `make_descriptor_actions()` builds the whole set. The value is NaN
-    before a run, or when fewer than two particles survive the selection. A simulator that has
-    no particles but holds recorded output values in `stats` (one loaded from an archive of a
-    reconstructed run) gives the recorded value for this action's name.
+    The descriptor is `lume_fbpic.descriptor.compute()` -- the 33 features (3 momentum
+    centroids, 21 covariance entries, 2 x `longitudinal_bins` longitudinal `uz` features,
+    charge) that `build_dataset.py` writes for each simulation, of the particles its selection
+    keeps: `uz >= uz_min`, then the central `central_fraction` on each of the six phase-space
+    axes (either `None` skips that step). `make_descriptor_actions()` builds the whole set. The
+    value is NaN before a run, or when fewer than two particles survive the selection. A
+    simulator without particles gives its `recorded_outputs` value for this action's name, if it
+    has one (one loaded from an archive of a reconstructed run).
 
-    The descriptor is computed once per set of selection parameters and cached on the
-    simulator against the current `final_particles`, so reading all 33 features costs one
-    computation.
+    The simulator computes the descriptor once per selection (`moment_descriptor()`), so reading
+    all 33 features costs one computation.
     """
 
-    central_fraction: float | None = 0.95
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
+
+    central_fraction: float | None = descriptor.CENTRAL_FRACTION
     feature: str
     longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS
-    uz_min: float | None = 30.0
+    uz_min: float | None = descriptor.UZ_MIN
+
+    def default_unit(self, simulator: BaseSimulator) -> str | None:
+        """The unit of the feature (`lume_fbpic.descriptor.features()`); None for a name that
+        is not a feature of the descriptor."""
+        return descriptor.features(self.longitudinal_bins).get(self.feature)
 
     def _get(self, simulator: BaseSimulator) -> typing.Any:
         if simulator.final_particles is None:
-            return simulator.stats.get(self.name, float("nan"))
-        descriptor = _descriptor(
-            simulator, self.uz_min, self.central_fraction, self.longitudinal_bins
-        )
-        return descriptor.get(self.feature, float("nan"))
+            return simulator.recorded_outputs.get(self.name, float("nan"))
+        return simulator.moment_descriptor(
+            self.uz_min, self.central_fraction, self.longitudinal_bins
+        ).get(self.feature, float("nan"))
 
 
-class PlasmaFieldAction(WritableActionMixin[PWFASimulator], ScalarVariable):
+class PlasmaFieldAction(_ConfigFieldAction):
     """Writable scalar mapped onto one field of a PWFA simulator's plasma density profile."""
 
-    field_name: str
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = PWFASimulator
 
-    def default_unit(self, simulator: PWFASimulator) -> str | None:
-        return _config_unit(simulator.plasma, self.field_name)
+    def _config(self, simulator: PWFASimulator) -> typing.Any:
+        return simulator.plasma
 
-    def _get(self, simulator: PWFASimulator) -> typing.Any:
-        return getattr(simulator.plasma, self.field_name)
-
-    def _set(self, simulator: PWFASimulator, value: typing.Any) -> None:
-        simulator.plasma = attrs.evolve(simulator.plasma, **{self.field_name: value})
+    def _replace(self, simulator: PWFASimulator, config: typing.Any) -> None:
+        simulator.plasma = config
 
 
 class StatAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable):
     """Read-only scalar sourced from `simulator.stats` (populated after a run).
 
-    A simulator loaded from an archive without particles holds the archive's recorded output
-    values in `stats` too, by action name; if there is no `stat_name` entry, the value under this
-    action's own name is used.
+    Without a `stat_name` entry, the simulator's `recorded_outputs` value for this action's name
+    is used (one loaded from an archive of a reconstructed run has no statistics).
     """
+
+    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
 
     stat_name: str
 
@@ -287,7 +276,7 @@ class StatAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable):
     def _get(self, simulator: BaseSimulator) -> typing.Any:
         if self.stat_name in simulator.stats:
             return simulator.stats[self.stat_name]
-        return simulator.stats.get(self.name, float("nan"))
+        return simulator.recorded_outputs.get(self.name, float("nan"))
 
 
 class ZernikeCoefficientAction(LaserFieldAction):
@@ -300,20 +289,32 @@ class ZernikeCoefficientAction(LaserFieldAction):
     coefficient: str
     field_name: str = "zernike_coefficients"
 
-    def _get(self, simulator: FBPICSimulator) -> typing.Any:
+    def _get(self, simulator: LWFASimulator) -> typing.Any:
         return super()._get(simulator).get(self.coefficient, 0.0)
 
-    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
-        coefficients = {**super()._get(simulator), self.coefficient: value}
-        super()._set(simulator, coefficients)
+    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
+        super()._set(simulator, {**super()._get(simulator), self.coefficient: value})
+
+
+def evolve_laser(laser: typing.Any, **changes: typing.Any) -> typing.Any:
+    """`attrs.evolve(laser, **changes)` for a `_LaserPulse`.
+
+    Every `_LaserPulse` holds *both* `energy` and `a0` -- whichever wasn't given at construction
+    is derived and stored too (tracked on the private `_amplitude_source` attribute) -- but its
+    constructor takes only one of them. So the one that should not survive the change is dropped
+    first: the other amplitude when `changes` sets `energy` or `a0`, otherwise the derived one.
+    """
+    changed = [name for name in _AMPLITUDE_SIBLING if name in changes]
+    derived = _AMPLITUDE_SIBLING[changed[0] if changed else laser._amplitude_source]
+    return attrs.evolve(laser, **{derived: None, **changes})
 
 
 def make_descriptor_actions(
     *,
-    central_fraction: float | None = 0.95,
+    central_fraction: float | None = descriptor.CENTRAL_FRACTION,
     longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
-    prefix: str = "descriptor_",
-    uz_min: float | None = 30.0,
+    prefix: str = DESCRIPTOR_PREFIX,
+    uz_min: float | None = descriptor.UZ_MIN,
 ) -> list[Action]:
     """Build one read-only `MomentDescriptorAction` per descriptor feature (33 by default).
 
@@ -324,9 +325,9 @@ def make_descriptor_actions(
     ionization-injection beams; a lower-energy bunch (the LWFA example's, for instance, has a
     mean `uz` near 2) needs a lower `uz_min`.
 
-    Each action has the unit of its feature (see `_descriptor_unit()`): the momenta `ux`, `uy`,
-    `uz` are normalized and so dimensionless, `"1"`, the positions are in metres, and the charge
-    is in pC.
+    Each action has the unit of its feature (`lume_fbpic.descriptor.features()`): the momenta
+    `ux`, `uy`, `uz` are normalized and so dimensionless, `"1"`, the positions are in metres,
+    and the charge is in pC.
     """
     return [
         MomentDescriptorAction(
@@ -336,9 +337,9 @@ def make_descriptor_actions(
             longitudinal_bins=longitudinal_bins,
             read_only=True,
             uz_min=uz_min,
-            unit=_descriptor_unit(feature),
+            unit=unit,
         )
-        for feature in _descriptor_features(longitudinal_bins)
+        for feature, unit in descriptor.features(longitudinal_bins).items()
     ]
 
 
@@ -359,141 +360,29 @@ def make_pwfa_actions(simulator: PWFASimulator) -> list[Action]:
     if simulator.witness is not None:
         actions += _bunch_actions("witness", simulator.witness)
     return actions + [
-        StatAction(name="charge_pc", stat_name="charge_pc", read_only=True),
-        StatAction(name="energy_mean_mev", stat_name="energy_mean_mev", read_only=True),
-        StatAction(name="energy_std_mev", stat_name="energy_std_mev", read_only=True),
+        *make_stat_actions(),
         FinalParticlesAction(name="final_particles", read_only=True),
     ]
 
 
-def _bunch_actions(bunch: str, config: typing.Any) -> list[Action]:
-    """The writable actions of one PWFA bunch (`driver` or `witness`), by the kind of bunch."""
-    fields = [("gamma", "gamma")]
-    if isinstance(config, FlatTopBunch):
-        fields += [("density", "density"), ("radius", "radius")]
-    elif isinstance(config, GaussianBunch):
-        fields += [
-            ("charge", "charge"),
-            ("sigma_r", "sig_r"),
-            ("sigma_z", "sig_z"),
-            ("position", "zf"),
-        ]
+def make_stat_actions() -> list[Action]:
+    """One read-only `StatAction` per statistic a run records (`lume_fbpic.units.STAT_UNITS`),
+    named after it: `charge_pc`, `energy_mean_mev` and `energy_std_mev`."""
     return [
-        BunchFieldAction(name=f"{bunch}_{name}", bunch=bunch, field_name=field)
-        for name, field in fields
+        StatAction(name=name, stat_name=name, read_only=True) for name in STAT_UNITS
     ]
 
 
-def _config_unit(config: typing.Any, field_name: str) -> str | None:
-    """The unit tagged in brackets in the documentation of field `field_name` of `config`.
-
-    The documentation of a config class lists each field as `name: (type) [unit] description`;
-    the tags that are not units (`[str]`, `[int]`) are skipped. The text is that of
-    `SerializableConfig._parameter_descriptions()`, which also holds the fields a class
-    inherits. None if the field has no unit tag, or the class has no such documentation.
-    """
-    descriptions = getattr(type(config), "_parameter_descriptions", None)
-    if descriptions is None:
-        return None
-    text = " ".join(descriptions().get(field_name, []))
-    for tag in re.findall(r"\[([^\]]+)\]", text):
-        if _is_unit(tag):
-            return tag
-    return None
-
-
-def _descriptor(
-    simulator: BaseSimulator,
-    uz_min: float | None,
-    central_fraction: float | None,
-    longitudinal_bins: int,
-) -> dict[str, float]:
-    """Moment descriptor of `simulator.final_particles` for one selection (empty if none).
-
-    Cached on the simulator against the identity of the current `final_particles` and the
-    selection parameters, so the 33 `MomentDescriptorAction`s of one set share one computation.
-    """
-    particles = simulator.final_particles
-    if particles is None:
-        return {}
-    key = (uz_min, central_fraction, longitudinal_bins)
-    cached = getattr(simulator, "_descriptor_cache", None)
-    if cached is not None and cached[0] is particles and cached[1] == key:
-        return cached[2]
-
-    phase_space = numpy.stack(
-        [
-            particles.x,
-            particles.px / ELECTRON_MC2_EV,
-            particles.y,
-            particles.py / ELECTRON_MC2_EV,
-            particles.z,
-            particles.pz / ELECTRON_MC2_EV,
-        ],
-        axis=-1,
-    )
-    # The library's weights are electron counts (it multiplies by e for the charge); the
-    # ParticleGroup's are coulombs.
-    weights = numpy.asarray(particles.weight, dtype=numpy.float64) / e
-    try:
-        if uz_min is not None:
-            phase_space, weights = select_by_uz(phase_space, weights, uz_min=uz_min)
-        if central_fraction is not None:
-            phase_space, weights = crop_central_particles(
-                phase_space, weights, central_fraction=central_fraction
-            )
-        result = compute_moment_descriptor(
-            phase_space,
-            weights,
-            longitudinal_mode=SPLINE,
-            longitudinal_bins=longitudinal_bins,
-        )
-    except ValueError:  # fewer than two usable particles after the selection
-        result = {}
-    simulator._descriptor_cache = (particles, key, result)
-    return result
-
-
-def _descriptor_features(longitudinal_bins: int) -> list[str]:
-    """Feature names of the spline-mode descriptor, in `compute_moment_descriptor`'s order."""
-    features = ["mean_ux", "mean_uy", "mean_uz"]
-    for row in range(6):
-        for column in range(row, 6):
-            features.append(f"cov_{COORD_NAMES[row]}_{COORD_NAMES[column]}")
-    for index in range(longitudinal_bins):
-        features.append(f"longitudinal_mean_uz_{index:02d}")
-        features.append(f"longitudinal_rms_uz_{index:02d}")
-    features.append("total_beam_charge_pc")
-    return features
-
-
-def _descriptor_unit(feature: str) -> str:
-    """The unit of a moment-descriptor feature, from its name.
-
-    The phase space is `x`, `ux`, `y`, `uy`, `z`, `uz`: positions in metres and momenta
-    normalized to `m c`. A momentum centroid or a longitudinal `uz` feature is dimensionless
-    (`"1"`), a covariance is `m` to the power of the number of positions in the pair
-    (`cov_x_x` in m^2, `cov_x_ux` in m, `cov_ux_ux` dimensionless), and the charge is in pC.
+def _bunch_actions(bunch: str, config: typing.Any) -> list[Action]:
+    """The writable actions of one PWFA bunch (`driver` or `witness`), by the kind of bunch
+    (`_BUNCH_FIELDS`).
 
     Raises:
-        ValueError: For a name that is not a feature of the spline-mode descriptor.
+        ValueError: For a kind of bunch that has no entry in `_BUNCH_FIELDS`.
     """
-    if feature == "total_beam_charge_pc":
-        return "pC"
-    if feature.startswith(("mean_u", "longitudinal_mean_uz_", "longitudinal_rms_uz_")):
-        return "1"
-    if feature.startswith("cov_"):
-        names = feature[len("cov_") :].split("_")
-        if len(names) == 2 and all(name in COORD_NAMES for name in names):
-            positions = sum(name in ("x", "y", "z") for name in names)
-            return ("1", "m", "m^2")[positions]
-    raise ValueError(f"no unit for the descriptor feature {feature!r}")
-
-
-def _is_unit(text: str) -> bool:
-    """Whether `text` is a unit symbol `beamphysics` knows."""
-    try:
-        pmd_unit(text)
-    except ValueError:
-        return False
-    return True
+    if type(config) not in _BUNCH_FIELDS:
+        raise ValueError(f"no actions for a bunch of type {type(config).__name__}")
+    return [
+        BunchFieldAction(name=f"{bunch}_{name}", bunch=bunch, field_name=field)
+        for name, field in _BUNCH_FIELDS[type(config)].items()
+    ]

@@ -1,4 +1,5 @@
-"""`_DensityProfile` subclasses defined by `lume_fbpic` itself, not `inversion_fbpic`.
+"""`_DensityProfile` subclasses defined by `lume_fbpic` itself, not `inversion_fbpic`, and the
+atom density of a profile (`atom_density()`, `nominal_density()`).
 
 `_DensityProfile` subclass registration goes through `SerializableConfig.__init_subclass__`
 (a plain attrs/Python mechanism keyed on the `SUBCLASS` class attribute), which doesn't care
@@ -48,19 +49,12 @@ class GeneralizedGaussianProfile(_DensityProfile):
     z0: float = attrs.field(converter=float)
     alpha: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
     beta: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    # POSIT: the 2.8 alpha-widths of runs/initial_sample/ionization_injection_template.py's
+    # interaction length (also in inversion_fbpic's htu_comparison_scans_plotter.py), a literal
+    # in scripts, not a constant that can be imported.
     z_extent_alphas: float = attrs.field(
         default=2.8, converter=float, validator=attrs.validators.gt(0.0)
     )
-
-    def __attrs_post_init__(self) -> None:
-        super().__attrs_post_init__()
-
-    def get_z_extent(self) -> tuple[float, float]:
-        half_width = self.z_extent_alphas * self.alpha
-        return (self.z0 - half_width, self.z0 + half_width)
-
-    def get_r_extent(self) -> float | None:
-        return None
 
     def build_density_function(self) -> DensityCallable:
         from inversion_fbpic.density_profiles.downramp_injection import (
@@ -73,6 +67,13 @@ class GeneralizedGaussianProfile(_DensityProfile):
             gauss_alpha=self.alpha,
             gauss_beta=self.beta,
         )
+
+    def get_r_extent(self) -> float | None:
+        return None
+
+    def get_z_extent(self) -> tuple[float, float]:
+        half_width = self.z_extent_alphas * self.alpha
+        return (self.z0 - half_width, self.z0 + half_width)
 
 
 @attrs.define(kw_only=True, slots=False, frozen=True)
@@ -107,15 +108,6 @@ class LinearRampFlattop(_DensityProfile):
         converter=float, validator=attrs.validators.gt(0.0)
     )
 
-    def __attrs_post_init__(self) -> None:
-        super().__attrs_post_init__()
-
-    def get_z_extent(self) -> tuple[float, float]:
-        return (self.ramp_start, self.ramp_start + self.ramp_length)
-
-    def get_r_extent(self) -> float | None:
-        return None
-
     def build_density_function(self) -> DensityCallable:
         ramp_start = self.ramp_start
         ramp_length = self.ramp_length
@@ -132,6 +124,12 @@ class LinearRampFlattop(_DensityProfile):
             return n
 
         return dens_func
+
+    def get_r_extent(self) -> float | None:
+        return None
+
+    def get_z_extent(self) -> tuple[float, float]:
+        return (self.ramp_start, self.ramp_start + self.ramp_length)
 
 
 @attrs.define(kw_only=True, slots=False, frozen=True)
@@ -184,13 +182,6 @@ class UpDownRampProfile(_DensityProfile):
         if self.z_end is not None and self.z_end < self.z_down + self.down_length:
             raise ValueError("z_end must not cut into the down-ramp")
 
-    def get_z_extent(self) -> tuple[float, float]:
-        end = self.z_end if self.z_end is not None else self.z_down + self.down_length
-        return (self.z_start, end)
-
-    def get_r_extent(self) -> float | None:
-        return None
-
     def build_density_function(self) -> DensityCallable:
         base = self.base_fraction
         z_start, z_end = self.z_start, self.z_end
@@ -222,3 +213,35 @@ class UpDownRampProfile(_DensityProfile):
             return n
 
         return dens_func
+
+    def get_r_extent(self) -> float | None:
+        return None
+
+    def get_z_extent(self) -> tuple[float, float]:
+        end = self.z_end if self.z_end is not None else self.z_down + self.down_length
+        return (self.z_start, end)
+
+
+def atom_density(profile: _DensityProfile) -> float:
+    """The neutral-atom density [m^-3] of a profile of an ion species: its `nominal_density`
+    over the species' ionization-level count, which `_DensityProfile.add_to_simulation()`
+    divides it by.
+
+    Raises:
+        ValueError: If the profile has no `species` (bare electrons).
+    """
+    return profile.nominal_density / _ionization_levels(profile.species)
+
+
+def nominal_density(species: str, atoms: float) -> float:
+    """The `nominal_density` of a profile of `species` with the neutral-atom density `atoms`
+    [m^-3]; the inverse of `atom_density()`."""
+    return atoms * _ionization_levels(species)
+
+
+def _ionization_levels(species: str | None) -> int:
+    if species is None:
+        raise ValueError(
+            "an atom density needs a profile with a species; got species=None"
+        )
+    return _DensityProfile._get_num_ionization_levels(species)

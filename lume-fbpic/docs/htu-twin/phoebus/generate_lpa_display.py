@@ -1,18 +1,19 @@
-"""Generate `lpa_bunch.bob`, a Phoebus display of the LPA bunch served by `serve.py --twin`.
+"""Generate `lpa_bunch.bob`, a Phoebus display of the LPA bunch that the twin server serves.
 
-The display shows the twin's `Source_*` readbacks (the LPA bunch as injected),
-the 33 moment-descriptor scalars (the covariance as an upper-triangular grid) and the run
-statistics. Every PV is `pva://$(P=HTU:SIM:)<name>`: the display macro `P`, which is `HTU:SIM:`, the
-prefix `serve.py --twin` uses, unless it is set. The file does not define `P`, so opening it with
-another prefix works (`phoebus -resource "file:<absolute path>/lpa_bunch.bob?P=OTHER:"`; the
-`file:` URL is needed, since a plain path takes the `?` as part of the file name).
+The display shows the twin's `Source_*` readbacks (the LPA bunch as injected), the 33
+moment-descriptor scalars (the covariance as an upper-triangular grid) and the run statistics.
+Every PV is `pva://$(P=HTU:SIM:)<name>`: the display macro `P`, which is `HTU:SIM:`, the prefix
+`python -m lume_fbpic_twin.serve --twin` uses, unless it is set. The file does not define `P`, so
+opening it with another prefix works (`phoebus -resource "file:<absolute
+path>/lpa_bunch.bob?P=OTHER:"`; the `file:` URL is needed, since a plain path takes the `?` as
+part of the file name).
 
-A combo box selects among the archives `serve.py` was given (the `LPA_Archive` PV).
+A combo box selects among the archives the server was given (the `LPA_Archive` PV).
 A button opens `htu_synoptic_lpa.bob`, the twin's synoptic with the LPA tied in, which
 `generate_linked_synoptic.py` writes next to this file.
 
-The PV names come from `lume_fbpic.actions.make_descriptor_actions()`, so the display follows the
-code. Run `python generate_lpa_display.py [output.bob]` to regenerate it; do not edit the `.bob`
+The descriptor's PV names come from `lume_fbpic.descriptor` and the prefix
+`make_descriptor_actions()` gives them, so the display follows the code. Run `python generate_lpa_display.py [output.bob]` to regenerate it; do not edit the `.bob`
 by hand.
 """
 
@@ -20,21 +21,23 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from xml.sax.saxutils import escape
 
-from lume_fbpic.actions import make_descriptor_actions
+from inversion_fbpic.utils.distributions import COORD_NAMES, LONGITUDINAL_PROFILE_BINS
+from lume_fbpic.actions import DESCRIPTOR_PREFIX
+from lume_fbpic.descriptor import covariance_feature, slice_features
+from lume_fbpic.utils import STATISTICS
+import widgets  # docs/htu-twin/phoebus/widgets.py, this directory
 
-SELECTOR = "LPA_Archive"  # the enum PV `serve.py` serves; its options are the archives
+from lume_fbpic_twin.archive_selector import DEFAULT_SELECTOR_NAME
+from lume_fbpic_twin.serve import TWIN_PREFIX
 
-COORDS = ("x", "ux", "y", "uy", "z", "uz")
 COORD_LABELS = ("x [m]", "ux", "y [m]", "uy", "z [m]", "uz")
-PREFIX = "descriptor_"
-DEFAULT_PREFIX = "HTU:SIM:"  # the PV prefix `serve.py --twin` uses; the display macro `P` replaces it
 
 # Source readbacks that are counts, shown without decimals.
 INTEGER_SOURCE = ("Source_NumParticles",)
 
-# (PV name, label) of the twin's source readbacks, in two columns.
+# (PV name, label) of the twin's source readbacks, in two columns. POSIT: the names of all the
+# twin's source variables (`htu.model.SourceVariable`, `SourceIntVariable`); a test checks it.
 SOURCE = (
     ("Source_Energy_MeV", "Energy [MeV]"),
     ("Source_EnergySpread_pct", "Energy spread [% rms]"),
@@ -51,123 +54,19 @@ SOURCE = (
     ("Source_Xp_mrad", "Pointing x [mrad]"),
     ("Source_Yp_mrad", "Pointing y [mrad]"),
 )
-STATS = (
-    ("charge_pc", "Charge, all electrons [pC]"),
-    ("energy_mean_mev", "Mean energy [MeV]"),
-    ("energy_std_mev", "Energy rms [MeV]"),
-)
-
-
-class _Display:
-    def __init__(self, width: int, height: int) -> None:
-        self.width, self.height = width, height
-        self._widgets: list[str] = []
-        self._names: set[str] = set()
-
-    def _unique(self, name: str) -> str:
-        base, index = name, 2
-        while name in self._names:
-            name, index = f"{base}{index}", index + 1
-        self._names.add(name)
-        return name
-
-    def label(
-        self, name, text, x, y, w, h=22, bold=False, size=None, align=None, wrap=False
-    ):
-        font = ""
-        if bold or size:
-            font = (
-                f'\n    <font><font family="Liberation Sans" style="{"BOLD" if bold else "REGULAR"}" '
-                f'size="{size or 12.0}"/></font>'
-            )
-        extra = ""
-        if align is not None:
-            extra += f"\n    <horizontal_alignment>{align}</horizontal_alignment>"
-        if wrap:
-            extra += "\n    <wrap_words>true</wrap_words>"
-        self._widgets.append(
-            f'  <widget type="label" version="2.0.0">\n'
-            f"    <name>{self._unique(name)}</name>\n"
-            f"    <text>{escape(text)}</text>\n"
-            f"    <x>{x}</x><y>{y}</y><width>{w}</width><height>{h}</height>{font}{extra}\n"
-            f"  </widget>"
-        )
-
-    def value(self, name, pv, x, y, w, h=22, exponential=False, precision=None):
-        fmt = ""
-        if exponential:
-            fmt += "\n    <format>2</format>"
-        if precision is not None:
-            fmt += f"\n    <precision>{precision}</precision>\n    <precision_from_pv>false</precision_from_pv>"
-        self._widgets.append(
-            f'  <widget type="textupdate" version="2.0.0">\n'
-            f"    <name>{self._unique(name)}</name>\n"
-            f"    <pv_name>pva://$(P={DEFAULT_PREFIX}){pv}</pv_name>\n"
-            f"    <x>{x}</x><y>{y}</y><width>{w}</width><height>{h}</height>{fmt}\n"
-            f"    <show_units>false</show_units>\n"
-            f"  </widget>"
-        )
-
-    def button(self, name, text, display, description, x, y, w, h=26):
-        self._widgets.append(
-            f'  <widget type="action_button" version="3.0.0">\n'
-            f"    <name>{self._unique(name)}</name>\n"
-            f"    <actions>\n"
-            f'      <action type="open_display">\n'
-            f"        <file>{escape(display)}</file>\n"
-            f"        <macros></macros>\n"
-            f"        <target>window</target>\n"
-            f"        <description>{escape(description)}</description>\n"
-            f"      </action>\n"
-            f"    </actions>\n"
-            f"    <text>{escape(text)}</text>\n"
-            f"    <x>{x}</x><y>{y}</y><width>{w}</width><height>{h}</height>\n"
-            f"  </widget>"
-        )
-
-    def combo(self, name, pv, x, y, w, h=24):
-        self._widgets.append(
-            f'  <widget type="combo" version="2.0.0">\n'
-            f"    <name>{self._unique(name)}</name>\n"
-            f"    <pv_name>pva://$(P={DEFAULT_PREFIX}){pv}</pv_name>\n"
-            f"    <x>{x}</x><y>{y}</y><width>{w}</width><height>{h}</height>\n"
-            f"    <items_from_pv>true</items_from_pv>\n"
-            f"  </widget>"
-        )
-
-    def rule(self, name, x, y, w):
-        self._widgets.append(
-            f'  <widget type="rectangle" version="2.0.0">\n'
-            f"    <name>{self._unique(name)}</name>\n"
-            f"    <x>{x}</x><y>{y}</y><width>{w}</width><height>1</height>\n"
-            f"    <line_width>0</line_width>\n"
-            f'    <background_color><color red="150" green="150" blue="150"/></background_color>\n'
-            f"  </widget>"
-        )
-
-    def xml(self) -> str:
-        return (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<display version="2.0.0">\n'
-            "  <name>LPA bunch</name>\n"
-            f"  <width>{self.width}</width>\n  <height>{self.height}</height>\n"
-            + "\n".join(self._widgets)
-            + "\n</display>\n"
-        )
 
 
 def build() -> str:
     """The display's XML."""
-    features = [a.name[len(PREFIX) :] for a in make_descriptor_actions()]
-    bins = sorted(f for f in features if f.startswith("longitudinal_mean_uz_"))
     left, grid_label_w, cell_w, cell_h = 20, 70, 108, 22
     width = left + grid_label_w + 6 * cell_w + 20
-    d = _Display(width, 700)
+    root = widgets.display("LPA bunch", width, 700)
 
-    d.label("Title", "LPA bunch", left, 10, 300, 28, bold=True, size=16.0)
-    d.label(
+    widgets.label(root, "Title", "LPA bunch", left, 10, 300, 28, bold=True, size=16.0)
+    widgets.label(
+        root,
         "Subtitle",
-        "Served by serve.py --twin. The values are the selected run's recorded results.",
+        "Served by lume_fbpic_twin.serve --twin. The values are the selected run's recorded results.",
         left,
         40,
         width - 2 * left,
@@ -175,7 +74,8 @@ def build() -> str:
         size=10.0,
     )
 
-    d.button(
+    widgets.button(
+        root,
         "SynopticButton",
         "HTU synoptic...",
         "htu_synoptic_lpa.bob",
@@ -185,9 +85,10 @@ def build() -> str:
         150,
     )
 
-    d.label("RunLabel", "LPA run:", left, 70, 70, 24, bold=True)
-    d.combo("RunSelector", SELECTOR, left + 74, 70, 260)
-    d.label(
+    widgets.label(root, "RunLabel", "LPA run:", left, 70, 70, 24, bold=True)
+    widgets.combo(root, "RunSelector", _pv(DEFAULT_SELECTOR_NAME), left + 74, 70, 260)
+    widgets.label(
+        root,
         "RunNote",
         "Choose a run: its values are loaded here and passed on to the twin as its source.",
         left + 344,
@@ -198,7 +99,8 @@ def build() -> str:
     )
 
     y = 108
-    d.label(
+    widgets.label(
+        root,
         "SourceHeader",
         "Twin source (the LPA bunch as injected)",
         left,
@@ -207,16 +109,17 @@ def build() -> str:
         22,
         bold=True,
     )
-    d.rule("SourceRule", left, y + 24, width - 2 * left)
+    widgets.rule(root, "SourceRule", left, y + 24, width - 2 * left)
     y += 32
     column_w = (width - 2 * left) // 2
     for index, (pv, text) in enumerate(SOURCE):
         column, row = index % 2, index // 2
         x = left + column * column_w
-        d.label(f"SrcL{index}", text, x, y + row * 26, 150)
-        d.value(
+        widgets.label(root, f"SrcL{index}", text, x, y + row * 26, 150)
+        widgets.value(
+            root,
             f"SrcV{index}",
-            pv,
+            _pv(pv),
             x + 155,
             y + row * 26,
             110,
@@ -224,7 +127,8 @@ def build() -> str:
         )
     y += 26 * ((len(SOURCE) + 1) // 2) + 14
 
-    d.label(
+    widgets.label(
+        root,
         "MomentHeader",
         "Moment descriptor: momentum centroids and charge",
         left,
@@ -233,16 +137,27 @@ def build() -> str:
         22,
         bold=True,
     )
-    d.rule("MomentRule", left, y + 24, width - 2 * left)
+    widgets.rule(root, "MomentRule", left, y + 24, width - 2 * left)
     y += 32
     for index, name in enumerate(("mean_ux", "mean_uy", "mean_uz")):
         x = left + index * 2 * cell_w
-        d.label(f"MeanL{index}", name.replace("mean_", "mean "), x, y, 60)
-        d.value(f"MeanV{index}", PREFIX + name, x + 62, y, cell_w, precision=4)
-    d.label("ChargeL", "Charge [pC]", left + 6 * cell_w - cell_w, y + 26, 90, align=2)
-    d.value(
+        widgets.label(root, f"MeanL{index}", name.replace("mean_", "mean "), x, y, 60)
+        widgets.value(
+            root,
+            f"MeanV{index}",
+            _pv(DESCRIPTOR_PREFIX + name),
+            x + 62,
+            y,
+            cell_w,
+            precision=4,
+        )
+    widgets.label(
+        root, "ChargeL", "Charge [pC]", left + 6 * cell_w - cell_w, y + 26, 90, align=2
+    )
+    widgets.value(
+        root,
         "ChargeV",
-        PREFIX + "total_beam_charge_pc",
+        _pv(DESCRIPTOR_PREFIX + "total_beam_charge_pc"),
         left + 6 * cell_w + 2,
         y + 26,
         cell_w,
@@ -250,7 +165,8 @@ def build() -> str:
     )
     y += 62
 
-    d.label(
+    widgets.label(
+        root,
         "CovHeader",
         "Covariance of (x, ux, y, uy, z, uz); u = p / (m c)",
         left,
@@ -259,10 +175,11 @@ def build() -> str:
         22,
         bold=True,
     )
-    d.rule("CovRule", left, y + 24, width - 2 * left)
+    widgets.rule(root, "CovRule", left, y + 24, width - 2 * left)
     y += 32
     for column, text in enumerate(COORD_LABELS):
-        d.label(
+        widgets.label(
+            root,
             f"CovCol{column}",
             text,
             left + grid_label_w + column * cell_w,
@@ -274,7 +191,8 @@ def build() -> str:
         )
     y += 24
     for row, row_text in enumerate(COORD_LABELS):
-        d.label(
+        widgets.label(
+            root,
             f"CovRow{row}",
             row_text,
             left,
@@ -284,9 +202,13 @@ def build() -> str:
             bold=True,
         )
         for column in range(row, 6):
-            d.value(
-                f"Cov_{COORDS[row]}_{COORDS[column]}",
-                f"{PREFIX}cov_{COORDS[row]}_{COORDS[column]}",
+            widgets.value(
+                root,
+                f"Cov_{COORD_NAMES[row]}_{COORD_NAMES[column]}",
+                _pv(
+                    DESCRIPTOR_PREFIX
+                    + covariance_feature(COORD_NAMES[row], COORD_NAMES[column])
+                ),
                 left + grid_label_w + column * cell_w,
                 y + row * (cell_h + 2),
                 cell_w - 4,
@@ -296,7 +218,8 @@ def build() -> str:
             )
     y += 6 * (cell_h + 2) + 14
 
-    d.label(
+    widgets.label(
+        root,
         "SliceHeader",
         "Longitudinal slices (equal particle count along z, tail to head)",
         left,
@@ -305,13 +228,15 @@ def build() -> str:
         22,
         bold=True,
     )
-    d.rule("SliceRule", left, y + 24, width - 2 * left)
+    widgets.rule(root, "SliceRule", left, y + 24, width - 2 * left)
     y += 32
-    d.label("SliceMeanL", "mean uz", left, y + 24, grid_label_w - 4)
-    d.label("SliceRmsL", "rms uz", left, y + 50, grid_label_w - 4)
-    for index, mean_name in enumerate(bins):
+    widgets.label(root, "SliceMeanL", "mean uz", left, y + 24, grid_label_w - 4)
+    widgets.label(root, "SliceRmsL", "rms uz", left, y + 50, grid_label_w - 4)
+    for index in range(LONGITUDINAL_PROFILE_BINS):
+        mean_name, rms_name = slice_features(index)
         x = left + grid_label_w + index * cell_w
-        d.label(
+        widgets.label(
+            root,
             f"SliceCol{index}",
             f"slice {index}",
             x,
@@ -321,12 +246,19 @@ def build() -> str:
             bold=True,
             align=1,
         )
-        d.value(
-            f"SliceMean{index}", PREFIX + mean_name, x, y + 24, cell_w - 4, precision=4
+        widgets.value(
+            root,
+            f"SliceMean{index}",
+            _pv(DESCRIPTOR_PREFIX + mean_name),
+            x,
+            y + 24,
+            cell_w - 4,
+            precision=4,
         )
-        d.value(
+        widgets.value(
+            root,
             f"SliceRms{index}",
-            PREFIX + mean_name.replace("mean", "rms"),
+            _pv(DESCRIPTOR_PREFIX + rms_name),
             x,
             y + 50,
             cell_w - 4,
@@ -334,7 +266,8 @@ def build() -> str:
         )
     y += 84
 
-    d.label(
+    widgets.label(
+        root,
         "StatsHeader",
         "Run statistics (blank/NaN for a reconstructed run: no particles)",
         left,
@@ -343,15 +276,16 @@ def build() -> str:
         22,
         bold=True,
     )
-    d.rule("StatsRule", left, y + 24, width - 2 * left)
+    widgets.rule(root, "StatsRule", left, y + 24, width - 2 * left)
     y += 32
-    for index, (pv, text) in enumerate(STATS):
+    for index, (pv, statistic) in enumerate(STATISTICS.items()):
+        text = f"{statistic.description} [{statistic.unit}]"
         x = left + index * ((width - 2 * left) // 3)
-        d.label(f"StatL{index}", text, x, y, 175, wrap=False)
-        d.value(f"StatV{index}", pv, x, y + 24, 140, precision=4)
+        widgets.label(root, f"StatL{index}", text, x, y, 175)
+        widgets.value(root, f"StatV{index}", _pv(pv), x, y + 24, 140, precision=4)
     y += 60
-    d.height = y
-    return d.xml()
+    root.find("height").text = str(y)
+    return widgets.to_xml(root)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -359,6 +293,12 @@ def main(argv: list[str] | None = None) -> None:
     output = Path(argv[0]) if argv else Path(__file__).with_name("lpa_bunch.bob")
     output.write_text(build())
     print(f"wrote {output}")
+
+
+def _pv(name: str) -> str:
+    """The PV `name`, under the prefix the display macro `P` gives, by default the one
+    `lume_fbpic_twin.serve --twin` uses."""
+    return f"pva://$(P={TWIN_PREFIX}){name}"
 
 
 if __name__ == "__main__":

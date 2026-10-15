@@ -36,7 +36,7 @@ class PWFAGrid(SerializableConfig):
         nm: (int) |OPTIONAL| Number of azimuthal modes. Defaults to 1 (axisymmetric).
         n_steps: (int) Number of time steps to run.
         dt: (float|None) [s] |OPTIONAL| Time step. None means `(zmax - zmin) / nz / c`, one cell per step.
-        write_period: (int) |OPTIONAL| Steps between diagnostic dumps. Defaults to 20.
+        write_period: (int) |OPTIONAL| Steps between diagnostic dumps; the end of the run (step `n_steps`) is always dumped too. Defaults to 20.
         save_directory: (str) |OPTIONAL| Diagnostics directory under the working directory. Defaults to "diags".
         z_boundary: (str) |OPTIONAL| "open" or "periodic". Defaults to "open".
         r_boundary: (str) |OPTIONAL| "open" or "reflective". Defaults to "open".

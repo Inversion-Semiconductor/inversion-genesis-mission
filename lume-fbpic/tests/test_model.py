@@ -36,15 +36,15 @@ def test_set_runs_simulator_after_updating_parameter(simulator, mocker):
     assert seen == [6.0]  # run() saw the already-updated laser
 
 
-def test_set_configures_an_unconfigured_simulator_and_runs_it(simulator, mocker):
+def test_set_configures_the_simulator_and_runs_it(simulator, mocker):
     model = LUMEFBPICModel(simulator, make_actions(simulator))
+    configure = mocker.spy(simulator, "configure")
     run_simulation = mocker.patch.object(simulator, "run_simulation")
     mocker.patch.object(simulator, "load_results")
-    assert simulator.configured is False
 
     model.set({"laser_energy": 6.0})
 
-    assert simulator.configured is True
+    configure.assert_called_once()
     run_simulation.assert_called_once()
 
 
@@ -61,3 +61,22 @@ def test_set_unknown_variable_raises(model):
 def test_final_particles_property_delegates_to_simulator(model, simulator):
     simulator.final_particles = "placeholder"
     assert model.final_particles == "placeholder"
+
+
+def test_an_empty_set_runs_the_simulator(simulator, mocker):
+    model = LUMEFBPICModel(simulator, make_actions(simulator))
+    run = mocker.patch.object(simulator, "run")
+
+    model.set({})
+
+    run.assert_called_once()
+
+
+def test_an_action_of_another_kind_of_simulator_is_refused(simulator):
+    from lume_fbpic.actions import PlasmaFieldAction
+
+    with pytest.raises(TypeError, match="needs a PWFASimulator"):
+        LUMEFBPICModel(
+            simulator,
+            [PlasmaFieldAction(name="plasma_density", field_name="nominal_density")],
+        )

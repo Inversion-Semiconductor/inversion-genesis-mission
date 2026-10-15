@@ -1,6 +1,6 @@
 """The HTU downramp-injection action set: `make_actions(simulator)`.
 
-An action list for an `FBPICSimulator` shaped like `demo_downramp_simulation`: one
+An action list for an `LWFASimulator` shaped like `demo_downramp_simulation`: one
 `GaussianLaserPulse` and two `SmoothSineFlattop` density profiles (index 0 the flattop, index 1 the
 downramp). Hardcoded to that shape; `docs/examples/lwfa.py` and `ionization_injection.py` show lists
 built for other shapes from the same building-block action classes (`lume_fbpic.actions`). A test
@@ -15,12 +15,12 @@ from lume_fbpic.actions import (
     DensityFieldAction,
     FinalParticlesAction,
     LaserFieldAction,
-    StatAction,
+    make_stat_actions,
 )
-from lume_fbpic.simulator import FBPICSimulator
+from lume_fbpic.lwfa_simulator import LWFASimulator
 
 
-def make_actions(simulator: FBPICSimulator) -> list[Action]:
+def make_actions(simulator: LWFASimulator) -> list[Action]:
     """Build the HTU downramp-injection control/output variable set.
 
     Matches `demo_downramp_simulation`'s config shape: one `GaussianLaserPulse` and two
@@ -49,16 +49,6 @@ def make_actions(simulator: FBPICSimulator) -> list[Action]:
             density_index=1,
             field_name="downramp_length",
         ),
-        StatAction(name="charge_pc", stat_name="charge_pc", read_only=True),
-        StatAction(
-            name="energy_mean_mev",
-            stat_name="energy_mean_mev",
-            read_only=True,
-        ),
-        StatAction(
-            name="energy_std_mev",
-            stat_name="energy_std_mev",
-            read_only=True,
-        ),
+        *make_stat_actions(),
         FinalParticlesAction(name="final_particles", read_only=True),
     ]

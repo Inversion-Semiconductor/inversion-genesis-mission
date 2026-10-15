@@ -1,7 +1,7 @@
 # Phoebus displays for the LPA-fed HTU twin
 
 Displays for the HTU transport twin when its source is a `lume-fbpic` run,
-served by `serve.py --twin`. All PVs are `pva://HTU:SIM:...`.
+served by `python -m lume_fbpic_twin.serve --twin`. All PVs are `pva://HTU:SIM:...`.
 
 | File | What it is |
 |---|---|
@@ -9,10 +9,11 @@ served by `serve.py --twin`. All PVs are `pva://HTU:SIM:...`.
 | `lpa_bunch.bob` | The LPA bunch: run selector, the twin's `Source_*` readbacks, the 33 moment-descriptor scalars (covariance as a grid), run statistics. Generated; do not edit. |
 | `generate_linked_synoptic.py` | Builds `htu_synoptic_lpa.bob` from the twin's own `htu_synoptic.bob`, which is left untouched. |
 | `generate_lpa_display.py` | Builds `lpa_bunch.bob` from the descriptor action names. |
+| `widgets.py` | The Phoebus widgets both generators build the displays from. |
 
 ## Run the server
 
-See `../README.md` (`serve.py --twin`).
+See `../README.md` (`python -m lume_fbpic_twin.serve --twin`).
 
 ## Open the display
 
@@ -26,11 +27,11 @@ Start the server first, and restart Phoebus after any server restart. Phoebus re
 session, so older windows may open too; use the one with the LPA strip along its bottom.
 
 - **Twin activity:** at the right end of the strip, a LED and the state's name from
-  `HTU:SIM:STATUS`: green and `Idle`, or amber and `Simulating` while the twin re-tracks (about
-  2 seconds after a put). The PV is lume-pva's, and read-only.
+  `HTU:SIM:STATUS`: green and `Idle`, or amber and `Simulating` while the twin re-tracks (a few
+  seconds after a put). The PV is lume-pva's, and read-only.
 - **Choose a run:** the "Run:" combo box in the strip (or on `lpa_bunch.bob`) selects the active
-  archive. The descriptor values and the twin's source follow after the twin re-tracks, about
-  2 seconds.
+  archive. The descriptor values and the twin's source follow after the twin re-tracks, in a few
+  seconds.
 - **`SRC` element:** opens `lpa_bunch.bob`.
 - **Other elements:** the twin's own control and camera displays, found through the `TWIN_DISPLAYS`
   macro. It defaults to the twin's `display` directory, written relative to `htu_synoptic_lpa.bob`
@@ -52,17 +53,11 @@ Run the second whenever the twin's synoptic changes. The twin's own files are on
 
 ## Things to know
 
-- The twin's own `htu_synoptic.bob` writes `<rotation_step>90.0</rotation_step>` for its vertical
-  labels. Phoebus expects the enum's ordinal there (0 none, 1 = 90 degrees, 2 = 180, 3 = 270), so
-  it logs a warning for each of the 103 labels and does not rotate them; a newer Phoebus does not
-  change that, it is the file. `generate_linked_synoptic.py` converts them (`90.0` becomes `1`), so
-  `htu_synoptic_lpa.bob` loads without those warnings. The fix for the twin itself is one line in
-  its `display/generate_synoptic.py` (line 50): `<rotation_step>1</rotation_step>`.
 - The `Source_*` PVs are read-only: the LPA run is the twin's source. They show the bunch's moments.
 - The three run statistics (`charge_pc`, `energy_mean_mev`, `energy_std_mev`) read NaN for a
   reconstructed run: it has no particles to compute them from.
 - Phoebus waits one second, on its UI thread, for a put reply; a server that acknowledged only after
-  a re-track (about 3 s) made every write time out. That is why puts are acknowledged at once by
+  a re-track (a few seconds) made every write time out. That is why puts are acknowledged at once by
   default.
 - The tests in `tests/test_phoebus_displays.py` check the generators and that the committed
   `lpa_bunch.bob` is up to date. `htu_synoptic_lpa.bob` is built from the twin's own synoptic, so

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import pathlib
 
-import h5py
 import numpy
 from scipy.constants import c, e, epsilon_0, m_e, pi
 
@@ -33,7 +32,8 @@ from lume_fbpic.actions import make_pwfa_actions
 from lume_fbpic.density_profiles import LinearRampFlattop
 from lume_fbpic.model import LUMEFBPICModel
 from lume_fbpic.pwfa_config import GaussianBunch, PWFAGrid
-from lume_fbpic.simulator import PWFASimulator
+from lume_fbpic.pwfa_simulator import PWFASimulator
+import pwfa_dumps  # docs/examples/pwfa_dumps.py, this directory
 
 N_PLASMA = 4.0e16 * 100**3  # [m^-3]
 OMEGA_P = numpy.sqrt(N_PLASMA * e**2 / (m_e * epsilon_0))
@@ -56,7 +56,7 @@ DELTA_Z = min(DELTA_R, min(0.05 * DRIVE_SIGMA_Z, 0.1 * LAMBDA_P))
 DT = numpy.sqrt(DELTA_Z**2 + DELTA_R**2) / c
 SIM_TIME = 2.5 * DOMAIN_LENGTH / c
 DUMP_PERIOD = (int(SIM_TIME / DT) + 8) // 8
-N_STEPS = 8 * DUMP_PERIOD + 1
+N_STEPS = 8 * DUMP_PERIOD
 
 
 def build_model(*, dummy_run: bool = False, n_steps: int = N_STEPS) -> LUMEFBPICModel:
@@ -114,8 +114,8 @@ def build_model(*, dummy_run: bool = False, n_steps: int = N_STEPS) -> LUMEFBPIC
 def plot_results(
     directory: str | pathlib.Path, *, output: str | pathlib.Path = "."
 ) -> list[pathlib.Path]:
-    """Plot the last dump of the run in `directory` (its working directory, holding
-    `diags/hdf5`) and return the files written to `output`:
+    """Plot the last dump of the run in `directory` (its working directory) and return the files
+    written to `output`:
 
     - `electron_density.png`: the electron density of the plasma and the bunches [cm^-3].
     - `longitudinal_field.png`: `E_z` [GV/m], with zero at the middle of the colour scale.
@@ -132,8 +132,16 @@ def plot_results(
     import matplotlib.pyplot as pyplot
     from matplotlib.colors import TwoSlopeNorm
 
-    snapshot = _read_last_dump(pathlib.Path(directory))
+    snapshot = pwfa_dumps.read_dump(
+        pwfa_dumps.dumps(
+            build_model(dummy_run=True).simulator.diagnostics_directory(
+                pathlib.Path(directory)
+            )
+        )[-1]
+    )
     zeta, radius = K_P * snapshot["zeta"], K_P * snapshot["r"]
+    # rho is the charge density of everything: the plasma and the bunches
+    n_e = -snapshot["rho"] / e / 100.0**3
     extent = [zeta[0], zeta[-1], radius[0], radius[-1]]
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -156,7 +164,7 @@ def plot_results(
             0.0, vmin=min(data.min(), -1e-30), vmax=max(data.max(), 1e-30)
         )
 
-    field_map("electron_density", snapshot["n_e"], r"$n_e$ [cm$^{-3}$]", "viridis")
+    field_map("electron_density", n_e, r"$n_e$ [cm$^{-3}$]", "viridis")
     field_map(
         "longitudinal_field",
         snapshot["E_z"],
@@ -182,44 +190,9 @@ def plot_results(
     return files
 
 
-def _read_last_dump(directory: pathlib.Path) -> dict:
-    """The last dump of a run: `zeta` and `r` [m], and `n_e` [cm^-3], `E_z` and `F_r = E_r - c B_theta`
-    [GV/m] on the grid, shape (r, z)."""
-    paths = sorted((directory / "diags" / "hdf5").glob("data*.h5"))
-    if not paths:
-        raise FileNotFoundError(f"no dumps under {directory / 'diags' / 'hdf5'}")
-    with h5py.File(paths[-1], "r") as f:
-        step = f[f"data/{int(paths[-1].name[4:12])}"]
-        mesh = step["fields/E"]
-        dr, dz = mesh.attrs["gridSpacing"]
-        z0 = mesh.attrs["gridGlobalOffset"][1]
-        e_z, e_r, b_t = (
-            step["fields/E/z"][0],
-            step["fields/E/r"][0],
-            step["fields/B/t"][0],
-        )
-        rho = step["fields/rho"][0]
-        z_driver = numpy.average(
-            step["particles/driver/position/z"][:],
-            weights=step["particles/driver/weighting"][:],
-        )
-    n_r, n_z = e_z.shape
-    return {
-        "zeta": z0 + dz * numpy.arange(n_z) - z_driver,
-        "r": dr * (numpy.arange(n_r) + 0.5),
-        "n_e": -rho
-        / e
-        / 100.0**3,  # rho is the charge density of everything: plasma and bunches
-        "E_z": e_z * 1.0e-9,
-        "F_r": (e_r - c * b_t) * 1.0e-9,
-    }
-
-
 if __name__ == "__main__":
     model = build_model()
-    model.set(
-        {"driver_charge": DRIVE_Q}
-    )  # set() applies the value, then runs the simulation
+    model.set({})  # runs the simulation (an empty set changes nothing first)
     print(model.get(["charge_pc", "energy_mean_mev", "energy_std_mev"]))
     for path in plot_results(
         model.simulator.working_directory, output=model.simulator.working_directory
