@@ -6,7 +6,7 @@ from .datapoint import _Datapoint
 
 from .simulation import Simulation
 from abc import abstractmethod
-from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS, MOMENTS, OFF, ParticleArray, SPLINE, WeightArray, compute_moment_descriptor, load_openpmd_particles, mean_kinetic_energy_mev
+from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS, MOMENTS, OFF, ParticleArray, SPLINE, WeightArray, compute_moment_descriptor, crop_central_particles, load_openpmd_particles, mean_kinetic_energy_mev
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 class _Diagnostic(_Datapoint):
@@ -107,7 +107,9 @@ class _ParticleDiagnostic(_Diagnostic):
     resolves ``target`` against attached density profiles and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
     are loaded only once. ``select`` applies additional openPMD-viewer particle
-    filtering to each recording before concatenation.
+    filtering to each recording before concatenation. When ``central_fraction``
+    is not None, crop the combined distribution about its weighted mean on all
+    six coordinates using ``crop_central_particles``.
 
     Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
     to obtain the input for their calculation. This base has no concrete tag.
@@ -126,15 +128,20 @@ class _ParticleDiagnostic(_Diagnostic):
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
             {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
-            no further filtering."""
+            no further filtering.
+        central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+            retain on each coordinate after combining recordings. Must be
+            strictly between 0 and 1. Defaults to None, which disables cropping."""
     target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
     select: dict[str, list[float | None]] | None
+    central_fraction: float | None
     def __init__(
         self,
         *,
         data: dict[str, Any] = ...,
         target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
+        central_fraction: float | None = None,
     ) -> None:
         """Abstract diagnostic for selected particles from the simulation's last dump.
 
@@ -144,7 +151,9 @@ class _ParticleDiagnostic(_Diagnostic):
         resolves ``target`` against attached density profiles and concatenates
         the selected particle arrays and macro-weights. Repeated recording names
         are loaded only once. ``select`` applies additional openPMD-viewer particle
-        filtering to each recording before concatenation.
+        filtering to each recording before concatenation. When ``central_fraction``
+        is not None, crop the combined distribution about its weighted mean on all
+        six coordinates using ``crop_central_particles``.
 
         Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
         to obtain the input for their calculation. This base has no concrete tag.
@@ -163,19 +172,24 @@ class _ParticleDiagnostic(_Diagnostic):
                 mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
                 [minimum, maximum] ranges; None bounds are unbounded. For example,
                 {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
-                no further filtering."""
+                no further filtering.
+            central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+                retain on each coordinate after combining recordings. Must be
+                strictly between 0 and 1. Defaults to None, which disables cropping."""
     def load_particles(self) -> tuple[ParticleArray, WeightArray]:
         """Load and concatenate selected particles and weights from the latest dump.
 
         ``select`` is passed to openPMD-viewer's ``get_particle(select=...)``
-        for each recording identified by ``target``.
+        for each recording identified by ``target``. If ``central_fraction`` is
+        set, crop the concatenated particles and weights before returning them.
 
         Returns:
             A float64 particle array of shape (N, 6), ordered x, ux, y, uy, z,
             uz, and its corresponding macro-weights of shape (N,).
 
         Raises:
-            ValueError: If unattached, no recordings match, or no output exists.
+            ValueError: If unattached, no recordings match, no output exists,
+                or fewer than two usable particles remain after cropping.
             Exception: Errors from the openPMD loader propagate unchanged."""
         ...
 
@@ -201,7 +215,10 @@ class MeanKineticEnergy(_ParticleDiagnostic):
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
             {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
-            no further filtering."""
+            no further filtering.
+        central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+            retain on each coordinate after combining recordings. Must be
+            strictly between 0 and 1. Defaults to None, which disables cropping."""
     SUBCLASS: ClassVar[str]
     RUN_BEFORE_SIMULATION: ClassVar[bool]
     def __init__(
@@ -210,6 +227,7 @@ class MeanKineticEnergy(_ParticleDiagnostic):
         data: dict[str, Any] = ...,
         target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
+        central_fraction: float | None = None,
     ) -> None:
         """Compute the charge-weighted mean electron kinetic energy in MeV.
 
@@ -232,7 +250,10 @@ class MeanKineticEnergy(_ParticleDiagnostic):
                 mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
                 [minimum, maximum] ranges; None bounds are unbounded. For example,
                 {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
-                no further filtering."""
+                no further filtering.
+            central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+                retain on each coordinate after combining recordings. Must be
+                strictly between 0 and 1. Defaults to None, which disables cropping."""
     def _analyze(self) -> dict[str, float]:
         ...
 
@@ -259,6 +280,9 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
             [minimum, maximum] ranges; None bounds are unbounded. For example,
             {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
             no further filtering.
+        central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+            retain on each coordinate after combining recordings. Must be
+            strictly between 0 and 1. Defaults to None, which disables cropping.
         longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
             to SPLINE (2).
         longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,
@@ -283,6 +307,7 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
         data: dict[str, Any] = ...,
         target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
+        central_fraction: float | None = None,
         longitudinal_mode: int = SPLINE,
         longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS,
         include_total_weight: bool = False,
@@ -310,6 +335,9 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
                 [minimum, maximum] ranges; None bounds are unbounded. For example,
                 {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
                 no further filtering.
+            central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+                retain on each coordinate after combining recordings. Must be
+                strictly between 0 and 1. Defaults to None, which disables cropping.
             longitudinal_mode: (int) |OPTIONAL| OFF, MOMENTS, or SPLINE. Defaults
                 to SPLINE (2).
             longitudinal_bins: (int) |OPTIONAL| Number of spline profile bins,

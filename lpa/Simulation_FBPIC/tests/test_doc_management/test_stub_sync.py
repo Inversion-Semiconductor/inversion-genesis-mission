@@ -596,6 +596,7 @@ def test_mean_kinetic_energy_stub_includes_inherited_particle_inputs() -> None:
         in diagnostic
     )
     assert "        select: dict[str, list[float | None]] | None = None," in diagnostic
+    assert "        central_fraction: float | None = None," in diagnostic
     assert "def _analyze(self) -> dict[str, float]:" in diagnostic
     assert "@abstractmethod" not in diagnostic
 
@@ -609,6 +610,7 @@ def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None
         in descriptor
     )
     assert "        select: dict[str, list[float | None]] | None = None," in descriptor
+    assert "        central_fraction: float | None = None," in descriptor
     assert "selection:" not in descriptor
     assert "        species: str," not in descriptor
     assert "        data: dict[str, Any] = ...," in descriptor
@@ -635,6 +637,8 @@ def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> Non
     )
     assert "    select: dict[str, list[float | None]] | None\n" in particle
     assert "        select: dict[str, list[float | None]] | None = None," in particle
+    assert "    central_fraction: float | None\n" in particle
+    assert "        central_fraction: float | None = None," in particle
     assert "selection:" not in particle
     assert "def load_particles(self) -> tuple[ParticleArray, WeightArray]:" in particle
     assert "SUBCLASS:" not in particle
