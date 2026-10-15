@@ -92,10 +92,6 @@ analysis:
     - cov_x_x
     - cov_y_y
     - cov_uz_uz
-  species: nitrogen_electrons
-  uz_min: 30.0
-  central_fraction: 0.95
-  longitudinal_bins: 4
   keep_raw_diagnostics: true
 
 # All numerical choices remain fixed for every stage. Per-run paths are created
