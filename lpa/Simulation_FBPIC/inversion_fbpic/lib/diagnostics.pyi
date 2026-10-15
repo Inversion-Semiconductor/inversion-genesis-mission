@@ -6,7 +6,7 @@ from .datapoint import _Datapoint
 
 from .simulation import Simulation
 from abc import abstractmethod
-from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS, MOMENTS, OFF, ParticleArray, SPLINE, WeightArray, compute_moment_descriptor, load_openpmd_particles
+from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS, MOMENTS, OFF, ParticleArray, SPLINE, WeightArray, compute_moment_descriptor, load_openpmd_particles, mean_kinetic_energy_mev
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 class _Diagnostic(_Datapoint):
@@ -177,6 +177,63 @@ class _ParticleDiagnostic(_Diagnostic):
         Raises:
             ValueError: If unattached, no recordings match, or no output exists.
             Exception: Errors from the openPMD loader propagate unchanged."""
+        ...
+
+class MeanKineticEnergy(_ParticleDiagnostic):
+    """Compute the charge-weighted mean electron kinetic energy in MeV.
+
+    Loads selected particles from the attached simulation's latest dump using
+    the inherited ``target`` and ``select`` inputs. All three normalized
+    momentum components contribute, using the electron rest mass. Runs after
+    the simulation and stores the result in ``data["mean_kinetic_energy_MeV"]``.
+
+    Args:
+        data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+            dictionary. Values use the standard configuration serialization
+            conversions; arbitrary dictionaries are not interpreted as configs.
+        target: (tuple) Select recorded particles using ("elec_name", name
+            or list of names), ("ion_name", name or list of names), or
+            ("all_of_species", species). The species "e" selects all recorded
+            electrons; an atomic symbol such as "He" selects recorded ions
+            of that species. Names must be configured on the attached
+            simulation's densities.
+        select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+            mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+            [minimum, maximum] ranges; None bounds are unbounded. For example,
+            {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+            no further filtering."""
+    SUBCLASS: ClassVar[str]
+    RUN_BEFORE_SIMULATION: ClassVar[bool]
+    def __init__(
+        self,
+        *,
+        data: dict[str, Any] = ...,
+        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        select: dict[str, list[float | None]] | None = None,
+    ) -> None:
+        """Compute the charge-weighted mean electron kinetic energy in MeV.
+
+        Loads selected particles from the attached simulation's latest dump using
+        the inherited ``target`` and ``select`` inputs. All three normalized
+        momentum components contribute, using the electron rest mass. Runs after
+        the simulation and stores the result in ``data["mean_kinetic_energy_MeV"]``.
+
+        Args:
+            data: (dict[str, Any]) |OPTIONAL| Stored values. Defaults to a new empty
+                dictionary. Values use the standard configuration serialization
+                conversions; arbitrary dictionaries are not interpreted as configs.
+            target: (tuple) Select recorded particles using ("elec_name", name
+                or list of names), ("ion_name", name or list of names), or
+                ("all_of_species", species). The species "e" selects all recorded
+                electrons; an atomic symbol such as "He" selects recorded ions
+                of that species. Names must be configured on the attached
+                simulation's densities.
+            select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
+                mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
+                [minimum, maximum] ranges; None bounds are unbounded. For example,
+                {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
+                no further filtering."""
+    def _analyze(self) -> dict[str, float]:
         ...
 
 class MomentDescriptorDiagnostic(_ParticleDiagnostic):

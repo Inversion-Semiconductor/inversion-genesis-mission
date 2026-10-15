@@ -20,6 +20,7 @@ from inversion_fbpic.utils.distributions import (
     WeightArray,
     compute_moment_descriptor,
     load_openpmd_particles,
+    mean_kinetic_energy_mev,
 )
 
 if TYPE_CHECKING:
@@ -261,6 +262,24 @@ class _ParticleDiagnostic(_Diagnostic):
             [distribution[1] for distribution in distributions], axis=0
         )
         return particles, weights
+
+
+@attrs.define(kw_only=True, slots=False)
+class MeanKineticEnergy(_ParticleDiagnostic):
+    """Compute the charge-weighted mean electron kinetic energy in MeV.
+
+    Loads selected particles from the attached simulation's latest dump using
+    the inherited ``target`` and ``select`` inputs. All three normalized
+    momentum components contribute, using the electron rest mass. Runs after
+    the simulation and stores the result in ``data["mean_kinetic_energy_MeV"]``.
+    """
+
+    SUBCLASS: ClassVar[str] = "mean_kinetic_energy"
+    RUN_BEFORE_SIMULATION: ClassVar[bool] = False
+
+    def _analyze(self) -> dict[str, float]:
+        particles, weights = self.load_particles()
+        return {"mean_kinetic_energy_MeV": mean_kinetic_energy_mev(particles, weights)}
 
 
 @attrs.define(kw_only=True, slots=False)

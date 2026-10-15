@@ -17,6 +17,7 @@ from inversion_fbpic.lib.datapoint import _Datapoint, Parameters
 from inversion_fbpic.lib.diagnostics import (
     _Diagnostic,
     _ParticleDiagnostic,
+    MeanKineticEnergy,
     MomentDescriptorDiagnostic,
 )
 from inversion_fbpic.lib.serializable_config import SerializableConfig
@@ -437,6 +438,71 @@ def test_another_particle_diagnostic_reuses_data_gathering(
         "total_weight": float(moment_particles[1].sum()),
     }
     assert diagnostic.analysis_complete
+
+
+def test_mean_kinetic_energy_analyzes_latest_selected_particles(
+    moment_simulation, monkeypatch
+) -> None:
+    from inversion_fbpic.lib import diagnostics as module
+
+    simulation, _ = moment_simulation
+    diagnostic = MeanKineticEnergy(
+        target=("elec_name", "electrons"), select={"uz": [1.0, None]}
+    )
+    simulation._sort_component(diagnostic)
+    assert isinstance(diagnostic, _ParticleDiagnostic)
+    assert diagnostic.RUN_BEFORE_SIMULATION is False
+    assert diagnostic.data == {}
+    assert not diagnostic.analysis_complete
+    directory = simulation._save_directory / "hdf5"
+    directory.mkdir(parents=True)
+    (directory / "data9.h5").touch()
+    latest = directory / "data10.h5"
+    latest.touch()
+    particles = np.zeros((2, 6))
+    particles[1, (1, 3, 5)] = 1.0
+    loader = Mock(return_value=(particles, np.array([1.0, 3.0])))
+    monkeypatch.setattr(module, "load_openpmd_particles", loader)
+
+    diagnostic.analyze()
+
+    assert diagnostic.analysis_complete
+    assert diagnostic.data == {
+        "mean_kinetic_energy_MeV": pytest.approx(0.51099895 * 3.0 / 4.0)
+    }
+    loader.assert_called_once_with(latest, "electrons", select=diagnostic.select)
+
+
+@pytest.mark.parametrize("method", SERIALIZERS)
+def test_mean_kinetic_energy_round_trip(tmp_path: Path, method: str) -> None:
+    diagnostic = MeanKineticEnergy(
+        target=("elec_name", ["electrons_he", "electrons_n2"]),
+        select={"uz": [10.0, None]},
+        data={"mean_kinetic_energy_MeV": 1.25},
+    )
+    loaded = _round_trip(diagnostic, method, tmp_path)
+    assert type(loaded) is MeanKineticEnergy
+    assert loaded.SUBCLASS == "mean_kinetic_energy"
+    assert loaded.target == diagnostic.target
+    assert loaded.select == diagnostic.select
+    assert loaded.data == diagnostic.data
+    assert not loaded.analysis_complete
+    with pytest.raises(ValueError, match="Attach"):
+        loaded.attached_simulation
+
+
+def test_mean_kinetic_energy_failure_preserves_previous_data(monkeypatch) -> None:
+    diagnostic = MeanKineticEnergy(target=("all_of_species", "e"))
+    loader = Mock(return_value=(np.zeros((2, 6)), np.ones(2)))
+    monkeypatch.setattr(diagnostic, "load_particles", loader)
+    diagnostic.analyze()
+    previous = diagnostic.data
+    assert diagnostic.analysis_complete
+    loader.return_value = (np.zeros((2, 6)), np.zeros(2))
+    with pytest.raises(ZeroDivisionError):
+        diagnostic.analyze()
+    assert diagnostic.data is previous
+    assert not diagnostic.analysis_complete
 
 
 def test_simulation_attaches_nested_diagnostic(moment_simulation) -> None:

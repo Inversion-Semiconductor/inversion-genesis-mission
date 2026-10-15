@@ -584,6 +584,22 @@ def test_diagnostics_stub_includes_analysis_contract_and_inherited_data() -> Non
     assert "def attached_simulation(self) -> Simulation:" in diagnostics
 
 
+def test_mean_kinetic_energy_stub_includes_inherited_particle_inputs() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    diagnostic = pyi.split("class MeanKineticEnergy(_ParticleDiagnostic):")[1].split(
+        "\n\nclass "
+    )[0]
+    assert "        data: dict[str, Any] = ...," in diagnostic
+    assert (
+        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in diagnostic
+    )
+    assert "        select: dict[str, list[float | None]] | None = None," in diagnostic
+    assert "def _analyze(self) -> dict[str, float]:" in diagnostic
+    assert "@abstractmethod" not in diagnostic
+
+
 def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None:
     pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
     ast.parse(pyi)
