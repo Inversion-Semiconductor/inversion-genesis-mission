@@ -410,9 +410,7 @@ def test_particle_loading_does_not_mutate_analysis_state(
 @pytest.mark.parametrize(
     "diagnostic_class", [MeanKineticEnergy, MomentDescriptorDiagnostic]
 )
-@pytest.mark.parametrize(
-    "central_fraction", [0.0, 1.0, -0.1, 1.1, np.nan, np.inf, -np.inf]
-)
+@pytest.mark.parametrize("central_fraction", [0.0, -0.1, 1.1, np.nan, np.inf, -np.inf])
 def test_particle_diagnostic_rejects_invalid_central_fraction(
     diagnostic_class, central_fraction
 ) -> None:

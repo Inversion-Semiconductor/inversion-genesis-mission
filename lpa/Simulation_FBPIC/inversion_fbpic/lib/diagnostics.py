@@ -181,7 +181,7 @@ class _ParticleDiagnostic(_Diagnostic):
         default=None,
         converter=attrs.converters.optional(float),
         validator=attrs.validators.optional(
-            [attrs.validators.gt(0.0), attrs.validators.lt(1.0)]
+            [attrs.validators.gt(0.0), attrs.validators.le(1.0)]
         ),
     )
 
