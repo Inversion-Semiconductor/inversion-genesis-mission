@@ -327,6 +327,10 @@ class IonizationInjectionSimulation:
                     include_total_weight=False,
                     include_higher_moments=False,
                 ),
+                dg.MeanKineticEnergy(
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["analysis_select"],
+                ),
             ]
         )
 
