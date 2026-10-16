@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Check FP64 operator VJPs with scaled directional finite differences.
 
 Host transfers and synchronization are confined to this verification utility.
@@ -108,9 +110,9 @@ def check_vjp(
     wp.synchronize_device(device)
     gradients = {name: values[name].grad.numpy() for name in names}
     for gradient in gradients.values():
-        assert np.isfinite(gradient).all(), (
-            "The reverse pass returned nonfinite gradients."
-        )
+        assert np.isfinite(
+            gradient
+        ).all(), "The reverse pass returned nonfinite gradients."
 
     def evaluate(perturbed):
         inputs = {
@@ -203,16 +205,18 @@ def check_vjp(
             for name, value in host.items()
         }
         report["operators"] = [
-            {
-                "kernel": launch[0].key,
-                "scalars": [
-                    value.item() if isinstance(value, np.generic) else value
-                    for value in launch[3]
-                    if isinstance(value, (int, float, bool, np.generic))
-                ],
-            }
-            if not callable(launch)
-            else {"custom_backward": launch.__qualname__}
+            (
+                {
+                    "kernel": launch[0].key,
+                    "scalars": [
+                        value.item() if isinstance(value, np.generic) else value
+                        for value in launch[3]
+                        if isinstance(value, (int, float, bool, np.generic))
+                    ],
+                }
+                if not callable(launch)
+                else {"custom_backward": launch.__qualname__}
+            )
             for launch in tape.launches
         ]
         directory = Path(output_directory)

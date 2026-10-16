@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Retain fused FP64 deposition forward execution with a particle-wise VJP.
 
 The cell permutation, prefix sums, grid coefficients, and ionization decisions
