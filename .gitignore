@@ -91,3 +91,5 @@ inversion-radiasoft-plasma-injector/
 *.pdf
 *.pptx
 *.h5
+*.err
+*.out
