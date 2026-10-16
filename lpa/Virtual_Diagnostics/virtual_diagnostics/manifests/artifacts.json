@@ -2,10 +2,10 @@
   "format_version": 1,
   "release": "downramp-2026-10-15-v1",
   "zenodo": {
-    "status": "not-deposited",
+    "status": "unpublished-drafts",
     "files_visibility": "restricted",
-    "models_version_doi": null,
-    "context_version_doi": null
+    "models_version_doi": "10.5281/zenodo.23406928",
+    "context_version_doi": "10.5281/zenodo.23406956"
   },
   "sdm_commit": "842c408fe2a8711bdf2e7cff4bfbe54266d6b940",
   "files": {

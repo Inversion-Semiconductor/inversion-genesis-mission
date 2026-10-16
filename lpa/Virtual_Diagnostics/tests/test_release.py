@@ -17,6 +17,8 @@ spec.loader.exec_module(prepare_release)
 class ReleaseTests(unittest.TestCase):
     def test_private_records_are_separate_and_checksummed(self):
         metadata = json.loads((RELEASE / "metadata.json").read_text())
+        for index, record in enumerate(metadata["records"].values(), start=1):
+            record["version_doi"] = f"10.5281/zenodo.{index}"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "artifacts"
@@ -54,6 +56,18 @@ class ReleaseTests(unittest.TestCase):
                         )
                     dataset = json.loads((folder / "dataset.jsonld").read_text())
                     self.assertEqual(dataset["@type"], "Dataset")
+                    self.assertEqual(
+                        dataset["identifier"],
+                        "https://doi.org/" + record["version_doi"],
+                    )
+                    self.assertEqual(
+                        dataset["citation"]["@id"],
+                        "https://doi.org/"
+                        + metadata["records"][record["related_record"]]["version_doi"],
+                    )
+                    self.assertEqual(
+                        dataset["maintainer"]["email"], "daniel@inversionsemi.com"
+                    )
                     self.assertEqual(
                         dataset["creator"][0]["@id"],
                         "https://orcid.org/0009-0002-0548-0800",

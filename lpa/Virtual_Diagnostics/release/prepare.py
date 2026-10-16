@@ -83,8 +83,9 @@ def prepare(artifact_directory, output, metadata, code_revision):
                     for c in metadata["creators"]
                 ],
                 "conditionsOfAccess": metadata["access"]["conditions"],
-                "contactPoint": {
-                    "@type": "ContactPoint",
+                "maintainer": {
+                    "@type": "Person",
+                    "@id": "https://orcid.org/" + metadata["creators"][0]["orcid"],
                     "email": metadata["access"]["request_contact"],
                 },
                 "isBasedOn": metadata["code_repository"] + "/tree/" + code_revision,
@@ -102,8 +103,10 @@ def prepare(artifact_directory, output, metadata, code_revision):
             if record["version_doi"]:
                 dataset["identifier"] = "https://doi.org/" + record["version_doi"]
             if other["version_doi"]:
-                dataset["isRelatedTo"] = {
-                    "@id": "https://doi.org/" + other["version_doi"]
+                dataset["citation"] = {
+                    "@type": "Dataset",
+                    "@id": "https://doi.org/" + other["version_doi"],
+                    "name": other["title"],
                 }
             # Proposed licenses are not asserted as an already effective grant.
             if record["license_status"] == "confirmed":
