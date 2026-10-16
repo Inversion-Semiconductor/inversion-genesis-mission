@@ -1,0 +1,247 @@
+"""`_DensityProfile` subclasses defined by `lume_fbpic` itself, not `inversion_fbpic`, and the
+atom density of a profile (`atom_density()`, `nominal_density()`).
+
+`_DensityProfile` subclass registration goes through `SerializableConfig.__init_subclass__`
+(a plain attrs/Python mechanism keyed on the `SUBCLASS` class attribute), which doesn't care
+what package defines the subclass -- so a new density-profile shape can be added here,
+composing on top of `inversion_fbpic` exactly like the rest of `lume_fbpic`, without
+modifying it.
+"""
+
+from __future__ import annotations
+
+from inversion_fbpic.lib.density_core import DensityCallable, _DensityProfile
+import attrs
+import numpy
+import numpy.typing
+import typing
+
+
+@attrs.define(kw_only=True, slots=False, frozen=True)
+class GeneralizedGaussianProfile(_DensityProfile):
+    """Generalized-normal (generalized Gaussian) density bump in z, independent of r:
+    `dens_func(z, r) = gauss_peak * exp(-(|z - z0| / alpha) ** beta)`, built by
+    `inversion_fbpic.density_profiles.downramp_injection.build_generalized_gaussian_profile`.
+    `beta=2` is a standard Gaussian; `beta<2` is more sharply peaked with heavier
+    tails, `beta>2` is flatter near the peak with a steeper falloff. This is the shape
+    `runs/initial_sample/ionization_injection_template.py` uses for its He/N gas-jet
+    target.
+
+    `get_z_extent()` reports the symmetric span `z0 +/- z_extent_alphas * alpha`;
+    `z_extent_alphas` defaults to 2.8, the constant `ionization_injection_template.py` uses for
+    its interaction length. A `Simulation` runs for that span plus
+    `SimulationHyperparameters.right_buffer`.
+
+    Args:
+        gauss_peak: (float) Peak relative-density multiplier at `z0`. Not itself normalized
+            to 1 -- the upstream script's own default is 1.1, a small intentional density
+            overshoot, not exactly 1.0.
+        z0: (float) [m] Location of the profile's peak.
+        alpha: (float) [m] Scale parameter (must be > 0).
+        beta: (float) Shape parameter (must be > 0).
+        z_extent_alphas: (float) |OPTIONAL| Number of `alpha`-widths on each side of `z0`
+            reported by `get_z_extent()`. Defaults to 2.8 (see above).
+    """
+
+    SUBCLASS: typing.ClassVar[str] = "generalized_gaussian"
+
+    gauss_peak: float = attrs.field(converter=float)
+    z0: float = attrs.field(converter=float)
+    alpha: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    beta: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    # POSIT: the 2.8 alpha-widths of runs/initial_sample/ionization_injection_template.py's
+    # interaction length (also in inversion_fbpic's htu_comparison_scans_plotter.py), a literal
+    # in scripts, not a constant that can be imported.
+    z_extent_alphas: float = attrs.field(
+        default=2.8, converter=float, validator=attrs.validators.gt(0.0)
+    )
+
+    def build_density_function(self) -> DensityCallable:
+        from inversion_fbpic.density_profiles.downramp_injection import (
+            build_generalized_gaussian_profile,
+        )
+
+        return build_generalized_gaussian_profile(
+            gauss_peak=self.gauss_peak,
+            gauss_z0=self.z0,
+            gauss_alpha=self.alpha,
+            gauss_beta=self.beta,
+        )
+
+    def _get_r_extent(self) -> float | None:
+        return None
+
+    def _get_z_extent(self) -> tuple[float, float]:
+        half_width = self.z_extent_alphas * self.alpha
+        return (self.z0 - half_width, self.z0 + half_width)
+
+
+@attrs.define(kw_only=True, slots=False, frozen=True)
+class LinearRampFlattop(_DensityProfile):
+    """Linear-ramp-then-flat density profile, reproducing fbpic's own
+    `docs/source/example_input/lwfa_script.py` `dens_func` exactly: zero relative density
+    before `ramp_start`, a linear ramp up to full relative density over `ramp_length`, then
+    flat (relative density 1) indefinitely after that. Unlike `SmoothSineFlattop` or
+    `AsymmetricSine`, there is no downramp and the plateau has no declared end -- it really
+    is unbounded, matching upstream's own `dens_func`, which never tapers off either.
+
+    `get_z_extent()` reports only the ramp's own span (`ramp_start` to
+    `ramp_start + ramp_length`). The flat region beyond it is still physically real --
+    `build_density_function()`'s `dens_func` returns 1 there unconditionally, and fbpic
+    loads particles across the whole simulation box regardless of this declared extent --
+    it's just not counted towards `Simulation`'s auto-derived interaction length
+    (`z_extent span + SimulationHyperparameters.right_buffer`). Set `right_buffer`
+    explicitly to control how far past the ramp the run actually goes, mirroring upstream's
+    own `L_interact`, which is likewise a literal constant independent of the density
+    profile's shape.
+
+    Args:
+        ramp_start: (float) [m] z position where the linear ramp begins; relative density is
+            0 before this point.
+        ramp_length: (float) [m] Length of the linear ramp from 0 to full relative density.
+    """
+
+    SUBCLASS: typing.ClassVar[str] = "linear_ramp_flattop"
+
+    ramp_start: float = attrs.field(converter=float)
+    ramp_length: float = attrs.field(
+        converter=float, validator=attrs.validators.gt(0.0)
+    )
+
+    def build_density_function(self) -> DensityCallable:
+        ramp_start = self.ramp_start
+        ramp_length = self.ramp_length
+
+        def dens_func(
+            z: numpy.typing.ArrayLike, r: numpy.typing.ArrayLike
+        ) -> numpy.typing.ArrayLike:
+            z_arr = numpy.asarray(z)
+            n = numpy.ones_like(z_arr, dtype=float)
+            n = numpy.where(
+                z_arr < ramp_start + ramp_length, (z_arr - ramp_start) / ramp_length, n
+            )
+            n = numpy.where(z_arr < ramp_start, 0.0, n)
+            return n
+
+        return dens_func
+
+    def _get_r_extent(self) -> float | None:
+        return None
+
+    def _get_z_extent(self) -> tuple[float, float]:
+        return (self.ramp_start, self.ramp_start + self.ramp_length)
+
+
+@attrs.define(kw_only=True, slots=False, frozen=True)
+class UpDownRampProfile(_DensityProfile):
+    """A plasma at a base density with a linear up-ramp to a plateau and a linear down-ramp
+    back, along z: five stages, the "ramping" profile of Zhang et al., Plasma Phys. Control.
+    Fusion 68, 045051 (2026), equation (4), https://doi.org/10.1088/1361-6587/ae5e08 (CC BY 4.0,
+    https://creativecommons.org/licenses/by/4.0/). The shape is from the paper; the
+    implementation here is new.
+
+    The relative density (`nominal_density` is the plateau density) is zero before `z_start`,
+    `base_fraction` from there to `z_up`, a linear rise to 1 over `up_length`, 1 up to
+    `z_down`, a linear fall back to `base_fraction` over `down_length`, then `base_fraction`
+    again; and zero from `z_end` on, if it is given. It does not depend on r.
+
+    Args:
+        base_fraction: (float) Density of the initial and final stages as a fraction of the plateau density, in (0, 1].
+        z_up: (float) [m] Where the up-ramp begins.
+        up_length: (float) [m] Length of the up-ramp.
+        z_down: (float) [m] Where the down-ramp begins.
+        down_length: (float) [m] Length of the down-ramp.
+        z_start: (float) |OPTIONAL| [m] Where the plasma begins; there is none before it. Defaults to 0.
+        z_end: (float|None) |OPTIONAL| [m] Where the plasma ends; None means it does not end. Defaults to None.
+    """
+
+    SUBCLASS: typing.ClassVar[str] = "up_down_ramp"
+
+    base_fraction: float = attrs.field(
+        converter=float, validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)]
+    )
+    z_up: float = attrs.field(converter=float)
+    up_length: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
+    z_down: float = attrs.field(converter=float)
+    down_length: float = attrs.field(
+        converter=float, validator=attrs.validators.gt(0.0)
+    )
+    z_start: float = attrs.field(default=0.0, converter=float)
+    z_end: float | None = attrs.field(
+        default=None, converter=attrs.converters.optional(float)
+    )
+
+    def __attrs_post_init__(self) -> None:
+        super().__attrs_post_init__()
+        if not self.z_start <= self.z_up:
+            raise ValueError(
+                f"z_up ({self.z_up}) must not be before z_start ({self.z_start})"
+            )
+        if self.z_up + self.up_length > self.z_down:
+            raise ValueError("the up-ramp must end before the down-ramp begins")
+        if self.z_end is not None and self.z_end < self.z_down + self.down_length:
+            raise ValueError("z_end must not cut into the down-ramp")
+
+    def build_density_function(self) -> DensityCallable:
+        base = self.base_fraction
+        z_start, z_end = self.z_start, self.z_end
+        z_up, up_length = self.z_up, self.up_length
+        z_down, down_length = self.z_down, self.down_length
+
+        def dens_func(
+            z: numpy.typing.ArrayLike, r: numpy.typing.ArrayLike
+        ) -> numpy.typing.ArrayLike:
+            z_arr = numpy.asarray(z, dtype=float)
+            n = numpy.select(
+                [
+                    z_arr < z_up,
+                    z_arr < z_up + up_length,
+                    z_arr < z_down,
+                    z_arr < z_down + down_length,
+                ],
+                [
+                    base,
+                    base + (1.0 - base) * (z_arr - z_up) / up_length,
+                    1.0,
+                    1.0 - (1.0 - base) * (z_arr - z_down) / down_length,
+                ],
+                default=base,
+            )
+            n = numpy.where(z_arr < z_start, 0.0, n)
+            if z_end is not None:
+                n = numpy.where(z_arr >= z_end, 0.0, n)
+            return n
+
+        return dens_func
+
+    def _get_r_extent(self) -> float | None:
+        return None
+
+    def _get_z_extent(self) -> tuple[float, float]:
+        end = self.z_end if self.z_end is not None else self.z_down + self.down_length
+        return (self.z_start, end)
+
+
+def atom_density(profile: _DensityProfile) -> float:
+    """The neutral-atom density [m^-3] of a profile of an ion species: its `nominal_density`
+    over the species' ionization-level count, which `_DensityProfile.add_to_simulation()`
+    divides it by.
+
+    Raises:
+        ValueError: If the profile has no `species` (bare electrons).
+    """
+    return profile.nominal_density / _ionization_levels(profile.species)
+
+
+def nominal_density(species: str, atoms: float) -> float:
+    """The `nominal_density` of a profile of `species` with the neutral-atom density `atoms`
+    [m^-3]; the inverse of `atom_density()`."""
+    return atoms * _ionization_levels(species)
+
+
+def _ionization_levels(species: str | None) -> int:
+    if species is None:
+        raise ValueError(
+            "an atom density needs a profile with a species; got species=None"
+        )
+    return _DensityProfile._get_num_ionization_levels(species)

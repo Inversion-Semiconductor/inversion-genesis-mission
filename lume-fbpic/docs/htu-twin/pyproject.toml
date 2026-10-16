@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lume_fbpic_twin"
+version = "0.1.0"
+description = "The HTU transport twin (geecs-lume-twin) fed by lume-fbpic: the twin stage, the archive selector and the PV server."
+requires-python = ">=3.11"
+# lume_fbpic is ../.. (pip install -e lume-fbpic). The twin itself, `htu` (and with it torch and
+# Cheetah), is ../../../geecs-lume-twin, which is not on PyPI: install it to use `twin_stage`.
+dependencies = [
+    "lume_fbpic",
+    "lume-base>=0.5.0",
+    "numpy",
+    "scipy",
+    "openpmd-beamphysics>=0.16",
+]
+
+[project.optional-dependencies]
+# For `lume_fbpic_twin.serve`. lume-pva is not on PyPI. Keep this commit in sync with the lume-pva
+# pinned in ../../../geecs-lume-twin/pyproject.toml, or the two installs replace each other's.
+serve = [
+    "lume-pva @ git+https://github.com/lume-science/lume-pva@ffd974c1be8d491b7bae9c38fdd190f92417fe2f",
+]
+
+[tool.setuptools.packages.find]
+include = ["lume_fbpic_twin"]
+namespaces = false
