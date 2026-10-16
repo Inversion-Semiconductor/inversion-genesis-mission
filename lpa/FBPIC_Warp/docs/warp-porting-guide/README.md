@@ -14,7 +14,7 @@ The FP32 Hankel experiment and its simulation comparisons reside on the FP32 Han
 The fusion experiments followed on October 9 and 10, 2026.
 The complete Inversion comparison finished on October 12, 2026, in the Inversion workload experiment branch.
 Production integration is committed as `edc52c4`, and local `main` now includes the selected fusion changes and optional FP32 Hankel.
-The expanded guide records the source integration and the preceding experiments.
+Guide commit `6431588` records the expanded development history separately from source integration commit `edc52c4`.
 Generated results remain local artifacts excluded from Git.
 
 The current implementation provides a validated forward GPU solver.
@@ -34,7 +34,7 @@ Selective precision aims to use FP32 for suitable operations while retaining FP6
 | [FP32 Hankel and ionization RNG](05-hankel-fp32-and-ionization-rng.md) | Follow the GEMM experiment, sorting-dependent draw diagnosis, ID-based fix, and production rerun. |
 | [Threads, shared memory, and fusion](06-threads-shared-memory-and-fusion.md) | Compare selected optimizations with rejected shared-memory, two-pass, and additional fusion experiments. |
 | [Complete Inversion comparison](07-inversion-full-workload.md) | Reproduce kernel timings, complete-run speedups, field errors, and the precise measured configuration. |
-| [Individual kernel gradients](08-individual-kernel-gradients.md) | Define the FP64 derivative contract and verification sequence before composing a differentiable simulation. |
+| [Individual kernel gradients](08-individual-kernel-gradients.md) | Follow validated opt-in FP64 adapters, backward failure diagnosis, and derivative verification before simulation composition. |
 
 ## Apply the workflow to another solver
 
@@ -66,7 +66,7 @@ Each chapter preserves its measured source, duration, and reference instead of c
 | Forward correctness | The original milestone passed 65 consolidated tests and a later 24-test callback rerun under Warp 1.17. |
 | Library integration | CuPy-owned storage, Warp kernels, cuFFT, and cuBLAS share one CUDA stream. |
 | Original performance workload | The Warp 1.18 workload measured 12.486 ms/step eager and 12.372 ms/step with graphs, versus Numba's 14.658. |
-| Autodiff | Backward kernel generation is disabled. Simulation gradients remain unimplemented and unvalidated. |
+| Autodiff | Opt-in FP64 adapters passed 122 GPU tests and 118 CPU tests, with four CPU skips. Production wrappers remain forward-only. |
 | Selective precision | Optional FP32 Hankel GEMM achieved `2.561x` complete-run speedup, with maximum field relative L2 error `0.2701%`. |
 | Optimized FP64 configuration | The selected Warp configuration achieved `2.208x` complete-run speedup while retaining FP64 arithmetic. |
 | Integration verification | 101 GPU tests and 39 CPU tests passed; 14 CPU cases were skipped. |
@@ -91,7 +91,7 @@ Its original Numba reference took `12297.922 s`; fused Warp FP64 took `5570.933 
 Maximum field relative L2 errors were `3.933373e-10` for FP64 and `2.701057e-3` for FP32 Hankel.
 The accuracy reference uses shared ionization draws, and the analysis includes 19 complete snapshots.
 The complete-run result does not establish FP32 acceptance for other physical observables or configurations.
-The [kernel-gradient milestone](08-individual-kernel-gradients.md) proceeds separately on `snidhan/dev-autodiff`, based on integration commit `edc52c4`.
+The [kernel-gradient milestone](08-individual-kernel-gradients.md) proceeds separately on `snidhan/dev-autodiff`, based on the cleaned baseline `snidhan/dev-main`.
 
 ## How to use the evidence
 

@@ -2,14 +2,17 @@
 
 ## Current status
 
-The current port implements forward execution. Its kernel wrapper explicitly sets `enable_backward=False` in [the Warp runtime](../../fbpic/utils/warp.py).
-The port has no validated simulation gradients. Forward tests and CUDA graph replay do not establish gradient correctness.
+Production execution retains `enable_backward=False` in [the Warp runtime](../../fbpic/utils/warp.py).
+The separate `fbpic.autodiff` package now provides validated opt-in FP64 particle, deposition, field, and storage adapters.
+These adapters use explicit state versions and eager tapes; production `Simulation.step` does not automatically record their derivatives.
+Complete simulation gradients remain unimplemented and unvalidated.
+Forward tests and CUDA graph replay do not establish gradient correctness.
 
 The original port plan, summarized in the [baseline change record](../baseline-changes/README.md), deferred gradient implementation, gradient validation, and execution with multiple GPU ranks.
 Message Passing Interface (MPI) infrastructure remains available for later parallel execution. MPI adjoints remain deferred.
 
-The approved next milestone validates individual FP64 kernel derivatives in eager execution.
-The [kernel-gradient chapter](08-individual-kernel-gradients.md) defines its continuous inputs, fixed discrete decisions, and acceptance checks.
+Final individual-kernel verification passed 122 GPU tests on physical GPU 0 and 118 CPU tests, with four GPU-only skips.
+The [kernel-gradient chapter](08-individual-kernel-gradients.md) records implemented interfaces, continuous inputs, fixed decisions, acceptance checks, and derivative limits.
 The broader simulation-gradient sequence below remains future work.
 
 The earlier proposal for whole-solver FP32/FP64 selection was deferred.
@@ -193,3 +196,4 @@ A blanket tolerance increase would hide which operation introduced the error.
 
 Future gradient checks must use the actual mixed-precision execution path when that path is part of the intended simulation.
 Forward accuracy and derivative accuracy require separate evidence.
+The current derivative milestone verifies FP64 arrays only; FP32 Hankel gradients remain unvalidated.
