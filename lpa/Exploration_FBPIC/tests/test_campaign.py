@@ -117,7 +117,7 @@ def test_production_density_geometry_is_fixed_to_the_simulation_domain() -> None
     assert hyperparameters["rmax"] == 400.0e-6
     assert hyperparameters["nr"] == 1080
     assert hyperparameters["rmax"] / hyperparameters["nr"] <= 480.0e-6 / 1280
-    assert hyperparameters["diagnostic_select"] == {"uz": [10.0, None]}
+    assert hyperparameters["diagnostic_select"] == {"uz": [20.0, None]}
     assert hyperparameters["laser_peak_delay_from_file_start_s"] == 120.0e-15
     assert hyperparameters["p_zmin"] == 0.0
     assert hyperparameters["p_zmax"] == 10.0e-3
