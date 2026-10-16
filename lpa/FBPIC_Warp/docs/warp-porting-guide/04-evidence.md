@@ -124,8 +124,9 @@ The GPU checks comprise 53 precision/RNG tests, 17 existing coupled-solver tests
 The current openPMD reader required `OPENPMD_VERIFY_HOMOGENEOUS_EXTENTS=0` for constant-record extents; dependencies remained unchanged.
 Numerical modules match the measured source, apart from removing an extra fused-deposition EOF blank line.
 
-The [individual-kernel chapter](08-individual-kernel-gradients.md) defines the approved FP64 eager verification contract.
-The separate `snidhan/dev-autodiff` branch starts from `edc52c4`.
-Its acceptance checks are planned derivative checks, separate from recorded forward tests.
-Add operator results, exact commands, source hashes, and limitations only after the gradient verification runs.
+The [individual-kernel chapter](08-individual-kernel-gradients.md) records validated opt-in FP64 eager adapters and their verification contract.
+The separate `snidhan/dev-autodiff` branch starts from the cleaned baseline `snidhan/dev-main`.
+Checks include primal parity, directional derivatives, adjoint identities, composition, and explicit gradient-policy rejection.
+Its operator derivatives remain separate from production `Simulation.step`, external FFT/GEMM derivatives, stochastic events, and complete-trajectory gradients.
+Set `FBPIC_AUTODIFF_REPORT_DIR` to retain per-case JSON residuals, fixture hashes, operator identity, and continuous-input selections.
 Do not infer differentiability from Warp kernel generation, forward parity, or CUDA graph replay.
