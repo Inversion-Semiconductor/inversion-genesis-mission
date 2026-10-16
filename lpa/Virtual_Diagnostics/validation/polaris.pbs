@@ -1,0 +1,42 @@
+#!/bin/bash -l
+#PBS -N diagnostic-check
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l walltime=00:20:00
+#PBS -l filesystems=home
+#PBS -j oe
+set -eo pipefail
+cd "$PBS_O_WORKDIR"
+project_dir="$PWD"
+output_dir="$project_dir/outputs/polaris-${PBS_JOBID%%.*}"
+mkdir -p "$output_dir"
+: "${ARTIFACT_DIR:?Set ARTIFACT_DIR to the private artifacts directory}"
+: "${CHECK_FIXTURE:?Set CHECK_FIXTURE to the private GPU reference NPZ}"
+: "${CODEC_FIXTURE:?Set CODEC_FIXTURE to the private codec reference NPZ}"
+: "${SDM_SOURCE:?Set SDM_SOURCE to the pinned SDM source checkout}"
+module use /soft/modulefiles
+module load conda/2026-10-01
+conda activate
+export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+export TOKENIZERS_PARALLELISM=false
+unset PYTHONPATH NVIDIA_TF32_OVERRIDE TORCH_ALLOW_TF32_CUBLAS_OVERRIDE
+check_dir=$(mktemp -d /tmp/virtual-diagnostics-check.XXXXXX)
+trap 'rm -rf "$check_dir"' EXIT
+python -m venv --system-site-packages "$check_dir/venv"
+"$check_dir/venv/bin/python" -m pip install --no-deps --no-build-isolation --no-cache-dir \
+    "$SDM_SOURCE" "$project_dir" > "$output_dir/install.log" 2>&1
+export HF_HOME="$check_dir/empty-hf-cache" HF_HUB_OFFLINE=1
+mkdir "$HF_HOME"
+cd "$check_dir"
+"$check_dir/venv/bin/python" -I -m unittest discover -s "$project_dir/tests" -v > "$output_dir/unit_tests.log" 2>&1
+"$check_dir/venv/bin/python" -I "$project_dir/validation/check_codecs.py" \
+    --artifacts "$ARTIFACT_DIR" --fixture "$CODEC_FIXTURE" \
+    --output "$output_dir/codecs.json" > "$output_dir/codecs.log" 2>&1
+mpiexec -n 1 --ppn 1 --cpu-bind none env CUDA_VISIBLE_DEVICES=0,1,2,3 \
+    "$check_dir/venv/bin/python" -I -u "$project_dir/validation/check_gpu.py" \
+    --artifacts "$ARTIFACT_DIR" --fixture "$CHECK_FIXTURE" --gpus 1 2 3 4 \
+    --output "$output_dir/gpu_check.json" > "$output_dir/gpu_check.log" 2>&1
+"$check_dir/venv/bin/python" -I "$project_dir/examples/predict.py" \
+    --artifacts "$ARTIFACT_DIR" --output "$output_dir/example.npz" > "$output_dir/example.log" 2>&1
+"$check_dir/venv/bin/python" -I -c 'import os,pathlib; assert not list(pathlib.Path(os.environ["HF_HOME"]).rglob("*")), "Unexpected network cache files"'

@@ -5,6 +5,7 @@ Repository for Genesis mission-related code.
 | - | - | -
 **`lpa/Simulation_FBPIC`** | PIC simulations for LPA injectors | FBPIC
 **`lpa/Simulation_Fluid`** | Fluid simulation analysis and parameterization of density lineouts | Ansys Fluent (data source) |
+**[`lpa/Virtual_Diagnostics`](lpa/Virtual_Diagnostics/README.md)** | Separate image encoders, Kumo prediction, and image decoding; private artifacts linked by manifests | PyTorch, Kumo |
 ---
 
 ## Quick start

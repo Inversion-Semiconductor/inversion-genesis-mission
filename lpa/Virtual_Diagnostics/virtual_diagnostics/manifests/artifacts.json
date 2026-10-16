@@ -1,0 +1,133 @@
+{
+  "format_version": 1,
+  "release": "downramp-2026-10-15-v1",
+  "zenodo": {
+    "status": "not-deposited",
+    "files_visibility": "restricted",
+    "models_version_doi": null,
+    "context_version_doi": null
+  },
+  "sdm_commit": "842c408fe2a8711bdf2e7cff4bfbe54266d6b940",
+  "files": {
+    "camera1_decoder": {
+      "filename": "camera1_decoder.pt",
+      "sha256": "a0d2eed68d9972c7cb095133479789db88d13e311c9cba36d1fa0699d4340594",
+      "bytes": 3988659,
+      "access": "restricted",
+      "source_checkpoint_sha256": "cab11c89245e6766a66a25bd7b3cb8d7933ac44c5fad36942c4e68ed19b3fe64",
+      "record": "models",
+      "format": "PyTorch tensor state_dict checkpoint",
+      "loader": "torch.load(weights_only=True)",
+      "role": "camera1 decoder"
+    },
+    "camera1_encoder": {
+      "filename": "camera1_encoder.pt",
+      "sha256": "5db140aa43ded4991dfd836f9433413736df15305dc22b4cccbbfd06e83347e3",
+      "bytes": 3960878,
+      "access": "restricted",
+      "source_checkpoint_sha256": "cab11c89245e6766a66a25bd7b3cb8d7933ac44c5fad36942c4e68ed19b3fe64",
+      "record": "models",
+      "format": "PyTorch tensor state_dict checkpoint",
+      "loader": "torch.load(weights_only=True)",
+      "role": "camera1 encoder"
+    },
+    "context": {
+      "filename": "context.npz",
+      "sha256": "b1a84ae9387444a286dbe8448c75da5e61af5a5cb44d9b0027c93fbe2a96a5e2",
+      "bytes": 878564,
+      "access": "restricted",
+      "record": "context",
+      "format": "NumPy NPZ numeric arrays",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "Frozen training feature/target pairs and original row indices"
+    },
+    "energy_axis": {
+      "filename": "energy_axis.npy",
+      "sha256": "a1eb04354f01d91721e3ad20d8ded6cb8365de80c78d05b5082bb6b266914c98",
+      "bytes": 2408,
+      "access": "restricted",
+      "record": "context",
+      "format": "NumPy NPY numeric array",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "Source-export horizontal energy coordinates for the decoded image"
+    },
+    "example_features": {
+      "filename": "example_features.npy",
+      "sha256": "ac7b06bd22082d12c0c70e3a22d5591956dc734ee18c9a464e4f1765f942a8cc",
+      "bytes": 480,
+      "access": "restricted",
+      "record": "context",
+      "format": "NumPy NPY numeric array",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "Prepared validation query; not part of context"
+    },
+    "frog_pca": {
+      "filename": "frog_pca.npz",
+      "sha256": "0e5f0992e4fbc13e82da2cdc32812a3750d6da637027aacc82e87ece4fb9150f",
+      "bytes": 6513044,
+      "access": "restricted",
+      "record": "models",
+      "format": "NumPy NPZ numeric arrays",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "frog pca"
+    },
+    "gaia_encoder": {
+      "filename": "gaia_encoder.pt",
+      "sha256": "c9918998b71a9d18764a887674aba42ef46b76d6c9ef4f442fd51bde1225c3eb",
+      "bytes": 6357661,
+      "access": "restricted",
+      "source_checkpoint_sha256": "76d3dfe0b97ec4475e426547834090b4a2f9d25debcadc7aebe44226732c3eae",
+      "record": "models",
+      "format": "PyTorch tensor state_dict checkpoint",
+      "loader": "torch.load(weights_only=True)",
+      "role": "gaia encoder"
+    },
+    "gaia_mask": {
+      "filename": "gaia_mask.npz",
+      "sha256": "4dbe4db9d84d66e445e87079263fde1e985cd96e1063132b813f916f72cc1cb0",
+      "bytes": 185336,
+      "access": "restricted",
+      "record": "models",
+      "format": "NumPy NPZ numeric arrays",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "Instrument dust mask used before Gaia encoding"
+    },
+    "kumo": {
+      "filename": "kumo_large_regressor.pt",
+      "sha256": "745e0e5d97e4256d8a24cb61c2eecbd1128da6c83938c196b7589ea6f62e7421",
+      "bytes": 862909259,
+      "access": "upstream-public",
+      "source": {
+        "repo_id": "nvidia/Kumo-Tabular",
+        "revision": "3c3e10bbdb590ace29e7026847f92db3c603096d",
+        "filename": "large/regressor.pt",
+        "url": "https://huggingface.co/nvidia/Kumo-Tabular/resolve/3c3e10bbdb590ace29e7026847f92db3c603096d/large/regressor.pt"
+      },
+      "record": "upstream",
+      "format": "PyTorch tensor state_dict checkpoint",
+      "loader": "torch.load(weights_only=True)",
+      "role": "kumo"
+    },
+    "oap_pca": {
+      "filename": "oap_pca.npz",
+      "sha256": "c147492956f536f695fff8445e2f55521ff4cd3e07e9e9dd1b112a574ac675fa",
+      "bytes": 35033480,
+      "access": "restricted",
+      "record": "models",
+      "format": "NumPy NPZ numeric arrays",
+      "loader": "numpy.load(allow_pickle=False)",
+      "role": "oap pca"
+    },
+    "topview_encoder": {
+      "filename": "topview_encoder.pt",
+      "sha256": "427bfba60dfb82d7d96ef64ac9f09d87000f79134f0480f1c9b2c0a29df87744",
+      "bytes": 8973790,
+      "access": "restricted",
+      "source_checkpoint_sha256": "6c642234c5581761715192fd57955d3985dca3e5c43cab4c5ce6e42aa0e17317",
+      "record": "models",
+      "format": "PyTorch tensor state_dict checkpoint",
+      "loader": "torch.load(weights_only=True)",
+      "role": "topview encoder"
+    }
+  }
+}

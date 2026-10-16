@@ -1,0 +1,93 @@
+{
+  "format_version": 1,
+  "release": "downramp-2026-10-15-v1",
+  "status": "draft",
+  "creators": [
+    {
+      "name": "Vega Bermudez, Daniel",
+      "given_name": "Daniel",
+      "family_name": "Vega Bermudez",
+      "orcid": "0009-0002-0548-0800",
+      "affiliation": "Inversion Semiconductor Inc.",
+      "orcid_verified_date": "2026-10-15"
+    }
+  ],
+  "access": {
+    "files": "restricted",
+    "metadata": "public",
+    "request_contact": "daniel@inversionsemi.com",
+    "conditions": "Request access from Daniel Vega Bermudez with intended use. Access is subject to the source-data permissions and the final record terms."
+  },
+  "code_repository": "https://github.com/Inversion-Semiconductor/inversion-genesis-mission",
+  "code_subproject": "lpa/Virtual_Diagnostics",
+  "keywords": [
+    "virtual diagnostic",
+    "laser plasma accelerator",
+    "image encoding",
+    "Kumo",
+    "in-context learning",
+    "Genesis Mission"
+  ],
+  "records": {
+    "models": {
+      "title": "Modular virtual diagnostic: frozen image encoders, PCA fits and camera-1 decoder",
+      "version": "downramp-2026-10-15-v1",
+      "version_doi": null,
+      "license": "Apache-2.0",
+      "license_url": "https://www.apache.org/licenses/LICENSE-2.0",
+      "license_status": "proposed for release",
+      "file_keys": [
+        "camera1_encoder",
+        "camera1_decoder",
+        "topview_encoder",
+        "gaia_encoder",
+        "frog_pca",
+        "oap_pca",
+        "gaia_mask"
+      ],
+      "related_record": "context",
+      "description": "Inference-only Camera-1, TopView and Gaia encoders, the separate Camera-1 decoder, frozen FROG/OAP PCA fits, and the Gaia calibration mask. Includes normalization and provenance. The upstream NVIDIA Kumo weights are linked separately and are not redistributed."
+    },
+    "context": {
+      "title": "Modular virtual diagnostic: frozen 2152-row Kumo context and prepared example",
+      "version": "downramp-2026-10-15-v1",
+      "version_doi": null,
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_status": "proposed for release",
+      "file_keys": [
+        "context",
+        "example_features",
+        "energy_axis"
+      ],
+      "related_record": "models",
+      "description": "Frozen context of 2152 aligned rows with 88 numerical input features and 21 target coordinates. Targets are 20 Camera-1 image latents plus ICT charge in pC. Includes original row indices, one prepared validation query, and the 285-coordinate image energy axis; no raw images or test rows are included."
+    }
+  },
+  "provenance": {
+    "acquisition": "BELLA/HTU October 2026 downramp scans 013 and 014",
+    "source_rows": 3077,
+    "split": {
+      "train": 2152,
+      "validation": 462,
+      "test": 463,
+      "policy": "Random 70/15/15 within each scan; seed 20261005 plus scan number; assignment before quality exclusions; exact cross-partition duplicates quarantined."
+    },
+    "context_rows": "Training partition only; original row identities retained in train_indices.",
+    "query": "First validation feature vector from the prior packaged example.",
+    "encoders": "Camera-1 residual z20; baseline TopView z16; October fine-tuned Gaia z14 with frozen September normalization; refreshed October FROG/OAP PCA8.",
+    "selection": "Encoders selected with validation metrics; frozen training-only PCA fits. Source encoder normalizations and state dictionaries preserved.",
+    "extraction": "Neural state_dict prefixes selected for encode/decode only; optimizer state and training images omitted. SHA-256 links identify original checkpoints.",
+    "evaluation": "No test-set evaluation in this integration; saved validation queries used for Kumo regression checks."
+  },
+  "publication_blockers": [
+    "Reserve distinct version DOIs and cross-link the records.",
+    "Confirm source-data sharing authority and final model/data license terms for these artifacts.",
+    "Resolve instrument-native scalar and energy-axis units from acquisition metadata before release.",
+    "Record the reviewed code commit and a versioned code citation."
+  ],
+  "license_basis": {
+    "earlier_dmsp_draft": "Sections 3.2-3.4: Apache-2.0 default for software/public model packages; CC0-1.0 or CC-BY-4.0 for datasets outside Dryad.",
+    "revised_dmsp": "Rights, reuse, and limitations: select and identify the appropriate license per release; no single SPDX license fixed."
+  }
+}
