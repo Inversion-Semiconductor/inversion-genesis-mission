@@ -19,7 +19,7 @@
     "conditions": "Request access from Daniel Vega Bermudez with intended use. Access is subject to the source-data permissions and the final record terms."
   },
   "code_repository": "https://github.com/Inversion-Semiconductor/inversion-genesis-mission",
-  "code_subproject": "lpa/Virtual_Diagnostics",
+  "code_subproject": "virtual-diagnostics",
   "keywords": [
     "virtual diagnostic",
     "laser plasma accelerator",

@@ -84,7 +84,7 @@ pin the exact version, then verify the SHA-256 from Git.
 After committing the diagnostic code, from the repository root:
 
 ```bash
-python lpa/Virtual_Diagnostics/release/prepare.py \
+python virtual-diagnostics/release/prepare.py \
   --artifacts local/virtual_diagnostics/artifacts \
   --output local/virtual_diagnostics/zenodo-draft-v1
 ```

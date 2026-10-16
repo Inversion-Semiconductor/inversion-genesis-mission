@@ -41,7 +41,7 @@ Use a separate Python 3.11+ environment. Install a CUDA-enabled PyTorch build
 for Kumo, or CPU PyTorch for codec-only use. From the repository root:
 
 ```bash
-python -m pip install -e 'lpa/Virtual_Diagnostics[kumo,images,dev]'
+python -m pip install -e 'virtual-diagnostics[kumo,images,dev]'
 ```
 
 The base package needs NumPy and PyTorch. `[kumo]` installs NVIDIA's
@@ -118,11 +118,11 @@ private NPZ of **prepared** image crops and aligned scalars. It can encode
 context rows or new query rows. Context target encoding is a separate operation.
 
 ```bash
-python lpa/Virtual_Diagnostics/examples/encode_context.py \
+python virtual-diagnostics/examples/encode_context.py \
   --artifacts /path/to/private/artifacts --images /path/to/prepared_train_images.npz \
   --context --output /path/to/context.npz
 
-python lpa/Virtual_Diagnostics/examples/predict.py \
+python virtual-diagnostics/examples/predict.py \
   --artifacts /path/to/private/artifacts --gpu 1 --show
 ```
 
@@ -164,7 +164,7 @@ and returns float32 coordinates.
 ## Validation
 
 ```bash
-python -m pytest -c lpa/Virtual_Diagnostics/pyproject.toml lpa/Virtual_Diagnostics/tests
+python -m pytest -c virtual-diagnostics/pyproject.toml virtual-diagnostics/tests
 ```
 
 Synthetic CPU tests need no private artifacts or GPU. Run them separately;
