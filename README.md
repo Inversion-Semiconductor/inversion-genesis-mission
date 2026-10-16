@@ -1,10 +1,12 @@
 # inversion-genesis-mission
 Repository for Genesis mission-related code.
 
-| Folder | What it contains | Key tech
-| - | - | -
-**`lpa/Simulation_FBPIC`** | PIC simulations for LPA injectors | FBPIC
-**`lpa/Simulation_Fluid`** | Fluid simulation analysis and parameterization of density lineouts | Ansys Fluent (data source) |
+| Folder | What it contains | Key tech |
+| - | - | - |
+| **[`geecs-lume-twin`](geecs-lume-twin/README.md)** | BELLA HTU virtual accelerator and digital twin served as EPICS PVs | LUME, Cheetah, EPICS |
+| **[`lpa`](lpa)** | [PIC simulations](lpa/Simulation_FBPIC/README.md) for LPA injectors and fluid simulation analysis | FBPIC, Ansys Fluent (data source) |
+| **[`tools`](tools)** | Repository utilities for recording Git provenance | Python |
+| **[`virtual-diagnostics`](virtual-diagnostics/README.md)** | Separate image encoders, Kumo prediction, and image decoding; private artifacts linked by manifests | PyTorch, Kumo |
 ---
 
 ## Quick start
