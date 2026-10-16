@@ -4,6 +4,7 @@ Repository for Genesis mission-related code.
 | Folder | What it contains | Key tech
 | - | - | -
 **`lpa/Simulation_FBPIC`** | PIC simulations for LPA injectors | FBPIC
+**`lpa/FBPIC_Warp`** | FBPIC fork with GPU kernels ported to NVIDIA Warp (BSD-3-Clause-LBNL) | NVIDIA Warp, CuPy
 **`lpa/Simulation_Fluid`** | Fluid simulation analysis and parameterization of density lineouts | Ansys Fluent (data source) |
 ---
 

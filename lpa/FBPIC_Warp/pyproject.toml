@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Keep the upstream distribution name. An editable install of this fork then
+# satisfies the unpinned `fbpic` requirement of sibling packages, so pip does
+# not also install FBPIC from PyPI. The `+warp.N` local version marks the fork.
+name = "fbpic"
+dynamic = ["version"]
+description = "FBPIC with NVIDIA Warp GPU kernels: spectral, quasi-3D Particle-In-Cell"
+readme = "README.md"
+license = "BSD-3-Clause-LBNL"
+license-files = ["LICENSE.txt", "LEGAL.txt"]
+requires-python = ">=3.11"
+# CuPy is not listed: install it from conda-forge (see environment.yml), so
+# that pip does not add a second, differently built CuPy.
+dependencies = [
+    "numpy",
+    "scipy",
+    "numba",
+    "h5py",
+    "python-dateutil",
+    # GPU kernels are validated against this exact Warp release. The CUDA 12
+    # wheel pinned in environment.yml (1.18.0+cu12) satisfies this pin.
+    "warp-lang==1.18.0",
+]
+
+[project.optional-dependencies]
+# picmistandard > 0.34.0 introduces a breaking API refactoring
+# (picmi-standard/picmi#133) which is not yet supported by FBPIC
+picmi = ["picmistandard<=0.34.0", "numexpr", "periodictable"]
+dev = ["pytest", "openPMD-viewer==1.11.0", "lasy==0.7.0", "matplotlib", "mpi4py"]
+
+[project.urls]
+Upstream = "https://github.com/fbpic/fbpic"
+
+[tool.setuptools.dynamic]
+version = { attr = "fbpic.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["fbpic*"]
+
+[tool.setuptools.package-data]
+"fbpic.particles.elementary_process.ionization" = ["atomic_data.txt"]
