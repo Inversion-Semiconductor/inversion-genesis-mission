@@ -8,6 +8,7 @@ from typing import TypeAlias
 
 import numpy as np
 import numpy.typing as npt
+from scipy.constants import c, e, m_e
 from scipy.interpolate import CubicSpline
 
 ParticleArray: TypeAlias = npt.NDArray[np.float64]
@@ -19,6 +20,17 @@ OFF = 0
 MOMENTS = 1
 SPLINE = 2
 LONGITUDINAL_PROFILE_BINS = 4
+
+
+def mean_kinetic_energy_mev(particles: np.ndarray, weights: np.ndarray) -> float:
+    """Return the charge-weighted mean electron kinetic energy in MeV.
+
+    Particles have columns x, ux, y, uy, z, uz, with normalized momentum
+    components. Weights are the corresponding particle macro-weights.
+    """
+    gamma = np.sqrt(1.0 + np.sum(particles[:, (1, 3, 5)] ** 2, axis=1))
+    kinetic_energy_mev = (gamma - 1.0) * m_e * c**2 / e / 1.0e6
+    return float(np.average(kinetic_energy_mev, weights=weights))
 
 
 def load_openpmd_particles(
