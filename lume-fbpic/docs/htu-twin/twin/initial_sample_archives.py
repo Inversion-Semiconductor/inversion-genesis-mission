@@ -19,10 +19,10 @@ so it can be served with `python -m lume_fbpic_twin.serve`.
 These are RECONSTRUCTED archives, not the runs themselves:
 
 1. There are no final particles and no `stats`; the dataset keeps only the 33 descriptor scalars.
-2. The config approximates the config that produced the numbers. `lume_fbpic` cannot match the
-   original interaction length (`right_buffer` must be positive, see `ionization_injection.py`
-   docstring), does not pass `p_zmin`/`p_rmax` to the particle loading, and the runs
-   used 8 MPI ranks on GPUs, which this records only as `use_mpi=True`.
+2. The config approximates the config that produced the numbers. `lume_fbpic` runs about 1%
+   past the original interaction length (`right_buffer` must be positive, see
+   `ionization_injection.py` docstring), and the runs used 8 MPI ranks on GPUs, which this
+   records only as `use_mpi=True`.
 3. Only inputs that have an action (laser energy, pulse duration, focal position, the nitrogen
    dopant fraction and the 12 Zernike coefficients) may differ from the `ionization_injection.py`
    baseline, which equals `sim_0000`. Any other input that differs raises an error rather than

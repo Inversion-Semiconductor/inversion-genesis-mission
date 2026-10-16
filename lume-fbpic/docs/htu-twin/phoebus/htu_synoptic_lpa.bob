@@ -66,7 +66,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -101,7 +101,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -136,7 +136,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -171,7 +171,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -194,7 +194,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -229,7 +229,7 @@
     <y>190</y>
     <width>16</width>
     <height>50</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -264,7 +264,7 @@
     <y>190</y>
     <width>16</width>
     <height>50</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -287,7 +287,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -322,7 +322,7 @@
     <y>190</y>
     <width>16</width>
     <height>50</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -357,7 +357,7 @@
     <y>190</y>
     <width>16</width>
     <height>50</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -380,7 +380,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -417,7 +417,7 @@
     <y>45</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -454,7 +454,7 @@
     <y>45</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -491,7 +491,7 @@
     <y>45</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -514,7 +514,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -549,7 +549,7 @@
     <y>195</y>
     <width>16</width>
     <height>60</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -572,7 +572,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -595,7 +595,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -618,7 +618,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -641,7 +641,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -664,7 +664,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -687,7 +687,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -710,7 +710,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -733,7 +733,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -756,7 +756,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -779,7 +779,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -802,7 +802,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -825,7 +825,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -848,7 +848,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -871,7 +871,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -894,7 +894,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -917,7 +917,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -940,7 +940,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -963,7 +963,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -986,7 +986,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1009,7 +1009,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1032,7 +1032,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1055,7 +1055,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1078,7 +1078,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1101,7 +1101,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1124,7 +1124,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1147,7 +1147,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1170,7 +1170,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1193,7 +1193,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1216,7 +1216,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1239,7 +1239,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1262,7 +1262,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1285,7 +1285,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1308,7 +1308,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1331,7 +1331,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1354,7 +1354,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1377,7 +1377,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1400,7 +1400,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1423,7 +1423,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1446,7 +1446,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1469,7 +1469,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1492,7 +1492,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1515,7 +1515,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1538,7 +1538,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1561,7 +1561,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1584,7 +1584,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1607,7 +1607,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1630,7 +1630,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1653,7 +1653,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1676,7 +1676,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1699,7 +1699,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1722,7 +1722,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1745,7 +1745,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1768,7 +1768,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1791,7 +1791,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1814,7 +1814,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1837,7 +1837,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1860,7 +1860,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1883,7 +1883,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1906,7 +1906,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1929,7 +1929,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1952,7 +1952,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1975,7 +1975,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -1998,7 +1998,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2021,7 +2021,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2044,7 +2044,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2067,7 +2067,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2090,7 +2090,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2113,7 +2113,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2136,7 +2136,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2159,7 +2159,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2182,7 +2182,7 @@
     <y>20</y>
     <width>16</width>
     <height>86</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2205,7 +2205,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2228,7 +2228,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2251,7 +2251,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2274,7 +2274,7 @@
     <y>55</y>
     <width>16</width>
     <height>56</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2311,7 +2311,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2348,7 +2348,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2385,7 +2385,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2422,7 +2422,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2482,7 +2482,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2519,7 +2519,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2556,7 +2556,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2593,7 +2593,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2630,7 +2630,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2667,7 +2667,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2704,7 +2704,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>
@@ -2741,7 +2741,7 @@
     <y>180</y>
     <width>16</width>
     <height>36</height>
-    <rotation_step>1</rotation_step>
+    <rotation_step>90.0</rotation_step>
     <font>
       <font family="Liberation Sans" style="REGULAR" size="10.0" />
     </font>

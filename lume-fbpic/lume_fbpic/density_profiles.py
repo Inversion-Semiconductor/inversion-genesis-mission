@@ -68,10 +68,10 @@ class GeneralizedGaussianProfile(_DensityProfile):
             gauss_beta=self.beta,
         )
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         half_width = self.z_extent_alphas * self.alpha
         return (self.z0 - half_width, self.z0 + half_width)
 
@@ -125,10 +125,10 @@ class LinearRampFlattop(_DensityProfile):
 
         return dens_func
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         return (self.ramp_start, self.ramp_start + self.ramp_length)
 
 
@@ -214,10 +214,10 @@ class UpDownRampProfile(_DensityProfile):
 
         return dens_func
 
-    def get_r_extent(self) -> float | None:
+    def _get_r_extent(self) -> float | None:
         return None
 
-    def get_z_extent(self) -> tuple[float, float]:
+    def _get_z_extent(self) -> tuple[float, float]:
         end = self.z_end if self.z_end is not None else self.z_down + self.down_length
         return (self.z_start, end)
 

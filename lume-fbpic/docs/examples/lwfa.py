@@ -13,8 +13,8 @@ Substitutions made in the conversion:
 - Laser duration: `TAU_FWHM` is the exact inverse of the conversion from the original's `tau`
   to `tau_fwhm`.
 - `a0 = 4.0` maps directly onto `GaussianLaserPulse(a0=...)`.
-- `p_rmax` is not reproduced: `_DensityProfile` does not pass it on, so macroparticles load out
-  to `rmax`.
+- `p_rmax` is not reproduced: the profile leaves it unset, so macroparticles load out to `rmax`.
+  `_DensityProfile` now passes `p_rmax` on to fbpic, so it could be set.
 
 After the run, the model is archived with its final particles as `lwfa.h5` and loaded back. The
 archive holds the config, the actions and the bunch, and serves as it is:

@@ -62,6 +62,11 @@ Run the second whenever the twin's synoptic changes. The twin's own files are on
 - The tests in `tests/test_phoebus_displays.py` check the generators and that the committed
   `lpa_bunch.bob` is up to date. `htu_synoptic_lpa.bob` is built from the twin's own synoptic, so
   regenerate it whenever that changes.
+- The twin's `generate_synoptic.py` writes `<rotation_step>90.0</rotation_step>` for its rotated
+  elements, but Phoebus's `rotation_step` is an enum (0 none, 1 = 90 degrees, 2 = 180, 3 = 270),
+  not degrees, so those elements are not rotated. The fix belongs in the twin, in
+  `geecs-lume-twin/display/generate_synoptic.py`: write `1`, then regenerate its `htu_synoptic.bob`.
+  `htu_synoptic_lpa.bob` copies the value, so regenerate it too after that fix.
 - A macro that a display file defines itself overrides the one given when opening it, so the two
   displays do not define `TWIN_DISPLAYS` and `P`: each reference to them has the default in it
   (`$(P=HTU:SIM:)`).

@@ -9,16 +9,16 @@ Substitutions, none of which makes it a bit-exact reproduction:
   species. Here two `GeneralizedGaussianProfile`s (He and N, same shape) do it, with
   `nominal_density` set to the atom density times the species' ionization levels, because
   `_DensityProfile` divides by the level count.
-- Particle loading: `p_zmin`/`p_rmax` are not passed through by `_DensityProfile`, so
-  macroparticles load over the whole grid. Same physics, more macroparticles.
 - Moving window: `beta_window` is computed from the original's simplified `v_window` formula.
-- Interaction length: the original's would need a negative `right_buffer`, which
-  `SimulationHyperparameters` rejects. `right_buffer` is left at its default, so the run is
-  about 15% longer (~13,600 steps against 11,813).
+- Interaction length: the original's is `z0 + 2.8 alpha`, from `p_zmin=0` to the end of the
+  jet. `p_zmin` clips the profiles' extent to that span, but `SimulationHyperparameters` adds a
+  `right_buffer` it requires to be positive, left at its default (the 70 um window), so the run
+  is about 1% longer.
 - Laser: `LasyLaserPulse` is used as is; `z0` is set as in `demo_lasy_laser_simulation`.
 - Species name: `electrons_n` here, `nitrogen_electrons` in the original's output.
-- `Simulation` passes `n_order=-1` (the original: 32) and always requests CUDA, which fbpic
-  downgrades to CPU when it is not installed.
+- `Simulation` passes the original's `n_order=32` only with `use_mpi=True` (`PRODUCTION`); this
+  single-process run gets `n_order=-1`. It always requests CUDA, which fbpic downgrades to CPU
+  when it is not installed.
 
 The constants below are a coarsened configuration for a CPU, not `sim_0000`'s production grid
 (`PRODUCTION`): `nz=1000`, `nr=100`, `nm=2`, a (300, 450) / 2-mode LASY grid, `p_nt=4`, 10
@@ -70,6 +70,8 @@ GAMMA_BOOST = 1.5
 NUMBER_DUMPS = 10
 WRITE_PERIOD = 10
 P_NZ, P_NR, P_NT = 2, 2, 4
+# sim_0000's particle-loading bounds, as passed to `add_new_species()`.
+P_ZMIN, P_RMAX = 0.0, 90.0e-6
 
 # --- LASY laser grid, coarsened to match (sim_0000's in `PRODUCTION`) ---
 LASER_N_AZIMUTHAL_MODES = 2
@@ -139,7 +141,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         t_start=T_START,
         n_azimuthal_modes=LASER_N_AZIMUTHAL_MODES,
         num_points=LASER_NUM_POINTS,
-        hi_range=8.0,
+        hi_range=10.0,  # sim_0000's runscript overrides the template's 8.0
         center_and_remove_tilt=True,
         centering_angles=72,
         lasy_file=Path("diags") / "lasy_laser",
@@ -151,6 +153,8 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         nominal_density=nominal_density("He", n_gas * (1.0 - NITROGEN_DOPANT_FRACTION)),
         species="He",
         ionization=0,
+        p_zmin=P_ZMIN,
+        p_rmax=P_RMAX,
         p_nz=P_NZ,
         p_nr=P_NR,
         p_nt=P_NT,
@@ -164,6 +168,8 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         nominal_density=nominal_density("N", n_gas * NITROGEN_DOPANT_FRACTION),
         species="N",
         ionization=0,
+        p_zmin=P_ZMIN,
+        p_rmax=P_RMAX,
         p_nz=P_NZ,
         p_nr=P_NR,
         p_nt=P_NT,
