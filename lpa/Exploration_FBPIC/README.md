@@ -33,7 +33,7 @@ production campaign template. It contains:
 - readable scaled input coordinates via `linear_scale` (default `1`), with physical
   values restored before FBPIC execution;
 - active dimensions for each study stage;
-- fixed numerical/execution settings, and descriptor extraction settings.
+- fixed numerical/execution settings and the scalar diagnostic outputs used for exploration.
 
 The configuration fingerprint is written to every `run_manifest.json`. Change bounds
 or active stages as needed; do not change the frozen template, numerical settings,
@@ -47,15 +47,37 @@ bounds, stages, and fixed execution settings. The generated entrypoint imports t
 module named by `template_script`'s filename and the configured class (default:
 `IonizationInjectionSimulation`). The executor, campaign store, scalar extraction,
 and Slurm dispatch remain unchanged when that class accepts the physical and
-hyperparameter mappings, provides a `.run()` method, and writes the same final
-openPMD particle diagnostic.
+hyperparameter mappings, provides a `.run()` method, and writes the saved-analysis
+contract described below.
 
 If the template moves to a configuration-based constructor or CLI, adapt
 `FBPICRunExecutor._write_entrypoint` to write the template's per-run configuration
 from the manifest and invoke its new run method. The rest of the exploration workflow
-can remain unchanged as long as the diagnostic path, particle species, and openPMD
-layout stay compatible. Update `extract_features` only when that output contract or
-the desired scalar calculations change.
+can remain unchanged as long as the saved datapoint contract stays compatible.
+Update `extract_features` only when that output contract changes.
+
+### Saved analysis results
+
+The template calculates its diagnostics during the configuration-based run and
+writes a `ConfigContainer` to `results/datapoint.json` by default. The executor
+loads the diagnostic result dictionaries from that file; it does not reload raw
+openPMD particles or repeat selection, cropping, or calculations. Parameter metadata
+is ignored, and nested containers are supported.
+
+Set `execution.hyperparameters.results_directory` to use another results directory;
+relative paths are resolved inside each run directory. JSON, YAML, and HDF5 datapoints
+are supported. HDF5 uses the template's `/results` group. Keep exactly one
+`datapoint` config in that directory so stale files in another format cannot be
+selected accidentally.
+
+Every returned feature must be a unique, finite numeric scalar, and all names in
+`analysis.exploration_features` must be present. Missing or invalid saved results
+fail extraction rather than triggering fresh analysis. Diagnostic targets and
+options belong to the template; particle filters and cropping are controlled by
+`execution.hyperparameters.analysis_select` and `analysis_central_fraction`.
+Legacy `analysis.species`, `uz_min`, `central_fraction`, and `longitudinal_bins`
+settings are no longer used by the executor. Raw particle dumps are not required
+for feature extraction.
 
 ## Stage 1
 
@@ -69,10 +91,10 @@ explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 initial-design \
   --count 24 --seed 0 --output initial_design.json
 ```
 
-The existing FBPIC utilities reduce each final diagnostic to the fixed 33-scalar
-moment descriptor plus optional skewness and excess kurtosis. Each completed run also
-gets `result.json`, stdout/stderr logs, and an append-only `campaign_runs.parquet`
-record under `data/ionization_injection_exploration/`.
+The template's diagnostics save the fixed 33-scalar moment descriptor and mean
+kinetic energy. The executor copies these saved scalars into `result.json`, alongside
+stdout/stderr logs and an append-only `campaign_runs.parquet` record under
+`data/ionization_injection_exploration/`.
 
 ## Local smoke evaluation
 
@@ -84,8 +106,8 @@ explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 evaluate \
 ```
 
 This creates an isolated run directory, writes the full physical vector to
-`run_manifest.json`, launches `run_fbpic.py`, and extracts the final particle
-diagnostic. It is expected to consume normal FBPIC resources.
+`run_manifest.json`, launches `run_fbpic.py`, and reads its saved diagnostic
+results. It is expected to consume normal FBPIC resources.
 
 ## Inspecting density ramps
 

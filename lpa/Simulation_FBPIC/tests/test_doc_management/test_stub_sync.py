@@ -584,6 +584,23 @@ def test_diagnostics_stub_includes_analysis_contract_and_inherited_data() -> Non
     assert "def attached_simulation(self) -> Simulation:" in diagnostics
 
 
+def test_mean_kinetic_energy_stub_includes_inherited_particle_inputs() -> None:
+    pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
+    ast.parse(pyi)
+    diagnostic = pyi.split("class MeanKineticEnergy(_ParticleDiagnostic):")[1].split(
+        "\n\nclass "
+    )[0]
+    assert "        data: dict[str, Any] = ...," in diagnostic
+    assert (
+        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        in diagnostic
+    )
+    assert "        select: dict[str, list[float | None]] | None = None," in diagnostic
+    assert "        central_fraction: float | None = None," in diagnostic
+    assert "def _analyze(self) -> dict[str, float]:" in diagnostic
+    assert "@abstractmethod" not in diagnostic
+
+
 def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None:
     pyi = generate_module_pyi("diagnostics", lib_dir=LIB_DIR)
     ast.parse(pyi)
@@ -593,9 +610,13 @@ def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None
         in descriptor
     )
     assert "        select: dict[str, list[float | None]] | None = None," in descriptor
+    assert "        central_fraction: float | None = None," in descriptor
     assert "selection:" not in descriptor
     assert "        species: str," not in descriptor
     assert "        data: dict[str, Any] = ...," in descriptor
+    for name in ("OFF", "MOMENTS", "SPLINE", "LONGITUDINAL_PROFILE_BINS"):
+        assert f"    {name}: ClassVar[int]" in descriptor
+        assert f"        {name}:" not in descriptor
     assert "longitudinal_mode: int = SPLINE" in descriptor
     assert "longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS" in descriptor
     assert "include_higher_moments: bool = False" in descriptor
@@ -616,6 +637,8 @@ def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> Non
     )
     assert "    select: dict[str, list[float | None]] | None\n" in particle
     assert "        select: dict[str, list[float | None]] | None = None," in particle
+    assert "    central_fraction: float | None\n" in particle
+    assert "        central_fraction: float | None = None," in particle
     assert "selection:" not in particle
     assert "def load_particles(self) -> tuple[ParticleArray, WeightArray]:" in particle
     assert "SUBCLASS:" not in particle

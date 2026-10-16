@@ -89,10 +89,6 @@ analysis:
     - cov_x_x
     - cov_y_y
     - cov_uz_uz
-  species: nitrogen_electrons
-  uz_min: 30.0
-  central_fraction: 0.95
-  longitudinal_bins: 4
   keep_raw_diagnostics: true
 
 # All numerical choices remain fixed for every stage. Per-run paths are created
@@ -116,7 +112,9 @@ execution:
     helium_p_nt: 10
     p_zmax: 10.0e-3
     r_boundary: reflective
-    diagnostic_select: {uz: [10.0, null]}
+    diagnostic_select: {uz: [20.0, null]}
+    analysis_select: {uz: [20.0, null]}
+    analysis_central_fraction: 0.95
     dump_fields: false
     plot_movies: false
     number_dumps_lab: 2

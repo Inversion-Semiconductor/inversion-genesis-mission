@@ -19,7 +19,9 @@ from inversion_fbpic.utils.distributions import (
     SPLINE,
     WeightArray,
     compute_moment_descriptor,
+    crop_central_particles,
     load_openpmd_particles,
+    mean_kinetic_energy_mev,
 )
 
 if TYPE_CHECKING:
@@ -143,7 +145,9 @@ class _ParticleDiagnostic(_Diagnostic):
     resolves ``target`` against attached density profiles and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
     are loaded only once. ``select`` applies additional openPMD-viewer particle
-    filtering to each recording before concatenation.
+    filtering to each recording before concatenation. When ``central_fraction``
+    is not None, crop the combined distribution about its weighted mean on all
+    six coordinates using ``crop_central_particles``.
 
     Concrete subclasses implement ``_analyze()`` and call ``load_particles()``
     to obtain the input for their calculation. This base has no concrete tag.
@@ -160,6 +164,9 @@ class _ParticleDiagnostic(_Diagnostic):
             [minimum, maximum] ranges; None bounds are unbounded. For example,
             {"uz": [10.0, None]}. Defaults to None. None or an empty dict applies
             no further filtering.
+        central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
+            retain on each coordinate after combining recordings. Must be
+            strictly between 0 and 1. Defaults to None, which disables cropping.
     """
 
     target: (
@@ -169,6 +176,13 @@ class _ParticleDiagnostic(_Diagnostic):
     select: dict[str, list[float | None]] | None = attrs.field(
         default=None,
         validator=attrs.validators.optional(attrs.validators.instance_of(dict)),
+    )
+    central_fraction: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
+        validator=attrs.validators.optional(
+            [attrs.validators.gt(0.0), attrs.validators.le(1.0)]
+        ),
     )
 
     @target.validator
@@ -227,14 +241,16 @@ class _ParticleDiagnostic(_Diagnostic):
         """Load and concatenate selected particles and weights from the latest dump.
 
         ``select`` is passed to openPMD-viewer's ``get_particle(select=...)``
-        for each recording identified by ``target``.
+        for each recording identified by ``target``. If ``central_fraction`` is
+        set, crop the concatenated particles and weights before returning them.
 
         Returns:
             A float64 particle array of shape (N, 6), ordered x, ux, y, uy, z,
             uz, and its corresponding macro-weights of shape (N,).
 
         Raises:
-            ValueError: If unattached, no recordings match, or no output exists.
+            ValueError: If unattached, no recordings match, no output exists,
+                or fewer than two usable particles remain after cropping.
             Exception: Errors from the openPMD loader propagate unchanged.
         """
         names = self._selected_recordings()
@@ -260,7 +276,29 @@ class _ParticleDiagnostic(_Diagnostic):
         weights = np.concatenate(
             [distribution[1] for distribution in distributions], axis=0
         )
+        if self.central_fraction is not None:
+            particles, weights = crop_central_particles(
+                particles, weights, central_fraction=self.central_fraction
+            )
         return particles, weights
+
+
+@attrs.define(kw_only=True, slots=False)
+class MeanKineticEnergy(_ParticleDiagnostic):
+    """Compute the charge-weighted mean electron kinetic energy in MeV.
+
+    Loads selected particles from the attached simulation's latest dump using
+    the inherited ``target`` and ``select`` inputs. All three normalized
+    momentum components contribute, using the electron rest mass. Runs after
+    the simulation and stores the result in ``data["mean_kinetic_energy_MeV"]``.
+    """
+
+    SUBCLASS: ClassVar[str] = "mean_kinetic_energy"
+    RUN_BEFORE_SIMULATION: ClassVar[bool] = False
+
+    def _analyze(self) -> dict[str, float]:
+        particles, weights = self.load_particles()
+        return {"mean_kinetic_energy_MeV": mean_kinetic_energy_mev(particles, weights)}
 
 
 @attrs.define(kw_only=True, slots=False)
@@ -285,6 +323,11 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
 
     SUBCLASS: ClassVar[str] = "moment_descriptor"
     RUN_BEFORE_SIMULATION: ClassVar[bool] = False
+
+    OFF: ClassVar[int] = OFF
+    MOMENTS: ClassVar[int] = MOMENTS
+    SPLINE: ClassVar[int] = SPLINE
+    LONGITUDINAL_PROFILE_BINS: ClassVar[int] = LONGITUDINAL_PROFILE_BINS
 
     longitudinal_mode: int = attrs.field(
         default=SPLINE, validator=attrs.validators.in_((OFF, MOMENTS, SPLINE))

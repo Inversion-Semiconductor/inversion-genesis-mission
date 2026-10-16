@@ -17,6 +17,7 @@ from inversion_fbpic.lib.datapoint import _Datapoint, Parameters
 from inversion_fbpic.lib.diagnostics import (
     _Diagnostic,
     _ParticleDiagnostic,
+    MeanKineticEnergy,
     MomentDescriptorDiagnostic,
 )
 from inversion_fbpic.lib.serializable_config import SerializableConfig
@@ -389,8 +390,11 @@ def test_particle_loading_does_not_mutate_analysis_state(
     calculation = Mock(
         side_effect=AssertionError("Loading must not compute a descriptor")
     )
+    cropper = Mock(side_effect=AssertionError("Default loading must not crop"))
     monkeypatch.setattr(module, "load_openpmd_particles", loader)
     monkeypatch.setattr(module, "compute_moment_descriptor", calculation)
+    monkeypatch.setattr(module, "crop_central_particles", cropper)
+    assert diagnostic.central_fraction is None
     previous = {"saved": 1.0}
     diagnostic.data = previous
     particles, weights = diagnostic.load_particles()
@@ -400,6 +404,95 @@ def test_particle_loading_does_not_mutate_analysis_state(
     assert not diagnostic.analysis_complete
     loader.assert_called_once_with(latest, "electrons", select=None)
     calculation.assert_not_called()
+    cropper.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "diagnostic_class", [MeanKineticEnergy, MomentDescriptorDiagnostic]
+)
+@pytest.mark.parametrize("central_fraction", [0.0, -0.1, 1.1, np.nan, np.inf, -np.inf])
+def test_particle_diagnostic_rejects_invalid_central_fraction(
+    diagnostic_class, central_fraction
+) -> None:
+    with pytest.raises(ValueError, match="central_fraction"):
+        diagnostic_class(
+            target=("all_of_species", "e"), central_fraction=central_fraction
+        )
+
+
+@pytest.mark.parametrize(
+    "diagnostic_class", [MeanKineticEnergy, MomentDescriptorDiagnostic]
+)
+def test_particle_diagnostic_crops_combined_recordings(
+    moment_simulation, moment_particles, monkeypatch, diagnostic_class
+) -> None:
+    from inversion_fbpic.lib import diagnostics as module
+    from inversion_fbpic.utils.distributions import crop_central_particles
+
+    simulation, _ = moment_simulation
+    simulation.densities.append(
+        attrs.evolve(simulation.densities[0], elec_name="second")
+    )
+    diagnostic = diagnostic_class(
+        target=("elec_name", ["electrons", "second"]),
+        select={"uz": [0.0, None]},
+        central_fraction=0.8,
+    )
+    simulation._sort_component(diagnostic)
+    directory = simulation._save_directory / "hdf5"
+    directory.mkdir(parents=True)
+    latest = directory / "data10.h5"
+    latest.touch()
+    particles, weights = moment_particles
+    loader = Mock(
+        side_effect=[
+            (particles[:128], weights[:128]),
+            (particles[128:], weights[128:]),
+        ]
+    )
+    cropper = Mock(wraps=crop_central_particles)
+    monkeypatch.setattr(module, "load_openpmd_particles", loader)
+    monkeypatch.setattr(module, "crop_central_particles", cropper)
+    expected_particles, expected_weights = crop_central_particles(
+        particles, weights, central_fraction=0.8
+    )
+
+    loaded_particles, loaded_weights = diagnostic.load_particles()
+
+    assert len(loaded_particles) < len(particles)
+    np.testing.assert_array_equal(loaded_particles, expected_particles)
+    np.testing.assert_array_equal(loaded_weights, expected_weights)
+    assert [entry.args for entry in loader.call_args_list] == [
+        (latest, "electrons"),
+        (latest, "second"),
+    ]
+    assert all(
+        entry.kwargs == {"select": diagnostic.select} for entry in loader.call_args_list
+    )
+    cropper.assert_called_once()
+    np.testing.assert_array_equal(cropper.call_args.args[0], particles)
+    np.testing.assert_array_equal(cropper.call_args.args[1], weights)
+    assert cropper.call_args.kwargs == {"central_fraction": 0.8}
+
+
+@pytest.mark.parametrize(
+    "diagnostic_class", [MeanKineticEnergy, MomentDescriptorDiagnostic]
+)
+@pytest.mark.parametrize("central_fraction", [None, 0.95])
+@pytest.mark.parametrize("method", SERIALIZERS)
+def test_particle_diagnostic_central_fraction_round_trip(
+    diagnostic_class, central_fraction, method, tmp_path
+) -> None:
+    diagnostic = diagnostic_class(
+        target=("all_of_species", "e"), central_fraction=central_fraction
+    )
+    loaded = _round_trip(diagnostic, method, tmp_path)
+    assert type(loaded) is diagnostic_class
+    assert loaded.central_fraction == central_fraction
+    assert diagnostic.to_dict()["parameters"]["central_fraction"] == central_fraction
+    assert (
+        "central_fraction" in diagnostic.to_dict(include_nones=False)["parameters"]
+    ) is (central_fraction is not None)
 
 
 def test_another_particle_diagnostic_reuses_data_gathering(
@@ -437,6 +530,71 @@ def test_another_particle_diagnostic_reuses_data_gathering(
         "total_weight": float(moment_particles[1].sum()),
     }
     assert diagnostic.analysis_complete
+
+
+def test_mean_kinetic_energy_analyzes_latest_selected_particles(
+    moment_simulation, monkeypatch
+) -> None:
+    from inversion_fbpic.lib import diagnostics as module
+
+    simulation, _ = moment_simulation
+    diagnostic = MeanKineticEnergy(
+        target=("elec_name", "electrons"), select={"uz": [1.0, None]}
+    )
+    simulation._sort_component(diagnostic)
+    assert isinstance(diagnostic, _ParticleDiagnostic)
+    assert diagnostic.RUN_BEFORE_SIMULATION is False
+    assert diagnostic.data == {}
+    assert not diagnostic.analysis_complete
+    directory = simulation._save_directory / "hdf5"
+    directory.mkdir(parents=True)
+    (directory / "data9.h5").touch()
+    latest = directory / "data10.h5"
+    latest.touch()
+    particles = np.zeros((2, 6))
+    particles[1, (1, 3, 5)] = 1.0
+    loader = Mock(return_value=(particles, np.array([1.0, 3.0])))
+    monkeypatch.setattr(module, "load_openpmd_particles", loader)
+
+    diagnostic.analyze()
+
+    assert diagnostic.analysis_complete
+    assert diagnostic.data == {
+        "mean_kinetic_energy_MeV": pytest.approx(0.51099895 * 3.0 / 4.0)
+    }
+    loader.assert_called_once_with(latest, "electrons", select=diagnostic.select)
+
+
+@pytest.mark.parametrize("method", SERIALIZERS)
+def test_mean_kinetic_energy_round_trip(tmp_path: Path, method: str) -> None:
+    diagnostic = MeanKineticEnergy(
+        target=("elec_name", ["electrons_he", "electrons_n2"]),
+        select={"uz": [10.0, None]},
+        data={"mean_kinetic_energy_MeV": 1.25},
+    )
+    loaded = _round_trip(diagnostic, method, tmp_path)
+    assert type(loaded) is MeanKineticEnergy
+    assert loaded.SUBCLASS == "mean_kinetic_energy"
+    assert loaded.target == diagnostic.target
+    assert loaded.select == diagnostic.select
+    assert loaded.data == diagnostic.data
+    assert not loaded.analysis_complete
+    with pytest.raises(ValueError, match="Attach"):
+        loaded.attached_simulation
+
+
+def test_mean_kinetic_energy_failure_preserves_previous_data(monkeypatch) -> None:
+    diagnostic = MeanKineticEnergy(target=("all_of_species", "e"))
+    loader = Mock(return_value=(np.zeros((2, 6)), np.ones(2)))
+    monkeypatch.setattr(diagnostic, "load_particles", loader)
+    diagnostic.analyze()
+    previous = diagnostic.data
+    assert diagnostic.analysis_complete
+    loader.return_value = (np.zeros((2, 6)), np.zeros(2))
+    with pytest.raises(ZeroDivisionError):
+        diagnostic.analyze()
+    assert diagnostic.data is previous
+    assert not diagnostic.analysis_complete
 
 
 def test_simulation_attaches_nested_diagnostic(moment_simulation) -> None:
@@ -499,7 +657,35 @@ def test_moment_descriptor_selects_highest_iteration_and_stores_results(
     loader.assert_called_once_with(directory / "data11.h5", "electrons", select=None)
 
 
-@pytest.mark.parametrize("mode", [0, 1, 2])
+def test_moment_descriptor_exposes_constants_as_class_variables() -> None:
+    from inversion_fbpic.utils import distributions
+
+    diagnostic = MomentDescriptorDiagnostic(target=("elec_name", "electrons"))
+    fields = {field.name for field in attrs.fields(MomentDescriptorDiagnostic)}
+    constructor_parameters = inspect.signature(MomentDescriptorDiagnostic).parameters
+    serialized_parameters = diagnostic.to_dict()["parameters"]
+    for name in ("OFF", "MOMENTS", "SPLINE", "LONGITUDINAL_PROFILE_BINS"):
+        expected = getattr(distributions, name)
+        assert getattr(MomentDescriptorDiagnostic, name) == expected
+        assert getattr(diagnostic, name) == expected
+        assert name not in fields
+        assert name not in constructor_parameters
+        assert name not in serialized_parameters
+    assert diagnostic.longitudinal_mode == MomentDescriptorDiagnostic.SPLINE
+    assert (
+        diagnostic.longitudinal_bins
+        == MomentDescriptorDiagnostic.LONGITUDINAL_PROFILE_BINS
+    )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        MomentDescriptorDiagnostic.OFF,
+        MomentDescriptorDiagnostic.MOMENTS,
+        MomentDescriptorDiagnostic.SPLINE,
+    ],
+)
 def test_moment_descriptor_forwards_all_options(
     moment_simulation, moment_particles, monkeypatch, mode: int
 ) -> None:

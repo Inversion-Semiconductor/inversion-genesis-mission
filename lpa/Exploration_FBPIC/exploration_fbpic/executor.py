@@ -5,30 +5,20 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
+import math
+from numbers import Real
 from pathlib import Path
 import subprocess
 import time
 from typing import Any, Mapping
 
-import numpy as np
-from scipy.constants import c, e, m_e
-
+from inversion_fbpic.lib.config_container import ConfigContainer
+from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.utils.distributions import (
-    SPLINE,
-    compute_moment_descriptor,
-    crop_central_particles,
-    load_openpmd_particles,
-    select_by_uz,
+    mean_kinetic_energy_mev as mean_kinetic_energy_mev,
 )
 
 from .campaign import Campaign, RunManifest
-
-
-def mean_kinetic_energy_mev(particles: np.ndarray, weights: np.ndarray) -> float:
-    """Return the charge-weighted mean electron kinetic energy in MeV."""
-    gamma = np.sqrt(1.0 + np.sum(particles[:, (1, 3, 5)] ** 2, axis=1))
-    kinetic_energy_mev = (gamma - 1.0) * m_e * c**2 / e / 1.0e6
-    return float(np.average(kinetic_energy_mev, weights=weights))
 
 
 @dataclass(frozen=True)
@@ -165,29 +155,67 @@ if __name__ == "__main__":
             )
 
     def extract_features(self, run_directory: Path) -> dict[str, float]:
-        """Extract spline descriptors and kinetic energy from the final diagnostic."""
-        analysis = self.config.analysis
-        diagnostics = sorted((run_directory / "lab_diags" / "hdf5").glob("data*.h5"))
-        if not diagnostics:
-            raise FileNotFoundError("no particle diagnostic produced by FBPIC")
-        particles, weights = load_openpmd_particles(
-            diagnostics[-1], analysis["species"]
+        """Read scalar diagnostic results saved by the template, without analyzing.
+
+        Load the sole ``datapoint`` config in the configured results directory
+        (``results`` by default). HDF5 datapoints use the template's ``/results``
+        group. Parameter metadata is ignored, and nested containers are supported.
+        """
+        hyperparameters = self.config.execution.get("hyperparameters", {})
+        results_directory = Path(hyperparameters.get("results_directory", "results"))
+        if not results_directory.is_absolute():
+            results_directory = run_directory / results_directory
+        suffixes = {".json", ".jsn", ".yaml", ".yml", ".h5", ".hdf5"}
+        paths = sorted(
+            path
+            for path in results_directory.glob("datapoint.*")
+            if path.is_file() and path.suffix.lower() in suffixes
         )
-        particles, weights = select_by_uz(
-            particles, weights, uz_min=float(analysis["uz_min"])
-        )
-        particles, weights = crop_central_particles(
-            particles, weights, central_fraction=float(analysis["central_fraction"])
-        )
-        features = compute_moment_descriptor(
-            particles,
-            weights,
-            longitudinal_mode=SPLINE,
-            longitudinal_bins=int(analysis["longitudinal_bins"]),
-        )
-        features["mean_kinetic_energy_MeV"] = mean_kinetic_energy_mev(
-            particles, weights
-        )
+        if not paths:
+            raise FileNotFoundError(
+                f"No saved datapoint config found in {results_directory}"
+            )
+        if len(paths) != 1:
+            raise ValueError(
+                f"Multiple saved datapoint configs found in {results_directory}"
+            )
+        path = paths[0]
+        if path.suffix.lower() in {".h5", ".hdf5"}:
+            datapoint = ConfigContainer.from_hdf5_file(path, group_path="/results")
+        else:
+            datapoint = ConfigContainer.from_file(path)
+        if not isinstance(datapoint, ConfigContainer):
+            raise ValueError(f"Saved datapoint {path} must be a ConfigContainer")
+
+        features: dict[str, float] = {}
+
+        def collect(container: ConfigContainer) -> None:
+            for config in container.configs:
+                if isinstance(config, ConfigContainer):
+                    collect(config)
+                elif isinstance(config, _Diagnostic):
+                    for name, value in config.data.items():
+                        if name in features:
+                            raise ValueError(
+                                f"Duplicate saved diagnostic feature: {name}"
+                            )
+                        if not isinstance(value, Real) or isinstance(value, bool):
+                            raise ValueError(
+                                f"Saved diagnostic feature {name} must be numeric"
+                            )
+                        scalar = float(value)
+                        if not math.isfinite(scalar):
+                            raise ValueError(
+                                f"Saved diagnostic feature {name} must be finite"
+                            )
+                        features[name] = scalar
+
+        collect(datapoint)
+        if not features:
+            raise ValueError(f"No scalar diagnostic results found in {path}")
+        missing = sorted(set(self.config.exploration_features) - features.keys())
+        if missing:
+            raise ValueError(f"Missing saved exploration features: {missing}")
         return features
 
     @staticmethod

@@ -16,6 +16,7 @@ from inversion_fbpic.lib import (
     density_profiles as dn,
     laser as ls,
     simulation as sm,
+    diagnostics as dg,
     datapoint as dp,
     config_container as cc,
 )
@@ -25,7 +26,7 @@ _MOVIE_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fbpic-mo
 _LOGGER = logging.getLogger(__name__)
 
 _SERIALIZATION_FORMAT: Literal["json", "yaml", "h5"] = "json"
-_PARAMETERS_FORMAT: Literal["json", "yaml", "h5"] = "json"
+_DATAPOINT_FORMAT: Literal["json", "yaml", "h5"] = "json"
 
 
 class IonizationInjectionSimulation:
@@ -76,6 +77,8 @@ class IonizationInjectionSimulation:
         "r_boundary": "reflective",
         "p_zmax": None,
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
+        "analysis_select": {"uz": [10.0, None]},  # which particles are analyzed
+        "analysis_central_fraction": 0.95,
         "dump_fields": False,
         "plot_movies": False,
         "number_dumps_lab": 100,
@@ -408,7 +411,7 @@ class IonizationInjectionSimulation:
             r_boundary=hyperparameters["r_boundary"],
         )
 
-        parameters = cc.ConfigContainer(
+        datapoint = cc.ConfigContainer(
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
@@ -416,44 +419,45 @@ class IonizationInjectionSimulation:
                     label="resolved_density_parameters",
                     data={**left_density_parameters, **right_density_parameters},
                 ),
+                dg.MomentDescriptorDiagnostic(
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["analysis_select"],
+                    longitudinal_mode=dg.MomentDescriptorDiagnostic.SPLINE,
+                    longitudinal_bins=dg.MomentDescriptorDiagnostic.LONGITUDINAL_PROFILE_BINS,
+                    include_total_weight=False,
+                    include_higher_moments=False,
+                    central_fraction=hyperparameters["analysis_central_fraction"],
+                ),
+                dg.MeanKineticEnergy(
+                    target=("all_of_species", "e"),
+                    select=hyperparameters["analysis_select"],
+                    central_fraction=hyperparameters["analysis_central_fraction"],
+                ),
             ]
         )
 
-        return sm.Simulation(elements=[hyp, density_he, density_n2, laser, parameters])
+        return sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
 
     def run(self) -> None:
         """Run and save the simulation, then queue optional background movies."""
         hyperparameters = self.hyperparameters
-        left_density_parameters = self._resolved_density_ramp_parameters("left")
-        right_density_parameters = self._resolved_density_ramp_parameters("right")
         sim = self.build_simulation()
-        parameters = cc.ConfigContainer(
-            configs=[
-                dp.Parameters(label="hyperparameters", data=hyperparameters),
-                dp.Parameters(
-                    label="physical_parameters", data=self.physical_parameters
-                ),
-                dp.Parameters(
-                    label="resolved_density_parameters",
-                    data={**left_density_parameters, **right_density_parameters},
-                ),
-            ]
-        )
+        datapoint = cc.ConfigContainer(configs=[*sim.parameters, *sim.diagnostics])
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard
-            # contains all simulation parameters and element metadata
+            # contains all simulation parameters, analyzed diagnostics, and element metadata
             sim.to_file(
                 Path(hyperparameters["results_directory"])
                 / f"simulation.{_SERIALIZATION_FORMAT}",
                 _SERIALIZATION_FORMAT,
                 overwrite=True,
             )
-            # contains only the simulation parameters
-            parameters.to_file(
+            # contains only the simulation parameters and analyzed diagnostics
+            datapoint.to_file(
                 Path(hyperparameters["results_directory"])
-                / f"parameters.{_PARAMETERS_FORMAT}",
-                _PARAMETERS_FORMAT,
+                / f"datapoint.{_DATAPOINT_FORMAT}",
+                _DATAPOINT_FORMAT,
                 group_path="/results",
                 overwrite=True,
             )
