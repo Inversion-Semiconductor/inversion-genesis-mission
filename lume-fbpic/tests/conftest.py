@@ -15,7 +15,9 @@ from pathlib import Path
 # fbpic's numba kernels use every core by default, and threaded charge and current deposition adds
 # up in an order that depends on the thread count; one thread makes the runs repeat on any
 # machine. The environment covers a numba not imported yet, `set_num_threads()` one that another
-# package's tests already imported (the root `pytest.ini` collects every package).
+# package's tests already imported (the root `pytest.ini` collects every package). The root
+# `conftest.py` sets the variable first when the whole repo is collected: numba raises if it changes
+# once its threads have started.
 os.environ["NUMBA_NUM_THREADS"] = "1"
 
 import numba  # noqa: E402
