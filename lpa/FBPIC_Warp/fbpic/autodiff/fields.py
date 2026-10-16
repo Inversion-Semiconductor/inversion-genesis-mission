@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Differentiate FP64 field payloads with fixed grid coefficients.
 
 These eager Warp kernels preserve their input buffers. Callers supply distinct

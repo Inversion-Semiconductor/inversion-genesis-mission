@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Check fused-forward deposition gradients with fixed sorted-cell metadata."""
 
 import os

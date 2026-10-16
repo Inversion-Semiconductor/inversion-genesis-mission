@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Retain borrowed CuPy arrays and shared gradient buffers for operator tapes."""
 
 from typing import Any

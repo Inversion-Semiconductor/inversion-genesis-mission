@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Out-of-place FP64 particle kernels for eager reverse differentiation.
 
 Floating inputs and outputs must use distinct allocations. Grid geometry,
@@ -148,12 +150,6 @@ def get_gather_kernel() -> wp.Kernel:
     Integer cell choices and domain masks stay fixed within each smooth region.
     The exact axis and cell or domain boundaries need separate derivative rules.
     """
-    from fbpic.particles.gathering.cuda_methods_fused import (
-        gather_field_gpu_linear_five_modes,
-    )
+    from fbpic.particles.gathering.cuda_methods_fused import make_kernel
 
-    return wp.kernel(
-        gather_field_gpu_linear_five_modes.kernel.func,
-        enable_backward=True,
-        module="unique",
-    )
+    return wp.kernel(make_kernel(0, 5).func, enable_backward=True, module="unique")

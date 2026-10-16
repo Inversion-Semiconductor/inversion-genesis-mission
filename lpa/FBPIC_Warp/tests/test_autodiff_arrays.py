@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Check borrowed gradient views and composition on the shared GPU stream."""
 
 import numpy as np

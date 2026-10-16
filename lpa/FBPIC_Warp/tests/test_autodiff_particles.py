@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Verify particle primal parity and scaled FP64 reverse derivatives."""
 
 import os
@@ -238,19 +240,25 @@ def _gather_fixture():
 
 
 def _launch_gather(values, device, kernel=None):
+    from fbpic.particles.gathering.cuda_methods_fused import (
+        FIELD_NAMES,
+        GroupFields,
+        ModeFields,
+    )
+
     count = values["x"].shape[0]
     result = _outputs(ELECTRIC + MAGNETIC, count, device)
-    grids = [
-        values[f"{field}_{mode}"]
-        for mode in range(5)
-        for field in ("Er", "Et", "Ez", "Br", "Bt", "Bz")
-    ]
+    fields = GroupFields()
+    for mode in range(5):
+        grids = ModeFields()
+        for field in FIELD_NAMES:
+            setattr(grids, field, values[f"{field}_{mode}"])
+        setattr(fields, f"mode{mode}", grids)
     wp.launch(
         get_gather_kernel() if kernel is None else kernel,
         dim=count,
         inputs=[values[name] for name in POSITIONS]
-        + [18e-6, 1 / 2e-6, -5e-6, 8, 1 / 3e-6, 0.0, 6]
-        + grids,
+        + [18e-6, 1 / 2e-6, -5e-6, 8, 1 / 3e-6, 0.0, 6, fields],
         outputs=list(result.values()),
         device=device,
     )
@@ -258,20 +266,18 @@ def _launch_gather(values, device, kernel=None):
 
 
 def test_gather_forward_parity_and_module_options(device):
-    from fbpic.particles.gathering.cuda_methods_fused import (
-        gather_field_gpu_linear_five_modes,
-    )
+    from fbpic.particles.gathering.cuda_methods_fused import make_kernel
 
     host = _gather_fixture()
     values = _device_arrays(host, device, requires_grad=True)
-    original = gather_field_gpu_linear_five_modes.kernel
+    original = make_kernel(0, 5)
     result = _launch_gather(values, device)
     reference = _launch_gather(values, device, original)
     wp.synchronize_device(device)
     for name in ELECTRIC + MAGNETIC:
         np.testing.assert_array_equal(result[name].numpy(), reference[name].numpy())
-    assert not original.module.options["enable_backward"]
-    assert get_gather_kernel().module.options["enable_backward"]
+    assert not original.options["enable_backward"]
+    assert get_gather_kernel().options["enable_backward"]
     assert get_gather_kernel() is get_gather_kernel()
 
 

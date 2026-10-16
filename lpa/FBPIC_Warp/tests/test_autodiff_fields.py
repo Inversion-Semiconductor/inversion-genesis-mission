@@ -1,3 +1,5 @@
+# Copyright 2026, FBPIC contributors
+# License: 3-Clause-BSD-LBNL
 """Verify field primal parity, complex adjoints, and fixed payload permutations."""
 
 import os
@@ -159,9 +161,11 @@ def _case(name):
         arrays = {field: _complex(rng) for field in fields}
         return _Case(
             ad.erase_vector if vector else ad.erase_scalar,
-            production.cuda_erase_vector.kernel
-            if vector
-            else production.cuda_erase_scalar.kernel,
+            (
+                production.cuda_erase_vector.kernel
+                if vector
+                else production.cuda_erase_scalar.kernel
+            ),
             arrays,
             list(fields),
             fields,
@@ -272,9 +276,11 @@ def _case(name):
         arguments += [name.endswith("true")] + list(SHAPE)
         return _Case(
             ad.push_eb_comoving if comoving else ad.push_eb_standard,
-            production.cuda_push_eb_comoving.kernel
-            if comoving
-            else production.cuda_push_eb_standard.kernel,
+            (
+                production.cuda_push_eb_comoving.kernel
+                if comoving
+                else production.cuda_push_eb_standard.kernel
+            ),
             arrays,
             arguments,
             fields,
@@ -287,9 +293,11 @@ def _case(name):
         left = name.endswith("left")
         return _Case(
             ad.damp_eb_left if left else ad.damp_eb_right,
-            boundaries.cuda_damp_EB_left.kernel
-            if left
-            else boundaries.cuda_damp_EB_right.kernel,
+            (
+                boundaries.cuda_damp_EB_left.kernel
+                if left
+                else boundaries.cuda_damp_EB_right.kernel
+            ),
             arrays,
             list(EB) + ["damping", 3],
             EB,
@@ -447,9 +455,13 @@ def test_field_linear_adjoint_identity(device, case_name):
             if np.iscomplexobj(case.arrays[active_input]):
                 direction = direction + 1j * rng.normal(size=direction.shape)
             tangent_host = {
-                name: direction
-                if name == active_input
-                else (np.zeros_like(value) if name in case.differentiable else value)
+                name: (
+                    direction
+                    if name == active_input
+                    else (
+                        np.zeros_like(value) if name in case.differentiable else value
+                    )
+                )
                 for name, value in case.arrays.items()
             }
             tangent_values = {
