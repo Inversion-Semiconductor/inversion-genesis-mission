@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import importlib
 import json
 import math
 from numbers import Real
 from pathlib import Path
 import subprocess
+import sys
 import time
 from typing import Any, Mapping
 
@@ -180,8 +182,11 @@ if __name__ == "__main__":
 
         Load the sole ``datapoint`` config in the configured results directory
         (``results`` by default). HDF5 datapoints use the template's ``/results``
-        group. Parameter metadata is ignored, and nested containers are supported.
+        group. The configured template is imported first so template-local
+        diagnostic subclasses are registered. Parameter metadata is ignored,
+        and nested containers are supported.
         """
+        self._load_template_module()
         hyperparameters = self.config.execution.get("hyperparameters", {})
         results_directory = Path(hyperparameters.get("results_directory", "results"))
         if not results_directory.is_absolute():
@@ -238,6 +243,13 @@ if __name__ == "__main__":
         if missing:
             raise ValueError(f"Missing saved exploration features: {missing}")
         return features
+
+    def _load_template_module(self) -> None:
+        """Import the configured template to register local diagnostic classes."""
+        template_directory = str(self.config.template_script.parent)
+        if template_directory not in sys.path:
+            sys.path.insert(0, template_directory)
+        importlib.import_module(self.config.template_script.stem)
 
     @staticmethod
     def finalize(

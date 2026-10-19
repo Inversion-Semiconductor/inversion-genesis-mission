@@ -47,6 +47,17 @@ class WorkflowSmokeSimulation(_MODULE.IonizationInjectionSimulation):
 
     def build_simulation(self):
         simulation = super().build_simulation()
+        datapoint = next(
+            element
+            for element in simulation.elements
+            if isinstance(element, _MODULE.cc.ConfigContainer)
+        )
+        datapoint.configs = [
+            config
+            for config in datapoint.configs
+            if not isinstance(config, dg._Diagnostic)
+        ]
+        simulation.diagnostics = []
         simulation._sort_component(
             _SmokeScalarDiagnostic(
                 values={
@@ -56,6 +67,7 @@ class WorkflowSmokeSimulation(_MODULE.IonizationInjectionSimulation):
                 }
             )
         )
+        datapoint.configs.extend(simulation.diagnostics)
         return simulation
 
     def run(self) -> None:

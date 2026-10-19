@@ -185,6 +185,55 @@ def test_extract_features_supports_nested_containers(
     assert result_executor.extract_features(tmp_path)["mean_kinetic_energy_MeV"] == 1.25
 
 
+def test_extract_features_imports_template_local_diagnostics(tmp_path: Path) -> None:
+    template = tmp_path / "local_template.py"
+    template.write_text(
+        """import attrs
+from typing import ClassVar
+from inversion_fbpic.lib.diagnostics import _Diagnostic
+
+@attrs.define(kw_only=True, slots=False)
+class LocalDiagnostic(_Diagnostic):
+    SUBCLASS: ClassVar[str] = "executor_local_diagnostic"
+
+    def _analyze(self) -> dict[str, float]:
+        return {"local_feature": 1.0}
+""",
+        encoding="utf-8",
+    )
+    campaign = Campaign.from_file(CONFIG)
+    config = replace(
+        campaign.config,
+        run_root=tmp_path,
+        template_script=template,
+        analysis={"exploration_features": ["local_feature"]},
+    )
+    executor = FBPICRunExecutor(Campaign(config))
+    (tmp_path / "results" / "datapoint.json").parent.mkdir()
+    (tmp_path / "results" / "datapoint.json").write_text(
+        json.dumps(
+            {
+                "config_type": "config_container",
+                "subclass": "config_container",
+                "parameters": {
+                    "configs": [
+                        {
+                            "config_type": "datapoint",
+                            "subclass": "executor_local_diagnostic",
+                            "parameters": {
+                                "data": {"local_feature": 1.0},
+                            },
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert executor.extract_features(tmp_path) == {"local_feature": 1.0}
+
+
 def test_extract_features_does_not_fall_back_to_raw_particles(
     tmp_path, result_executor
 ) -> None:
