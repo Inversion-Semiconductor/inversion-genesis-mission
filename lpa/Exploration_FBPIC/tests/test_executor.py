@@ -78,6 +78,26 @@ def test_prepare_run_imports_the_configured_template_module_and_class(
     )
 
 
+def test_prepare_run_optionally_records_gpu_assignments(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    config = replace(
+        campaign.config,
+        run_root=tmp_path,
+        execution={**campaign.config.execution, "record_gpu_assignments": True},
+    )
+
+    run_directory, _ = FBPICRunExecutor(Campaign(config)).prepare_run(
+        "sim_000001", "stage_1"
+    )
+    entrypoint = (run_directory / "run_fbpic.py").read_text(encoding="utf-8")
+
+    assert "RECORD_GPU_ASSIGNMENTS = True" in entrypoint
+    assert (
+        '"cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", "")'
+        in entrypoint
+    )
+
+
 def test_mean_kinetic_energy_uses_all_normalized_momentum_components() -> None:
     particles = np.array([[0.0, 0.0, 0.0, 0.0, 0.0, np.sqrt(3.0)]])
     energy = mean_kinetic_energy_mev(particles, np.array([1.0]))

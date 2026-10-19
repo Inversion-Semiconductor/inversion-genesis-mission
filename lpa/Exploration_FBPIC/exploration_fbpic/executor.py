@@ -121,6 +121,9 @@ class FBPICRunExecutor:
         hyperparameters = self.config.template_hyperparameters()
         hyperparameters["lasy_file"] = str(run_directory / "experimental_laser")
         hyperparameters["lab_diagnostic_directory"] = str(run_directory / "lab_diags")
+        record_gpu_assignments = bool(
+            self.config.execution.get("record_gpu_assignments", False)
+        )
         contents = f'''"""Generated FBPIC entry point. Do not edit; see run_manifest.json."""
 from pathlib import Path
 import sys
@@ -131,8 +134,28 @@ from {self.config.template_script.stem} import {self.config.template_class}
 
 PHYSICAL_PARAMETERS = {manifest.parameters!r}
 HYPERPARAMETERS = {hyperparameters!r}
+RECORD_GPU_ASSIGNMENTS = {record_gpu_assignments!r}
 
 if __name__ == "__main__":
+    if RECORD_GPU_ASSIGNMENTS:
+        import json
+        import os
+        import socket
+
+        rank = os.environ.get("SLURM_PROCID", str(os.getpid()))
+        assignment = {{
+            "rank": rank,
+            "local_rank": os.environ.get("SLURM_LOCALID", ""),
+            "node_id": os.environ.get("SLURM_NODEID", ""),
+            "hostname": socket.gethostname(),
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+            "slurm_step_gpus": os.environ.get("SLURM_STEP_GPUS", ""),
+            "slurm_job_gpus": os.environ.get("SLURM_JOB_GPUS", ""),
+        }}
+        Path(f"gpu_assignment_rank_{{rank}}.json").write_text(
+            json.dumps(assignment, indent=2, sort_keys=True) + "\\n",
+            encoding="utf-8",
+        )
     {self.config.template_class}(PHYSICAL_PARAMETERS, HYPERPARAMETERS).run()
 '''
         (run_directory / "run_fbpic.py").write_text(contents, encoding="utf-8")
