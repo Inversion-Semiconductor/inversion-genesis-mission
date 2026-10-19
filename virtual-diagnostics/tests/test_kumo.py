@@ -165,6 +165,14 @@ class KumoErrors(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "four fixed output groups"):
                 _validate_gpu_count(5)
 
+    def test_model_limit_is_reported_before_querying_cuda(self):
+        with patch(
+            "virtual_diagnostics.tabular.api.torch.cuda.is_available"
+        ) as available:
+            with self.assertRaisesRegex(ValueError, "four fixed output groups"):
+                _validate_gpu_count(5)
+            available.assert_not_called()
+
     def test_driver_query_error(self):
         with patch(
             "virtual_diagnostics.tabular.api.torch.cuda.is_available",

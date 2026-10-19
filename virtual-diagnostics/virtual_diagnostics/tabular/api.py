@@ -26,6 +26,10 @@ def _validate_gpu_count(GPU):
         raise TypeError("GPU must be an integer GPU count, for example GPU=1 or GPU=4.")
     if GPU < 1:
         raise ValueError("GPU must be at least 1; this implementation requires CUDA.")
+    if GPU > len(GROUPS):
+        raise ValueError(
+            "This frozen Kumo configuration supports GPU=1 through GPU=4 (four fixed output groups)."
+        )
     try:
         available = torch.cuda.device_count() if torch.cuda.is_available() else 0
     except Exception as exc:
@@ -39,10 +43,6 @@ def _validate_gpu_count(GPU):
     if GPU > available:
         raise RuntimeError(
             f"Requested GPU={GPU}, but only {available} CUDA GPU(s) are visible. Check your allocation and CUDA_VISIBLE_DEVICES."
-        )
-    if GPU > len(GROUPS):
-        raise ValueError(
-            "This frozen Kumo configuration supports GPU=1 through GPU=4 (four fixed output groups)."
         )
     return int(GPU)
 

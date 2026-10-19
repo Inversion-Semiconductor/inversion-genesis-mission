@@ -30,6 +30,16 @@ def encode_batches(encoder, images, batch_size=8):
     )
 
 
+def encode_pca(encoder, images, batch_size=64):
+    # Chunking caps the float32 copy PCAEncoder makes; projection is per image.
+    return np.concatenate(
+        [
+            encoder(images[start : start + batch_size])
+            for start in range(0, len(images), batch_size)
+        ]
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", type=Path, required=True)
@@ -43,8 +53,8 @@ def main():
         features = assemble_features(
             scalars=data["scalars"],
             gaia=encode_batches(GaiaEncoder(files.path("gaia_encoder")), data["gaia"]),
-            frog=PCAEncoder(files.path("frog_pca"))(data["frog"]),
-            oap=PCAEncoder(files.path("oap_pca"))(data["oap"]),
+            frog=encode_pca(PCAEncoder(files.path("frog_pca")), data["frog"]),
+            oap=encode_pca(PCAEncoder(files.path("oap_pca")), data["oap"]),
             topview=encode_batches(
                 ImageEncoder(files.path("topview_encoder")), data["topview"]
             ),

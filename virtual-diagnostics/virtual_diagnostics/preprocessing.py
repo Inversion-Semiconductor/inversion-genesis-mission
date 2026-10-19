@@ -46,6 +46,9 @@ def topview_image(raw):
 
 def camera1_image(codes, peak):
     """Restore exported 0..4094 camera codes to physical image intensity."""
+    if np.ndim(peak) != 0:
+        raise ValueError("camera1_image takes one scalar peak per image.")
+    peak = float(peak)
     image = np.asarray(codes, dtype=np.float32)
     if (
         image.shape != (189, 285)
@@ -64,7 +67,12 @@ def camera1_image(codes, peak):
 def frog_image(raw, crop):
     """Subtract the full-frame border background before applying the PCA ROI."""
     x0, x1, y0, y1 = crop
-    return _edge_subtract(raw)[y0:y1, x0:x1]
+    image = _edge_subtract(raw)
+    if not (0 <= x0 < x1 <= image.shape[1] and 0 <= y0 < y1 <= image.shape[0]):
+        raise ValueError(
+            f"FROG crop {tuple(crop)} must lie inside the {image.shape} frame."
+        )
+    return image[y0:y1, x0:x1]
 
 
 def oap_image(raw):

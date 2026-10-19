@@ -172,6 +172,10 @@ class BlockTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             camera1_image(np.zeros((189, 285)), -1)
+        with self.assertRaisesRegex(ValueError, "one scalar peak"):
+            camera1_image(np.zeros((189, 285)), np.array([1.0, 2.0]))
+        with self.assertRaisesRegex(ValueError, "FROG crop"):
+            frog_image(raw, (168, 761, 72, 531))
         with self.assertRaises(ValueError):
             oap_image(np.zeros((100, 100)))
 

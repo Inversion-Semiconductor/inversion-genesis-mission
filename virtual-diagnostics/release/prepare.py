@@ -153,6 +153,13 @@ def main():
         parser.error(
             "Commit the diagnostic subproject before preparing a version-linked release."
         )
+    pushed = subprocess.check_output(
+        ["git", "branch", "-r", "--contains", revision], cwd=HERE, text=True
+    )
+    if not pushed:
+        parser.error(
+            "Push (and fetch) this commit before preparing; isBasedOn links to its tree."
+        )
     metadata = json.loads((HERE / "metadata.json").read_text())
     print(prepare(args.artifacts, args.output, metadata, revision))
 

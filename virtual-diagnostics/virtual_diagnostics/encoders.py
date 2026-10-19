@@ -44,6 +44,7 @@ class ImageEncoder(nn.Module):
 
     Supports the TopView baseline and camera-1 residual encoder. Normalization
     is restored from the checkpoint and never refitted on incoming images.
+    Inputs must be on the same device as the encoder.
     """
 
     def __init__(self, weights, device="cpu"):
@@ -86,7 +87,10 @@ class _GaiaNetwork(nn.Module):
 
 
 class GaiaEncoder(nn.Module):
-    """Deterministic 14-coordinate posterior mean, without VAE sampling."""
+    """Deterministic 14-coordinate posterior mean, without VAE sampling.
+
+    Inputs must be on the same device as the encoder.
+    """
 
     def __init__(self, weights, device="cpu"):
         super().__init__()

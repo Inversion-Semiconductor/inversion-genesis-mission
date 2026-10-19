@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import time
 
 import numpy as np
@@ -132,7 +133,7 @@ def main():
             for p in Path(virtual_diagnostics.__file__).parent.rglob("*.py")
         },
         fixture_sha256=hashlib.sha256(args.fixture.read_bytes()).hexdigest(),
-        python=os.sys.version,
+        python=sys.version,
         torch=torch.__version__,
         cuda=torch.version.cuda,
         installed_package=str(Path(virtual_diagnostics.__file__).resolve()),
