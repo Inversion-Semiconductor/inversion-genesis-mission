@@ -1,0 +1,99 @@
+name: ionization_injection_workflow_smoke
+template_script: workflow_smoke_template.py
+template_class: WorkflowSmokeSimulation
+run_root: ${PSCRATCH}/ionization_injection_workflow_smoke
+
+# This case validates the libEnsemble-to-FBPIC launch path. It is intentionally
+# non-boosted and runs exactly ten FBPIC steps rather than representing physics.
+parameters:
+  peak_neutral_density_cm3: {nominal: 0.8, unit: 1e18 cm^-3, linear_scale: 1e18}
+  nitrogen_dopant_fraction: {nominal: 0.005, unit: fraction}
+  density_fwhm_left_m: {nominal: 0.8, unit: mm, linear_scale: 1e-3}
+  density_fwhm_right_m: {nominal: 0.8, unit: mm, linear_scale: 1e-3}
+  density_left_ramp_edge_percent: {nominal: 0.5, unit: fraction}
+  density_right_ramp_edge_percent: {nominal: 0.5, unit: fraction}
+  density_center_location_m: {nominal: 0.8, unit: mm, linear_scale: 1e-3}
+  laser_wavelength_m: {nominal: 800e-9, unit: m}
+  laser_energy_J: {nominal: 0.1, lower: 0.05, upper: 0.15, unit: J}
+  laser_pulse_duration_fwhm_s: {nominal: 38.0, unit: fs, linear_scale: 1e-15}
+  laser_spectral_bandwidth_rad_s: {nominal: auto}
+  laser_cep_phase_rad: {nominal: 0.0, unit: rad}
+  laser_gdd_relative: {nominal: 0.0, unit: normalized}
+  laser_tod_relative: {nominal: 0.0, unit: normalized}
+  laser_fod_s4: {nominal: 0.0, unit: s^4}
+  laser_spot_size_m: {nominal: 24e-6, unit: m}
+  laser_super_gaussian_order: {nominal: 3.0, unit: dimensionless}
+  laser_focal_position_m: {nominal: 0.8e-3, unit: m}
+  zernike_astigmatism_2: {nominal: 0.0}
+  zernike_astigmatism_4: {nominal: 0.0}
+  zernike_coma_y: {nominal: 0.0}
+  zernike_coma_x: {nominal: 0.0}
+  zernike_trefoil_y: {nominal: 0.0}
+  zernike_trefoil_x: {nominal: 0.0}
+  zernike_spherical_3: {nominal: 0.0}
+  zernike_astigmatism_6: {nominal: 0.0}
+  zernike_coma_5_y: {nominal: 0.0}
+  zernike_coma_5_x: {nominal: 0.0}
+  zernike_secondary_trefoil_y: {nominal: 0.0}
+  zernike_secondary_trefoil_x: {nominal: 0.0}
+
+stages:
+  smoke:
+    # Match Stage 0's eight two-GPU resource sets in one short batch.
+    max_evaluations: 16
+    initial_design_size: 8
+    gpus_per_simulation: 2
+    total_gpus: 16
+    concurrent_simulations: 8
+    active_parameters:
+      - laser_energy_J
+
+analysis:
+  exploration_features:
+    - smoke_laser_energy_J
+  keep_raw_diagnostics: true
+
+execution:
+  hyperparameters:
+    n_order: 32
+    gamma_boost: 1.0
+    nz: 128
+    nr: 64
+    zmax: 0.0
+    zmin: -100.0e-6
+    rmax: 100.0e-6
+    simulation_length: 10.0e-6
+    n_azimuthal_modes: 1
+    p_zmin: 0.0
+    p_zmax: 1.6e-3
+    p_rmax: 50.0e-6
+    p_nz: 1
+    p_nr: 1
+    p_nt: 4
+    helium_p_nz: 1
+    helium_p_nt: 4
+    r_boundary: reflective
+    diagnostic_select: {uz: [0.0, null]}
+    analysis_select: {uz: [0.0, null]}
+    analysis_central_fraction: 0.95
+    dump_fields: false
+    plot_movies: false
+    number_dumps_lab: 1
+    write_period: 1
+    save_checkpoints: false
+    checkpoint_period: 100
+    use_restart: false
+    track_electrons: false
+    random_seed: 0
+    lasy_t_start: 0.0
+    lasy_antenna_position: 0.0
+    laser_peak_delay_from_file_start_s: 120.0e-15
+    laser_polarization: [1, 0]
+    laser_n_azimuthal_modes: 1
+    laser_num_points: [128, 64]
+    laser_hi_range: 8.0
+    laser_center_and_remove_tilt: true
+    laser_centering_angles: 36
+    ramp_percent_min_high_fwhm: 0.4
+  launcher: [python]
+  record_gpu_assignments: true
