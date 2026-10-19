@@ -138,4 +138,3 @@ execution:
   # Use [python] locally. In a NERSC allocation, a libEnsemble worker should
   # supply the slot-aware srun command through this field or its executor.
   launcher: [python]
-  timeout_s: 21600

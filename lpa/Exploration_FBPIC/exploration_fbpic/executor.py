@@ -139,7 +139,6 @@ if __name__ == "__main__":
 
     def _execute(self, run_directory: Path) -> None:
         command = [*self.config.execution.get("launcher", ["python"]), "run_fbpic.py"]
-        timeout_s = float(self.config.execution.get("timeout_s", 21600))
         with (
             (run_directory / "stdout.log").open("w", encoding="utf-8") as stdout,
             (run_directory / "stderr.log").open("w", encoding="utf-8") as stderr,
@@ -148,7 +147,6 @@ if __name__ == "__main__":
                 command,
                 cwd=run_directory,
                 check=True,
-                timeout=timeout_s,
                 stdout=stdout,
                 stderr=stderr,
                 text=True,
