@@ -153,3 +153,5 @@ execution:
   # Use [python] locally. In a NERSC allocation, a libEnsemble worker should
   # supply the slot-aware srun command through this field or its executor.
   launcher: [python]
+  # Terminate and record any individual Stage 0 task still running after 3 hours.
+  simulation_timeout_s: 10800

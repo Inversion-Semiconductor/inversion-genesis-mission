@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+from libensemble.executors.executor import TimeoutExpired
 
 from exploration_fbpic.executor import FBPICRunExecutor
 from exploration_fbpic.libensemble_adapter import run_fbpic_simulation
@@ -22,6 +23,29 @@ class RecordingExecutor:
     def submit(self, **kwargs: object) -> FinishedTask:
         self.submit_kwargs = kwargs
         return FinishedTask()
+
+
+class TimedOutTask(FinishedTask):
+    state = "RUNNING"
+
+    def __init__(self) -> None:
+        self.killed = False
+
+    def wait(self, timeout: float | None = None) -> None:
+        raise TimeoutExpired("fbpic", timeout)
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+class TimeoutExecutor(RecordingExecutor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.task = TimedOutTask()
+
+    def submit(self, **kwargs: object) -> TimedOutTask:
+        self.submit_kwargs = kwargs
+        return self.task
 
 
 def adapter_inputs(campaign_executor, store, mpi_executor):
@@ -77,6 +101,34 @@ def test_adapter_uses_resource_set_gpu_matching_without_explicit_rank_count(
     assert out["status_code"][0] == 0
     assert out["total_beam_charge_pc"][0] == 1.0
     assert np.isnan(out["mean_kinetic_energy_MeV"][0])
+
+
+def test_adapter_kills_and_records_timed_out_task(tmp_path: Path, monkeypatch) -> None:
+    run_directory = tmp_path / "sim_000000"
+    run_directory.mkdir()
+    manifest = object()
+    campaign_executor = object.__new__(FBPICRunExecutor)
+    campaign_executor.prepare_run = lambda *_: (run_directory, manifest)  # type: ignore[attr-defined]
+    campaign_executor.config = type(
+        "Config", (), {"execution": {"simulation_timeout_s": 3}}
+    )()
+    written = []
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor.finalize",
+        lambda *args: written.append(args[-1]),
+    )
+    mpi_executor = TimeoutExecutor()
+    history, sim_specs, libe_info = adapter_inputs(
+        campaign_executor, object(), mpi_executor
+    )
+
+    out, _ = run_fbpic_simulation(history, {}, sim_specs, libe_info)
+
+    assert mpi_executor.submit_kwargs["extra_args"] == "--cpu-bind=none --overlap"
+    assert mpi_executor.task.killed
+    assert out["status_code"][0] == 1
+    assert np.isnan(out["total_beam_charge_pc"][0])
+    assert written[0].status == "timeout"
 
 
 def test_adapter_records_unexpected_extraction_error(

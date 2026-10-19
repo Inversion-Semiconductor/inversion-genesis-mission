@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 import numpy as np
+from libensemble.executors.executor import TimeoutExpired
 
 from .executor import EvaluationResult, FBPICRunExecutor
 
@@ -31,6 +32,9 @@ def run_fbpic_simulation(
     log_scaled_names: set[str] = set(user.get("log_scaled_names", ()))
     linear_scales: dict[str, float] = dict(user.get("linear_scales", {}))
     run_id_offset = int(user.get("run_id_offset", 0))
+    simulation_timeout_s = executor.config.execution.get("simulation_timeout_s")
+    if simulation_timeout_s is not None:
+        simulation_timeout_s = float(simulation_timeout_s)
     out = np.zeros(len(H), dtype=sim_specs["out"])
     for name in out.dtype.names or ():
         if name != "status_code" and np.issubdtype(out.dtype[name], np.floating):
@@ -59,7 +63,7 @@ def run_fbpic_simulation(
                     stdout="stdout.log",
                     stderr="stderr.log",
                 )
-                task.wait()
+                task.wait(timeout=simulation_timeout_s)
             if task.state == "FINISHED":
                 features = executor.extract_features(run_directory)
                 result = EvaluationResult(
@@ -78,6 +82,16 @@ def run_fbpic_simulation(
                     f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
                     time.perf_counter() - started,
                 )
+        except TimeoutExpired as error:
+            task.kill()
+            result = EvaluationResult(
+                run_id,
+                "timeout",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except Exception as error:
             result = EvaluationResult(
                 run_id,
