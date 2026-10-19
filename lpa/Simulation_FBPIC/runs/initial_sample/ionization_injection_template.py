@@ -66,6 +66,7 @@ class IonizationInjectionSimulation:
         "zmax": 0.0,
         "zmin": -100.0e-6,
         "rmax": 140.0e-6,
+        "simulation_length": None,
         "n_azimuthal_modes": 5,
         "p_zmin": 0.0,
         "p_rmax": 90e-6,
@@ -303,6 +304,7 @@ class IonizationInjectionSimulation:
         helium_p_nt = hyperparameters["helium_p_nt"]
         if helium_p_nt is None:
             helium_p_nt = hyperparameters["p_nt"]
+        simulation_length = hyperparameters["simulation_length"]
 
         density_he = dn.BilateralSuperGaussian(
             nominal_density=physical_parameters["peak_neutral_density_cm3"]
@@ -396,6 +398,7 @@ class IonizationInjectionSimulation:
             nm=hyperparameters["n_azimuthal_modes"],
             use_mpi=True,
             number_dumps=hyperparameters["number_dumps_lab"],
+            simulation_length=simulation_length,
             gamma_boost=hyperparameters["gamma_boost"],
             field_diagnostics=(
                 ["rho", "E", "B"] if hyperparameters["dump_fields"] else None

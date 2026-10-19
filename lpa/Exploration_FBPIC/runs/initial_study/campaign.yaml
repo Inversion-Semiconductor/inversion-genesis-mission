@@ -102,6 +102,7 @@ execution:
     zmax: 0.0
     zmin: -100.0e-6
     rmax: 400.0e-6
+    simulation_length: 9.0e-3
     n_azimuthal_modes: 5
     p_zmin: 0.0
     p_rmax: 90e-6

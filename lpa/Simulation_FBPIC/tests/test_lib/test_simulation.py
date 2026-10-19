@@ -729,6 +729,18 @@ class TestSupportingElements:
 
 
 class TestAttachedAnalysis:
+    def test_explicit_simulation_length_overrides_density_extent(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        simulation, _, _, _ = analysis_simulation
+        assert simulation.hyparams is not None
+        simulation.hyparams = attrs.evolve(simulation.hyparams, simulation_length=4e-6)
+        monkeypatch.setattr(simulation, "calculate_mean_group_beta", lambda: 1.0)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert simulation.T_interact == pytest.approx(4e-6 / c)
+
     def test_moment_descriptor_runs_after_stepping(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:

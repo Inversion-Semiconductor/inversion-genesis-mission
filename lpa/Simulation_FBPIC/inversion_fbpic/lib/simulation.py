@@ -114,6 +114,7 @@ class SimulationHyperparameters(SerializableConfig):
         nz: (int) Number of gridpoints along the longitudinal direction. This should optimally have a small greatest-prime-factor for FFT performance.
         nr: (int) Number of gridpoints along the radial direction.
         nm: (int) Number of angular modes used.
+        simulation_length: (float | None) [m] Fixed interaction length. If None, derive the length from the longitudinal extent of the density profiles.
         right_buffer: (float | None) |OPTIONAL| Right buffer of the simulation extent. If None, equal to the window size (zmax - zmin).
         beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
             the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
@@ -156,6 +157,11 @@ class SimulationHyperparameters(SerializableConfig):
     nm: int = attrs.field(converter=int, validator=attrs.validators.ge(1))
     use_mpi: bool = attrs.field(converter=bool)
     number_dumps: int = attrs.field(converter=int, validator=attrs.validators.ge(1))
+    simulation_length: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
+        validator=attrs.validators.optional(attrs.validators.gt(0.0)),
+    )
     right_buffer: float | None = attrs.field(
         default=None,
         converter=attrs.converters.optional(float),
@@ -758,12 +764,15 @@ class Simulation(SerializableConfig):
         if self.hyparams.is_boosted:
             boost = BoostConverter(self.hyparams.gamma_boost)
 
-        # The interaction length of the simulation (meters)
-        # Buffer length + full extent of the plasma
-        right_buffer = self.hyparams.right_buffer
-        if right_buffer is None:
-            right_buffer = self.hyparams.zmax - self.hyparams.zmin
-        L_interact = self.z_extent[1] - self.z_extent[0] + right_buffer
+        # An explicit simulation length controls propagation independently of density.
+        simulation_length = self.hyparams.simulation_length
+        if simulation_length is None:
+            right_buffer = self.hyparams.right_buffer
+            if right_buffer is None:
+                right_buffer = self.hyparams.zmax - self.hyparams.zmin
+            L_interact = self.z_extent[1] - self.z_extent[0] + right_buffer
+        else:
+            L_interact = simulation_length
 
         # calculate the moving window velocity
         v_window = None
