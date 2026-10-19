@@ -3,7 +3,7 @@
 #SBATCH -A gen0007
 #SBATCH -C gpu
 #SBATCH --qos regular
-#SBATCH --time 01:00:00
+#SBATCH --time 03:00:00
 #SBATCH --nodes 1
 #SBATCH --ntasks=2
 #SBATCH --ntasks-per-node=2
@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-export NOMINAL_RUN_LABEL="nominal_2gpu"
+export NOMINAL_RUN_LABEL="nominal_2gpu_current"
 RUN_DIRECTORY="${PSCRATCH}/ionization_injection_exploration/${NOMINAL_RUN_LABEL}"
 mkdir -p "$RUN_DIRECTORY"
 exec >"$RUN_DIRECTORY/slurm-${SLURM_JOB_ID}.out" \

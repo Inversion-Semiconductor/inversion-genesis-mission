@@ -251,11 +251,26 @@ class IonizationInjectionSimulation:
                 requested_ramp_edge_percent - percent_min_low_fwhm
             ) * (1.0 - effective_percent_min) / (1.0 - percent_min_low_fwhm)
         half_fwhm_m = fwhm_m / 2.0
-        available_ramp_m = center_m - half_fwhm_m
+        particle_zmin = self.hyperparameters["p_zmin"]
+        particle_zmax = self.hyperparameters["p_zmax"]
+        if particle_zmin is None or particle_zmax is None:
+            raise ValueError(
+                "p_zmin and p_zmax must be set to derive density ramp geometry"
+            )
+        if not particle_zmin < center_m < particle_zmax:
+            raise ValueError(
+                "density_center_location_m must lie strictly between p_zmin and p_zmax"
+            )
+        boundary_name = "p_zmin" if side == "left" else "p_zmax"
+        edge_distance_m = (
+            center_m - particle_zmin if side == "left" else particle_zmax - center_m
+        )
+        available_ramp_m = edge_distance_m - half_fwhm_m
         if available_ramp_m <= 0.0:
             raise ValueError(
-                f"density_fwhm_{side}_m must be less than twice "
-                "density_center_location_m to derive a positive beta"
+                f"density_fwhm_{side}_m must be less than twice the distance "
+                f"from density_center_location_m to {boundary_name} "
+                "to derive a positive beta"
             )
         one_percent_distance_m = half_fwhm_m + ramp_edge_percent * available_ramp_m
         width_ratio = 2.0 * one_percent_distance_m / fwhm_m

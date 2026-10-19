@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH -J fbpic-explore
-#SBATCH -A REPLACE_WITH_PROJECT
+#SBATCH -J fbpic-stage0
+#SBATCH -A gen0007
 #SBATCH -C gpu
 #SBATCH --qos regular
-#SBATCH --time 04:00:00
-# Four simultaneous eight-GPU FBPIC cases: 32 GPUs total on Perlmutter.
-#SBATCH --nodes 8
+#SBATCH --time 08:00:00
+# Eight simultaneous two-GPU FBPIC cases: 16 GPUs total on four nodes.
+#SBATCH --nodes 4
 
 set -euo pipefail
 
@@ -19,6 +19,8 @@ source activate fbpic
 export MPICH_GPU_SUPPORT_ENABLED=0
 export FBPIC_ENABLE_GPUDIRECT=0
 
-# One manager-hosted Xopt generator and four eight-GPU libEnsemble workers.
-srun --ntasks=5 --cpu-bind=none python -m exploration_fbpic.libensemble_driver \
-  campaign.yaml --stage stage_1
+cd "${SLURM_SUBMIT_DIR:?Submit this script with sbatch from its directory.}"
+
+# One manager-hosted Xopt generator and eight two-GPU libEnsemble workers.
+srun --ntasks=9 --cpu-bind=none python -m exploration_fbpic.libensemble_driver \
+  campaign.yaml --stage stage_0

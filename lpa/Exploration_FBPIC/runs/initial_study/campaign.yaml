@@ -3,7 +3,7 @@ name: ionization_injection_exploration
 # fingerprinted so staged data are comparable and reusable.
 template_script: ../../../Simulation_FBPIC/runs/initial_sample/ionization_injection_template.py
 template_class: IonizationInjectionSimulation
-run_root: ../../data/ionization_injection_exploration
+run_root: ${PSCRATCH}/ionization_injection_exploration
 
 # Every physical parameter is persisted for every simulation. Bounds are
 # deliberately conservative starting ranges and should be reviewed before a
@@ -15,7 +15,7 @@ parameters:
   density_fwhm_right_m: {nominal: 2.0, lower: 0.8, upper: 5.0, unit: mm, linear_scale: 1e-3}
   density_left_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the left FWHM point toward z=0. The template remaps it as FWHM grows, then derives beta."}
   density_right_ramp_edge_percent: {nominal: 0.5, lower: 0.05, upper: 1.0, unit: fraction, log_scale: true, description: "Requested fractional 1% location from the right FWHM point toward the mirrored right edge. The template remaps it as FWHM grows, then derives beta."}
-  density_center_location_m: {nominal: 5.0, unit: mm, linear_scale: 1e-3, description: Fixed profile center at the midpoint of the 10 mm simulation domain.}
+  density_center_location_m: {nominal: 4.0, unit: mm, linear_scale: 1e-3, description: Fixed density center in the 9 mm simulation domain.}
   laser_wavelength_m: {nominal: 800e-9, unit: m, description: Fixed laser central wavelength.}
   laser_energy_J: {nominal: 2.5, lower: 1.5, upper: 2.7, unit: J}
   laser_pulse_duration_fwhm_s: {nominal: 38.0, lower: 30.0, upper: 45.0, unit: fs, linear_scale: 1e-15}
@@ -26,7 +26,7 @@ parameters:
   laser_fod_s4: {nominal: 0.0, lower: -1.0e-55, upper: 1.0e-55, unit: s^4}
   laser_spot_size_m: {nominal: 24e-6, lower: 16e-6, upper: 32e-6, unit: m}
   laser_super_gaussian_order: {nominal: 3.0, lower: 2.0, upper: 4.0, unit: dimensionless, description: Continuous transverse super-Gaussian order; 2 is Gaussian.}
-  laser_focal_position_m: {nominal: 4.0e-3, lower: 1.0e-3, upper: 6.0e-3, unit: m}
+  laser_focal_position_m: {nominal: 3.0e-3, lower: 1.0e-3, upper: 5.0e-3, unit: m}
   zernike_astigmatism_2: {nominal: 0.0, lower: -0.5, upper: 0.5}
   zernike_astigmatism_4: {nominal: 0.0, lower: -0.5, upper: 0.5}
   zernike_coma_y: {nominal: 0.0, lower: -0.25, upper: 0.25}
@@ -41,6 +41,21 @@ parameters:
   zernike_secondary_trefoil_x: {nominal: 0.0, description: Outside the initial physics study.}
 
 stages:
+  stage_0:
+    # Three eight-simulation initial-design batches on eight two-GPU workers.
+    max_evaluations: 24
+    initial_design_size: 24
+    gpus_per_simulation: 2
+    total_gpus: 16
+    concurrent_simulations: 8
+    active_parameters:
+      - peak_neutral_density_cm3
+      - density_fwhm_left_m
+      - laser_energy_J
+      - laser_pulse_duration_fwhm_s
+      - laser_spot_size_m
+      - laser_super_gaussian_order
+      - laser_focal_position_m
   stage_1:
     # 200 is the total Stage 1 budget, including the 24 initial points.
     max_evaluations: 200
@@ -97,7 +112,7 @@ execution:
   hyperparameters:
     n_order: 32
     gamma_boost: 3.0  # 2.0 perhaps more ideal, but we need the speedup
-    nz: 2592  # 20.74 cells per 800 nm wavelength over the 100 um window
+    nz: 2048  # FFT-friendly longitudinal grid used for the current study
     nr: 1080  # Preserves radial resolution after reducing rmax to 400 um
     zmax: 0.0
     zmin: -100.0e-6
@@ -105,13 +120,13 @@ execution:
     simulation_length: 9.0e-3
     n_azimuthal_modes: 5
     p_zmin: 0.0
-    p_rmax: 90e-6
+    p_rmax: 150e-6
     p_nz: 2
     p_nr: 2
     p_nt: 15  # 20 perhaps more ideal, but likely too large of a sim
     helium_p_nz: 1
     helium_p_nt: 10
-    p_zmax: 10.0e-3
+    p_zmax: 9.0e-3
     r_boundary: reflective
     diagnostic_select: {uz: [20.0, null]}
     analysis_select: {uz: [20.0, null]}
