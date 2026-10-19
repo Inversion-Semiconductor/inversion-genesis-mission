@@ -310,6 +310,24 @@ class KumoErrors(unittest.TestCase):
                 pipe.send.assert_called_once_with(None)
                 pipe.close.assert_called_once()
 
+    def test_unkillable_worker_does_not_block_cleanup_or_mask_error(self):
+        server = self.make_server(2)
+        (stuck, stuck_pipe), (healthy, healthy_pipe) = server._workers
+        stuck.is_alive.return_value = True
+        stuck.close.side_effect = ValueError("process still running")
+        stuck_pipe.send.side_effect = [BrokenPipeError("worker died"), None]
+        with patch("virtual_diagnostics.tabular.api.atexit.unregister") as unregister:
+            with self.assertRaisesRegex(RuntimeError, "disconnected"):
+                server.predict(np.zeros(88))
+        self.assertEqual([call[0] for call in stuck.method_calls].count("kill"), 1)
+        stuck.close.assert_called_once()
+        healthy.close.assert_called_once()
+        stuck_pipe.close.assert_called_once()
+        healthy_pipe.close.assert_called_once()
+        self.assertEqual(server._workers, [])
+        self.assertTrue(server._closed)
+        unregister.assert_called_once_with(server.close)
+
     def test_expired_deadline_does_not_wait(self):
         with patch("virtual_diagnostics.tabular.api.wait") as wait:
             with self.assertRaises(TimeoutError):

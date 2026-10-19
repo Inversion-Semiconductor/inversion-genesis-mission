@@ -353,7 +353,10 @@ class Kumo:
                             break
                         stop()
                         process.join(timeout=2)
-                    process.close()
+                    # Best effort: a worker that survives kill() must not stop the
+                    # rest from being released or mask the caller's exception.
+                    with suppress(ValueError):
+                        process.close()
                 finally:
                     pipe.close()
             self._workers.clear()
