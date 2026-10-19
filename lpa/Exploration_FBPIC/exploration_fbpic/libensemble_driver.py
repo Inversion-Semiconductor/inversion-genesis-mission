@@ -13,6 +13,7 @@ import pandas as pd
 from .campaign import Campaign
 from .exploration import XoptFBPICExplorer
 from .libensemble_adapter import run_fbpic_simulation
+from .store import CampaignStore
 
 
 def next_run_id_offset(run_root: str | Path) -> int:
@@ -25,7 +26,9 @@ def next_run_id_offset(run_root: str | Path) -> int:
     return max(numbers, default=-1) + 1
 
 
-def fallback_design(explorer: XoptFBPICExplorer, offset: int, count: int) -> list[dict[str, float]]:
+def fallback_design(
+    explorer: XoptFBPICExplorer, offset: int, count: int
+) -> list[dict[str, float]]:
     """Return a non-overlapping deterministic design slice when GP training has no data."""
     return explorer.model_initial_design(offset + count, seed=0)[offset:]
 
@@ -37,7 +40,12 @@ def persistent_xopt(
     libE_info: dict[str, Any],
 ):
     """Seed Xopt with a fixed initial design, then asynchronously explore."""
-    from libensemble.message_numbers import EVAL_GEN_TAG, FINISHED_PERSISTENT_GEN_TAG, PERSIS_STOP, STOP_TAG
+    from libensemble.message_numbers import (
+        EVAL_GEN_TAG,
+        FINISHED_PERSISTENT_GEN_TAG,
+        PERSIS_STOP,
+        STOP_TAG,
+    )
     from libensemble.tools.persistent_support import PersistentSupport
 
     user = gen_specs["user"]
@@ -62,7 +70,9 @@ def persistent_xopt(
             if count <= 0:
                 break
             if xopt.data is None or xopt.data.empty:
-                generated = fallback_design(explorer, fallback_offset + submitted, count)
+                generated = fallback_design(
+                    explorer, fallback_offset + submitted, count
+                )
             else:
                 generated = xopt.generator.generate(count)
         candidates = np.zeros(len(generated), dtype=gen_specs["out"])
@@ -73,7 +83,9 @@ def persistent_xopt(
         tag, _, completed = support.send_recv(candidates)
 
         if completed is not None and len(completed):
-            rows = pd.DataFrame({name: completed[name] for name in (*variable_names, *feature_names)})
+            rows = pd.DataFrame(
+                {name: completed[name] for name in (*variable_names, *feature_names)}
+            )
             successful = completed["status_code"] == 0
             successful &= np.isfinite(rows.loc[:, feature_names]).all(axis=1).to_numpy()
             if successful.any():
@@ -87,14 +99,22 @@ def make_ensemble(config_path: str | Path, stage: str):
     from libensemble import Ensemble
     from libensemble.alloc_funcs.start_only_persistent import only_persistent_gens
     from libensemble.executors import MPIExecutor
-    from libensemble.specs import AllocSpecs, ExitCriteria, GenSpecs, LibeSpecs, SimSpecs
+    from libensemble.specs import (
+        AllocSpecs,
+        ExitCriteria,
+        GenSpecs,
+        LibeSpecs,
+        SimSpecs,
+    )
 
     explorer = XoptFBPICExplorer(Campaign.from_file(config_path), stage)
     explorer.require_fresh_run_root()
     explorer.require_compatible_run_root()
     explorer.training_data()
     settings = explorer.campaign.config.stage_settings(stage)
-    completed_count = explorer.completed_evaluation_count() if settings.continuation else 0
+    completed_count = (
+        explorer.completed_evaluation_count() if settings.continuation else 0
+    )
     remaining_evaluations = settings.max_evaluations - completed_count
     if remaining_evaluations < 1:
         raise RuntimeError(
@@ -107,7 +127,11 @@ def make_ensemble(config_path: str | Path, stage: str):
 
     variables = tuple(explorer.variable_bounds)
     features = explorer.feature_names
-    initial_count = 0 if completed_count else min(settings.initial_design_size, remaining_evaluations)
+    initial_count = (
+        0
+        if completed_count
+        else min(settings.initial_design_size, remaining_evaluations)
+    )
     ensemble.libE_specs = LibeSpecs(
         comms="mpi",
         gen_on_manager=True,
@@ -125,8 +149,15 @@ def make_ensemble(config_path: str | Path, stage: str):
             "store": explorer.store,
             "stage": stage,
             "active_parameter_names": variables,
-            "log_scaled_names": tuple(parameter.name for parameter in explorer.parameters if parameter.log_scale),
-            "linear_scales": {parameter.name: parameter.linear_scale for parameter in explorer.parameters},
+            "log_scaled_names": tuple(
+                parameter.name
+                for parameter in explorer.parameters
+                if parameter.log_scale
+            ),
+            "linear_scales": {
+                parameter.name: parameter.linear_scale
+                for parameter in explorer.parameters
+            },
             "run_id_offset": next_run_id_offset(explorer.campaign.config.run_root),
         },
     )
@@ -157,17 +188,28 @@ def make_ensemble(config_path: str | Path, stage: str):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run an Xopt/libEnsemble FBPIC campaign")
+    parser = argparse.ArgumentParser(
+        description="Run an Xopt/libEnsemble FBPIC campaign"
+    )
     parser.add_argument("config", type=Path)
     parser.add_argument("--stage", default="stage_1")
     args = parser.parse_args()
+    campaign = Campaign.from_file(args.config)
     ensemble = make_ensemble(args.config, args.stage)
     if ensemble.nworkers < ensemble.gen_specs.user["batch_size"]:
         raise RuntimeError(
             f"need {ensemble.gen_specs.user['batch_size']} libEnsemble workers, "
             f"received {ensemble.nworkers}; launch with --nworkers"
         )
-    ensemble.run()
+    try:
+        ensemble.run()
+    finally:
+        # Workers persist result.json individually; aggregate once to avoid
+        # filesystem locks unsupported by the shared scratch filesystem.
+        from mpi4py import MPI
+
+        if MPI.COMM_WORLD.Get_rank() == 0:
+            CampaignStore(campaign.config.run_root).rebuild()
 
 
 if __name__ == "__main__":
