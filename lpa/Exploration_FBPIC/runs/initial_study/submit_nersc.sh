@@ -18,6 +18,9 @@ source activate fbpic
 
 export MPICH_GPU_SUPPORT_ENABLED=0
 export FBPIC_ENABLE_GPUDIRECT=0
+export LIBE_PLATFORM=perlmutter_g
+export SLURM_EXACT=1
+export SLURM_MEM_PER_NODE=0
 
 cd "${SLURM_SUBMIT_DIR:?Submit this script with sbatch from its directory.}"
 
