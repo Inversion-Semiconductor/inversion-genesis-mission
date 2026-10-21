@@ -24,6 +24,9 @@ if "numba" not in sys.modules:
 import numba  # noqa: E402
 import pytest  # noqa: E402
 
+# This runs at import on purpose, and is not a fixture: see the comment above the environment
+# variable. It does make every package in a root `pytest.ini` run single-threaded, which costs
+# only speed; a session-scoped fixture would not undo that before the session ends either.
 numba.set_num_threads(1)
 
 # The example scripts (docs/examples), the twin scripts (docs/htu-twin/twin) and the display

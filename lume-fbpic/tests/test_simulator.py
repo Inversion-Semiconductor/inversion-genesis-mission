@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import attrs
+
 import h5py
 import numpy
 import pytest
@@ -14,6 +16,7 @@ from lume_fbpic import archive
 from lume_fbpic.actions import make_descriptor_actions
 from lume_fbpic.lwfa_simulator import LWFASimulator
 from lume_fbpic.model import LUMEFBPICModel
+from short_runs import short_lwfa_simulator, short_pwfa_simulator
 
 
 def test_configure_accepts_complete_config(simulator):
@@ -32,41 +35,23 @@ def test_configure_rejects_missing_densities(hyparams, laser, tmp_path):
         simulator.configure()
 
 
-def test_run_configures_the_simulator_first(simulator, mocker):
-    order = []
-    mocker.patch.object(
-        simulator, "configure", side_effect=lambda: order.append("configure")
-    )
-    mocker.patch.object(
-        simulator, "run_simulation", side_effect=lambda: order.append("run")
-    )
-    mocker.patch.object(simulator, "load_results")
-
-    simulator.run()
-
-    assert order == ["configure", "run"]
-
-
-def test_run_checks_a_config_that_changed_after_it_was_configured(simulator, mocker):
-    run_simulation = mocker.patch.object(simulator, "run_simulation")
-    mocker.patch.object(simulator, "load_results")
-    simulator.run()
+def test_run_checks_a_config_that_changed_after_it_was_configured(simulator):
+    simulator.configure()
     simulator.densities = []
 
     with pytest.raises(ValueError, match="densities is required"):
         simulator.run()
 
-    run_simulation.assert_called_once()
+    assert not simulator.diagnostics_directory(simulator.working_directory).exists()
 
 
-def test_run_with_an_incomplete_config_raises_and_runs_nothing(simulator, mocker):
-    run_simulation = mocker.patch.object(simulator, "run_simulation")
+def test_run_with_an_incomplete_config_raises_and_runs_nothing(simulator):
     simulator.densities = []
 
     with pytest.raises(ValueError, match="densities is required"):
         simulator.run()
 
-    run_simulation.assert_not_called()
+    assert not simulator.diagnostics_directory(simulator.working_directory).exists()
 
 
 def test_reset_restores_the_starting_state_without_rerunning(simulator):
@@ -123,15 +108,17 @@ def test_reset_needs_a_starting_state(simulator):
         simulator.reset()
 
 
-def test_the_default_archive_name_comes_from_the_fingerprint(
+def test_the_default_archive_name_comes_from_the_config(
     simulator, tmp_path, monkeypatch
 ):
     monkeypatch.chdir(tmp_path)
 
     written = archive.save(simulator_model(simulator))
+    simulator.hyparams = attrs.evolve(simulator.hyparams, nz=simulator.hyparams.nz + 1)
 
-    assert written == f"lume_fbpic_{archive.fingerprint(simulator)}.h5"
+    assert written.startswith("lume_fbpic_") and written.endswith(".h5")
     assert (tmp_path / written).is_file()
+    assert archive.save(simulator_model(simulator)) != written
 
 
 def test_parameters_go_into_the_archive_and_not_into_the_fingerprint(
@@ -216,31 +203,16 @@ def test_archive_stores_target_species_and_load_restores_it(simulator, tmp_path)
     assert restored.working_directory == tmp_path
 
 
-def test_load_results_reads_diagnostics_under_the_given_directory(
-    simulator, tmp_path, mocker
-):
-    update = mocker.patch.object(simulator, "_update_output")
+def test_load_results_reads_diagnostics_under_the_given_directory(tmp_path):
+    ran = short_pwfa_simulator(tmp_path / "ran")
+    ran.run()
+    other = short_pwfa_simulator(tmp_path / "other")
 
-    simulator.load_results(tmp_path)
+    other.load_results(tmp_path / "ran")
 
-    update.assert_called_once_with(
-        tmp_path / simulator.hyparams.save_directory / "hdf5"
-    )
-
-
-def test_run_runs_the_simulation_then_loads_results(simulator, mocker):
-    simulator.configure()
-    order = []
-    mocker.patch.object(
-        simulator, "run_simulation", side_effect=lambda: order.append("run")
-    )
-    mocker.patch.object(
-        simulator, "load_results", side_effect=lambda: order.append("load")
-    )
-
-    simulator.run()
-
-    assert order == ["run", "load"]
+    numpy.testing.assert_array_equal(other.final_particles.z, ran.final_particles.z)
+    assert other.stats == ran.stats
+    assert not (tmp_path / "other").exists()  # nothing ran there
 
 
 def test_archive_with_a_lume_fbpic_profile_loads_in_a_fresh_process(
@@ -317,16 +289,25 @@ def test_config_and_set_config_round_trip(simulator):
     assert config["densities"] is not simulator.densities
 
 
-def test_results_read_back_replace_the_recorded_outputs(
-    simulator, particle_group, mocker
-):
-    simulator.recorded_outputs = {"descriptor_mean_uz": 171.6}
-    mocker.patch(
-        "lume_fbpic.utils.load_final_particles",
-        return_value=(particle_group, {"charge_pc": 1.0}),
-    )
+def test_a_real_lwfa_run_writes_its_dumps_and_reads_the_last_one_back(tmp_path):
+    simulator = short_lwfa_simulator(tmp_path)
 
-    simulator.load_results()
+    simulator.run()
+
+    dumps = sorted(simulator.diagnostics_directory(tmp_path).glob("data*.h5"))
+    assert len(dumps) == simulator.hyparams.number_dumps
+    # the run lasts until the window has passed the plasma, and nothing is trapped in 40 steps
+    assert len(simulator.final_particles) == 0
+    assert set(simulator.stats.values()) == {0.0}
+
+
+def test_results_read_back_replace_the_recorded_outputs(tmp_path):
+    simulator = short_pwfa_simulator(tmp_path)
+    simulator.recorded_outputs = {"descriptor_mean_uz": 171.6}
+
+    simulator.run()
 
     assert simulator.recorded_outputs == {}
-    assert simulator.stats == {"charge_pc": 1.0}
+    assert simulator.stats["charge_pc"] == pytest.approx(
+        simulator.driver.charge * 1e12, rel=1e-12
+    )

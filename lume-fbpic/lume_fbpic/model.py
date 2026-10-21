@@ -23,11 +23,13 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
     afterwards returns outputs for those inputs; `set({})` runs it without changing anything. A
     real fbpic run costs minutes to hours, so pass `dummy_run=True` (as `LUMEImpactModel`
     allows) to make `set()` only update parameters without running -- useful for building up a
-    configuration, or in tests.
+    configuration, or in tests. A `set()` that raises, in an action or in the run, leaves the
+    config as it was, so the outputs keep matching it.
 
     `archive()` writes the model to an archive and `from_archive()` rebuilds one, as lume-base's
-    `archive()` and `from_archive()` do; `lume_fbpic.archive` holds the format. The outputs are the last results, recorded or computed: with `dummy_run=True`,
-    setting an input changes the config only and they stay as they are, and a run replaces them.
+    `archive()` and `from_archive()` do; `lume_fbpic.archive` holds the format. The outputs are
+    the last results, recorded or computed: with `dummy_run=True`, setting an input changes the
+    config only and they stay as they are, and a run replaces them.
 
     `reset()` restores the simulator's starting state (for a model loaded from an archive, the
     archived config and results); it never runs the simulation.
@@ -98,10 +100,16 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         self.simulator.reset()
 
     def _set(self, values: dict[str, typing.Any]) -> None:
-        super()._set(values)
-        if self.dummy_run:
-            return
-        self.simulator.run()
+        # A set that fails -- an action refusing its value after earlier ones were applied, or the
+        # run itself -- restores the config, so that it still matches the outputs of the last run
+        config = self.simulator.config()
+        try:
+            super()._set(values)
+            if not self.dummy_run:
+                self.simulator.run()
+        except BaseException:
+            self.simulator.set_config(config)
+            raise
 
 
 def _check_simulator(simulator: BaseSimulator, actions: list[Action]) -> None:

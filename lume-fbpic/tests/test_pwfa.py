@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import attrs
 import h5py
 import numpy
@@ -19,10 +16,10 @@ from lume_fbpic.pwfa_config import FlatTopBunch, GaussianBunch, PWFAGrid
 from lume_fbpic.pwfa_simulator import PWFASimulator
 from lume_fbpic.utils import ELECTRON_MC2_EV
 from reference_descriptor import reference_descriptor
+from short_runs import short_pwfa_simulator
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "docs" / "examples"))
-import pwfa_clara_febe as clara_example  # noqa: E402
-import pwfa_gaussian as pwfa_gaussian_example  # noqa: E402
+import pwfa_clara_febe as clara_example  # docs/examples, on the path from conftest.py
+import pwfa_gaussian as pwfa_gaussian_example
 
 
 @pytest.fixture
@@ -190,7 +187,7 @@ def test_archive_round_trips_a_pwfa_model_and_picks_the_pwfa_class(
 
 
 def test_a_short_run_writes_the_driver_and_reads_it_back(tmp_path):
-    simulator = _short_run_simulator(tmp_path)
+    simulator = short_pwfa_simulator(tmp_path)
 
     simulator.run()
 
@@ -206,7 +203,7 @@ def test_a_short_run_writes_the_driver_and_reads_it_back(tmp_path):
 
 
 def test_the_end_of_a_run_is_dumped_and_read_back_whatever_the_write_period(tmp_path):
-    simulator = _short_run_simulator(tmp_path)  # 3 steps, write_period 2
+    simulator = short_pwfa_simulator(tmp_path)  # 3 steps, write_period 2
 
     simulator.run()
 
@@ -296,39 +293,6 @@ def test_the_gaussian_example_plots_the_fields_of_a_short_run(tmp_path):
         assert image.imread(f).ndim == 3, f.name  # a readable image
     with pytest.raises(FileNotFoundError, match="no dumps"):
         pwfa_gaussian_example.plot_results(tmp_path / "plots")
-
-
-def _short_run_simulator(tmp_path, **grid_changes) -> PWFASimulator:
-    """A configured 3-step run of a flat-top driver in a bare-electron plasma, with dumps at steps
-    0 and 2 and at the end, step 3."""
-    grid = PWFAGrid(
-        zmin=-10.0e-6,
-        zmax=30.0e-6,
-        nz=40,
-        rmax=20.0e-6,
-        nr=20,
-        n_steps=3,
-        write_period=2,
-        **grid_changes,
-    )
-    plasma = LinearRampFlattop(
-        nominal_density=1.0e24,
-        species=None,
-        ionization=-1,
-        p_nz=2,
-        p_nr=2,
-        p_nt=4,
-        ramp_start=0.0,
-        ramp_length=5.0e-5,
-    )
-    driver = FlatTopBunch(
-        gamma=2.0e3, density=5.0e24, radius=2.0e-6, zmin=15.0e-6, zmax=20.0e-6
-    )
-    simulator = PWFASimulator(
-        grid, plasma, driver, target_species="driver", working_directory=tmp_path
-    )
-    simulator.configure()
-    return simulator
 
 
 def _up_down_ramp(**changes) -> UpDownRampProfile:
@@ -438,7 +402,7 @@ def test_the_clara_example_resolution(arguments, nz, n_steps, time_step, plasma_
 
 
 def test_a_seeded_run_restores_the_global_random_state(tmp_path):
-    simulator = _short_run_simulator(tmp_path / "seeded", random_seed=7)
+    simulator = short_pwfa_simulator(tmp_path / "seeded", random_seed=7)
     numpy.random.seed(123)
     before = numpy.random.get_state()
 
@@ -450,7 +414,7 @@ def test_a_seeded_run_restores_the_global_random_state(tmp_path):
 
 
 def test_a_grid_without_plasma_output_still_runs(tmp_path):
-    simulator = _short_run_simulator(tmp_path, write_plasma=False)
+    simulator = short_pwfa_simulator(tmp_path, write_plasma=False)
 
     simulator.run()
 

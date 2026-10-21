@@ -68,7 +68,8 @@ class InputFile:
     """An input file of a config: its basename and md5, and where the bytes are.
 
     The bytes are on disk at `path`, or in memory as `data` for a file that was embedded in an
-    archive. `extracted` is where `write_to()` last wrote them. An embedded file keeps its bytes
+    archive. `extracted` is where `write_to()` last wrote them, and `extracted_stat` the size and
+    modification time of that file just after. An embedded file keeps its bytes
     in memory for as long as the simulator loaded from the archive, so that the simulator can be
     archived again even if the written-out copy is gone; that is the cost of embedding a large
     file (see `EMBED_WARNING_BYTES`).
@@ -80,6 +81,7 @@ class InputFile:
     path: Path | None = None
     data: numpy.ndarray | None = None
     extracted: Path | None = None
+    extracted_stat: tuple[int, int] | None = None
 
     def copy_into(self, dataset: h5py.Dataset) -> None:
         """Fill `dataset` (uint8, `size` long) with the bytes of the file."""
@@ -98,13 +100,23 @@ class InputFile:
         """Write the embedded bytes as `directory/<md5>/basename` and return that path.
 
         The md5 directory keeps apart files with the same basename and different contents,
-        whether from one archive or from several loaded in the same working directory.
+        whether from one archive or from several loaded in the same working directory. A file
+        already there is checked by its md5 and written again if it differs, except the one this
+        call wrote last, which is taken as it is while its size and modification time are
+        unchanged: `configure()` calls this before every run.
         """
         target = Path(directory) / self.md5 / self.basename
+        if (
+            self.extracted == target.resolve()
+            and self.extracted_stat is not None
+            and _stat(target) == self.extracted_stat
+        ):
+            return self.extracted
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.is_file() or checksum(target) != self.md5:
             target.write_bytes(self.data.tobytes())
         self.extracted = target.resolve()
+        self.extracted_stat = _stat(target)
         return self.extracted
 
 
@@ -417,3 +429,12 @@ def _reject_path_values(name: str, config: SerializableConfig) -> None:
                 f"{name}.{field} is a path to a config file, which an archive cannot hold; "
                 "give the config object itself."
             )
+
+
+def _stat(path: Path) -> tuple[int, int] | None:
+    """The size and modification time (ns) of the file at `path`; None if there is none."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return (stat.st_size, stat.st_mtime_ns)

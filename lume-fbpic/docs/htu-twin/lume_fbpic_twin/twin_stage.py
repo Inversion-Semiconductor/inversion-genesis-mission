@@ -33,11 +33,9 @@ stage, so that a `StagedModel.set()`, which injects and then sets the twin's own
 (slow) 45,000-particle bunch once, not twice.
 
 The twin's `Source_*` PVs are then set to the bunch's moments (`beam_moments`), so they read what
-was injected, and by default (`lock_source=True`) they are read-only: the LPA is the twin's source,
-and the only way to change it is through the LPA model. With `lock_source=False` they stay
-writable, and putting one regenerates a parametric Gaussian beam from them, replacing the injected
-bunch. Until a bunch has been injected the twin still tracks the default source beam it was built
-with (`external_beam` says which). `TwinStage.reset()` restores that beam.
+was injected, and they are read-only: the LPA is the twin's source, and the only way to change it
+is through the LPA model. Until a bunch has been injected the twin still tracks the default source
+beam it was built with. `TwinStage.reset()` restores that beam.
 """
 
 from __future__ import annotations
@@ -75,9 +73,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
             of a simulation's density profiles. A positive drift means the snapshot was taken
             before the bunch reached the plane, still in the gas; the vacuum drift then ignores
             the rest of the plasma, and a warning says so.
-        lock_source: Serve the twin's `Source_*` variables read-only, so that the LPA bunch is
-            its only source. They still read the injected bunch's moments. `False` leaves them
-            writable.
         screen_binning: Make every camera image `screen_binning` times coarser in each direction
             (1024 x 1024 becomes 256 x 256 for 4), over the same field of view. Only applies
             when this stage builds the twin model itself (`model=None`). The twin's default
@@ -93,7 +88,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         central_fraction: float | None = descriptor.CENTRAL_FRACTION,
         uz_min: float | None = descriptor.UZ_MIN,
         plasma_exit_z: float | None = None,
-        lock_source: bool = True,
         screen_binning: int = 1,
     ) -> None:
         super().__init__()
@@ -114,7 +108,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self.central_fraction = central_fraction
         self.uz_min = uz_min
         self.plasma_exit_z = plasma_exit_z
-        self.lock_source = lock_source
         # The twin's source parameters, by variable name: an injection sets them all.
         self._source = {
             name: variable
@@ -123,10 +116,11 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
                 variable, (htu_model.SourceVariable, htu_model.SourceIntVariable)
             )
         }
+        # The source variables are served read-only: the LPA bunch is the only source.
         self._variables = {
             name: (
                 variable.model_copy(update={"read_only": True})
-                if lock_source and name in self._source
+                if name in self._source
                 else variable
             )
             for name, variable in model.supported_variables.items()
@@ -136,9 +130,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
             False  # a bunch was injected and the twin not yet re-tracked
         )
         self._particles: ParticleGroup | None = None
-        self._injected_beam = (
-            None  # the beam object put into the twin by the last injection
-        )
         simulator = model.simulator
         self._original_beam = simulator.initial_beam_distribution.clone()
         self._original_source_params = dataclasses.replace(simulator.source_params)
@@ -148,16 +139,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         """Metres the last injected bunch was drifted to reach the source plane (negative: back
         toward the plasma); None if it was not drifted."""
         return self._drift_m
-
-    @property
-    def external_beam(self) -> bool:
-        """True while the injected bunch (not a parametric source beam) is the twin's source beam.
-
-        Putting a `Source_*` PV regenerates a parametric beam and makes this False."""
-        return (
-            self._particles is not None
-            and self._model.simulator.initial_beam_distribution is self._injected_beam
-        )
 
     @property
     def initial_particles(self) -> ParticleGroup | None:
@@ -239,7 +220,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
             raise
         self._particles = particles
         self._drift_m = drift_m
-        self._injected_beam = simulator.initial_beam_distribution
         self._tracking_pending = True
 
     def reset(self) -> None:
@@ -254,7 +234,6 @@ class TwinStage(InitialParticlesMixIn, LUMEModel):
         self._tracking_pending = False
         self._particles = None
         self._drift_m = None
-        self._injected_beam = None
 
     @property
     def source_names(self) -> list[str]:

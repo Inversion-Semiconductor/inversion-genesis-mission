@@ -13,6 +13,7 @@ pytest.importorskip("htu")
 pytest.importorskip("lume_pva")
 pytest.importorskip("lume_fbpic_twin")
 
+import torch  # noqa: E402  (htu needs it, so it is there)
 from lume.exceptions import ReadOnlyError  # noqa: E402
 from lume.staged_model import StagedModel  # noqa: E402
 
@@ -34,6 +35,20 @@ from lume_fbpic_twin.twin_stage import (  # noqa: E402
 )
 
 from beamphysics import ParticleGroup
+
+
+@pytest.fixture(scope="module", autouse=True)
+def float32_default_dtype():
+    """Build and track the twin with torch's float32 default, which its variables expect.
+
+    The root `pytest.ini` collects every package in one process, and xopt (imported by
+    lpa/Exploration_FBPIC) sets the default to float64 at import, so the twin's images would
+    otherwise fail its own float32 validation. The previous default is restored afterwards.
+    """
+    previous = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float32)
+    yield
+    torch.set_default_dtype(previous)
 
 
 @pytest.fixture(scope="module")
@@ -71,7 +86,7 @@ def test_a_lab_snapshot_is_selected_and_injected(stage):
 
     stage.initial_particles = pg
 
-    assert stage.external_beam is True
+    assert stage.initial_particles is not None
     assert len(stage.initial_particles) == len(expected)
     assert _get(stage, "Source_Charge_pC") == pytest.approx(expected.charge * 1e12)
     assert _get(stage, "Source_NumParticles") == len(expected)
@@ -126,24 +141,10 @@ def test_a_failed_injection_leaves_the_twin_untouched(stage):
         )  # nothing passes uz >= 30
 
     assert (_get(stage, "Source_Energy_MeV"), _get(stage, "Source_Charge_pC")) == before
-    assert stage.external_beam is False
+    assert stage.initial_particles is None
 
 
-def test_an_unlocked_source_put_replaces_the_injected_beam(twin_model):
-    stage = TwinStage(twin_model, lock_source=False)
-    try:
-        stage.initial_particles = lab_snapshot()
-        assert stage.external_beam is True
-
-        stage.set({"Source_Energy_MeV": 90.0})
-
-        assert stage.external_beam is False
-        assert _get(stage, "Source_Energy_MeV") == 90.0
-    finally:
-        stage.reset()
-
-
-def test_a_locked_source_cannot_be_set_and_the_injected_beam_stays(stage):
+def test_the_source_cannot_be_set_and_the_injected_beam_stays(stage):
     stage.initial_particles = lab_snapshot()
     charge = _get(stage, "Source_Charge_pC")
     assert charge == pytest.approx(
@@ -154,15 +155,9 @@ def test_a_locked_source_cannot_be_set_and_the_injected_beam_stays(stage):
         stage.set({"Source_Charge_pC": 5.0})
     stage.set({"EMQ1H_Current": 0.71})  # the other twin variables stay writable
 
-    assert stage.external_beam is True
+    assert stage.initial_particles is not None
     assert _get(stage, "Source_Charge_pC") == charge
     assert _get(stage, "EMQ1H_Current") == pytest.approx(0.71, rel=1e-7)  # float32
-
-
-def test_the_source_can_be_left_writable(twin_model):
-    stage = TwinStage(twin_model, lock_source=False)
-
-    assert not stage.supported_variables["Source_Energy_MeV"].read_only
 
 
 def test_reset_restores_the_original_source_beam_and_forgets_the_drift(stage):
@@ -173,7 +168,6 @@ def test_reset_restores_the_original_source_beam_and_forgets_the_drift(stage):
 
     stage.reset()
 
-    assert stage.external_beam is False
     assert stage.initial_particles is None
     assert stage.drift_length is None
     assert (
@@ -182,7 +176,7 @@ def test_reset_restores_the_original_source_beam_and_forgets_the_drift(stage):
     ) == pytest.approx(original)
 
 
-def test_wrapped_variables_are_the_twins_apart_from_the_locked_source(
+def test_wrapped_variables_are_the_twins_apart_from_the_read_only_source(
     stage, twin_model
 ):
     twin = twin_model.supported_variables
@@ -215,7 +209,7 @@ def test_the_stage_follows_an_lpa_model_in_a_staged_chain(stage, simulator):
         {"EMQ1H_Current": 0.7}
     )  # only a twin variable: the LPA bunch is still passed on
 
-    assert stage.external_beam is True
+    assert stage.initial_particles is not None
     assert _get(stage, "EMQ1H_Current") == pytest.approx(0.7, rel=1e-7)  # float32
     assert _get(stage, "Source_Charge_pC") == pytest.approx(
         _selected_charge_pc(simulator.final_particles), rel=1e-7
@@ -229,7 +223,7 @@ def test_an_empty_set_of_the_chain_passes_the_lpa_bunch_on(stage, simulator):
 
     chain.set({})
 
-    assert stage.external_beam is True
+    assert stage.initial_particles is not None
     assert _get(stage, "Source_Charge_pC") == pytest.approx(
         _selected_charge_pc(simulator.final_particles), rel=1e-7
     )
@@ -329,7 +323,6 @@ def test_the_served_chain_exposes_the_twin_controls_and_keeps_the_source_read_on
             chain,
             prefix="HTU:SIM:",
             serve_always=set(stage.supported_variables),
-            wait_for_puts=True,
         )
         modes = {
             name: str(entry["mode"]) for name, entry in config["variables"].items()
@@ -339,7 +332,8 @@ def test_the_served_chain_exposes_the_twin_controls_and_keeps_the_source_read_on
         assert modes["Source_Energy_MeV"] == "ro"  # the LPA is the source
         assert modes["charge_pc"] == "ro"  # an LPA output
         assert modes["laser_energy"] == "ro"  # an LPA input is served read-only
-        assert config["put_mode"] == PutMode.Complete
+        # Phoebus must not wait on a re-track
+        assert config["put_mode"] == PutMode.Immediate
         assert config["prefix"] == "HTU:SIM:"
     finally:
         stage.reset()
@@ -368,7 +362,7 @@ def test_a_set_after_an_injection_tracks_once(stage, twin_model, mocker):
     assert (
         track.call_count == 1
     )  # the twin's own re-track; not a second one for the injection
-    assert stage.external_beam is True
+    assert stage.initial_particles is not None
 
 
 def test_screens_are_current_when_read_right_after_an_injection(stage, twin_model):
@@ -439,7 +433,7 @@ def test_switching_the_lpa_run_changes_the_twins_source(
             ]
             == descriptor["total_beam_charge_pc"]
         )
-        assert stage.external_beam is True
+        assert stage.initial_particles is not None
 
     try:
         chain.set({"EMQ1H_Current": 0.7})

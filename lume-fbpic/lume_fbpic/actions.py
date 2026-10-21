@@ -300,12 +300,14 @@ def evolve_laser(laser: typing.Any, **changes: typing.Any) -> typing.Any:
     """`attrs.evolve(laser, **changes)` for a `_LaserPulse`.
 
     Every `_LaserPulse` holds *both* `energy` and `a0` -- whichever wasn't given at construction
-    is derived and stored too (tracked on the private `_amplitude_source` attribute) -- but its
-    constructor takes only one of them. So the one that should not survive the change is dropped
-    first: the other amplitude when `changes` sets `energy` or `a0`, otherwise the derived one.
+    is derived and stored too -- but its constructor takes only one of them. So the one that
+    should not survive the change is dropped first: the other amplitude when `changes` sets
+    `energy` or `a0`, otherwise the derived one. A laser built from `a0` reports the energy it
+    derived as `out_energy`, and no other laser sets it, so that tells which one was given.
     """
     changed = [name for name in _AMPLITUDE_SIBLING if name in changes]
-    derived = _AMPLITUDE_SIBLING[changed[0] if changed else laser._amplitude_source]
+    given = "a0" if laser.out_energy is not None else "energy"
+    derived = _AMPLITUDE_SIBLING[changed[0] if changed else given]
     return attrs.evolve(laser, **{derived: None, **changes})
 
 

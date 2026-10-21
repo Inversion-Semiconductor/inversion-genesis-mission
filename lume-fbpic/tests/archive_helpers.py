@@ -1,13 +1,19 @@
 """Helpers of the archive tests: archive a simulator alone, load one back, read the recorded
-outputs of an archive."""
+outputs of an archive, and a user's action class defined outside `lume_fbpic.actions`.
+"""
 
 from __future__ import annotations
 
 import h5py
 
 from lume_fbpic import archive
+from lume_fbpic.actions import LaserFieldAction
 from lume_fbpic.model import LUMEFBPICModel
 from lume_fbpic.simulator import BaseSimulator
+
+
+class CustomLaserAction(LaserFieldAction):
+    """A user's action, importable by its module and name, as an archive needs."""
 
 
 def load_simulator(*args, **kwargs) -> BaseSimulator:

@@ -141,20 +141,18 @@ def test_the_lpa_display_shows_every_descriptor_feature_once(lpa_display):
     ]
 
     for action in make_descriptor_actions():
-        assert pvs.count(f"pva://$(P=HTU:SIM:){action.name}") == 1, action.name
-    assert pvs.count("pva://$(P=HTU:SIM:)LPA_Archive") == 1  # the run selector
+        assert pvs.count(f"pva://HTU:SIM:{action.name}") == 1, action.name
+    assert pvs.count("pva://HTU:SIM:LPA_Archive") == 1  # the run selector
     assert (
         len(pvs) == 33 + 14 + 3 + 1
     )  # descriptor, twin source readbacks, statistics, selector
 
 
-def test_the_lpa_display_prefix_is_a_macro_defaulting_to_the_twins(lpa_display):
+def test_the_lpa_display_uses_the_twins_prefix(lpa_display):
     root = ET.fromstring(lpa_display.build())
 
-    # The default is in each PV name and the file defines no `P`, so setting `P` overrides it.
-    assert root.findtext("macros/P") is None
     assert all(
-        w.findtext("pv_name").startswith("pva://$(P=HTU:SIM:)")
+        w.findtext("pv_name").startswith("pva://HTU:SIM:")
         for w in root.findall("widget")
         if w.findtext("pv_name")
     )

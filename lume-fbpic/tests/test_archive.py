@@ -3,6 +3,7 @@ input values at execution / output values after it."""
 
 from __future__ import annotations
 
+import importlib.metadata
 import math
 import warnings
 
@@ -10,9 +11,15 @@ import h5py
 import numpy
 import pytest
 
-from archive_helpers import load_simulator, recorded_values, simulator_model
+from archive_helpers import (
+    CustomLaserAction,
+    load_simulator,
+    recorded_values,
+    simulator_model,
+)
 from downramp_actions import make_actions
 from reference_descriptor import reference_descriptor
+from short_runs import short_pwfa_model
 from lume_fbpic import archive, descriptor
 from lume_fbpic.actions import LaserFieldAction, make_descriptor_actions
 from lume_fbpic.model import LUMEFBPICModel
@@ -32,16 +39,6 @@ def full_model(simulator) -> LUMEFBPICModel:
     """A dummy-run model with the default actions plus the 33 descriptor actions."""
     actions = [*make_actions(simulator), *make_descriptor_actions()]
     return LUMEFBPICModel(simulator, actions, dummy_run=True)
-
-
-def _pretend_run_finishes(simulator, mocker, particle_group, stats):
-    """Replace `simulator.run` by one that 'completes' with the given results."""
-
-    def run():
-        simulator.final_particles = particle_group
-        simulator.stats = dict(stats)
-
-    mocker.patch.object(simulator, "run", side_effect=run)
 
 
 def test_archive_does_not_store_particles_by_default(
@@ -143,34 +140,53 @@ def test_restored_model_returns_outputs_when_particles_were_saved(
         assert got[name] == pytest.approx(expected[name])
 
 
-def test_archive_stores_the_current_input_and_output_values(
-    simulator, particle_group, mocker, tmp_path
+# beamphysics (0.16.1 on) reads particles from a group of a file, with this warning; before
+# 0.16.1 it could not, the reason for the minimum version
+@pytest.mark.filterwarnings("ignore:The openPMD root is the group:FutureWarning")
+def test_an_archive_in_a_group_of_a_file_loads_its_final_particles(
+    full_model, particle_group, tmp_path
 ):
-    model = LUMEFBPICModel(simulator, make_actions(simulator))
-    simulator.configure()
-    _pretend_run_finishes(
-        simulator, mocker, particle_group, {"charge_pc": 7.0, "energy_mean_mev": 8.0}
+    simulator = full_model.simulator
+    simulator.final_particles = particle_group
+    simulator.stats = {"charge_pc": 7.0, "energy_mean_mev": 8.0, "energy_std_mev": 0.5}
+
+    with h5py.File(tmp_path / "f.h5", "w") as f:
+        archive.save(full_model, f.create_group("sub"), save_final_particles=True)
+    with h5py.File(tmp_path / "f.h5", "r") as f:
+        restored = archive.load(f["sub"], dummy_run=True)
+
+    numpy.testing.assert_array_equal(
+        restored.simulator.final_particles.z, particle_group.z
     )
-    model.set({"laser_energy": 6.0})  # runs
+    numpy.testing.assert_array_equal(
+        restored.simulator.final_particles.weight, particle_group.weight
+    )
+    assert restored.simulator.stats == simulator.stats
+
+
+def test_archive_stores_the_current_input_and_output_values(tmp_path):
+    model = short_pwfa_model(tmp_path / "run")
+    model.set({"driver_density": 6.0e24})  # runs
+    stats = dict(model.simulator.stats)
     model.dummy_run = True
     model.set(
-        {"laser_energy": 9.0}
+        {"driver_density": 9.0e24}
     )  # changes the config after the run, without running
     archive.save(model, tmp_path / "m.h5")
 
     values = recorded_values(tmp_path / "m.h5")
 
-    assert values["charge_pc"] == 7.0
-    assert values["energy_mean_mev"] == 8.0
+    assert values["charge_pc"] == stats["charge_pc"]
+    assert values["energy_mean_mev"] == stats["energy_mean_mev"]
     assert (
-        "laser_energy" not in values
+        "driver_density" not in values
     )  # the inputs are in the config, not stored as values
-    # the config holds the current input, not the 6.0 that ran
+    # the config holds the current input, not the 6e24 that ran
     assert (
-        archive.load(tmp_path / "m.h5", dummy_run=True).get(["laser_energy"])[
-            "laser_energy"
+        archive.load(tmp_path / "m.h5", dummy_run=True).get(["driver_density"])[
+            "driver_density"
         ]
-        == 9.0
+        == 9.0e24
     )
 
 
@@ -192,6 +208,33 @@ def test_model_that_never_ran_stores_its_inputs_in_the_config_and_nan_outputs(
     assert "final_particles" not in values  # no scalar value for particles
 
 
+def test_the_default_name_depends_on_the_actions_as_well_as_the_config(
+    simulator, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    actions = make_actions(simulator)
+
+    same = [
+        archive.save(LUMEFBPICModel(simulator, make_actions(simulator), dummy_run=True))
+        for _ in range(2)
+    ]
+    fewer = archive.save(LUMEFBPICModel(simulator, actions[:-1], dummy_run=True))
+    renamed = archive.save(
+        LUMEFBPICModel(
+            simulator,
+            [*actions[:-1], actions[-1].model_copy(update={"name": "renamed"})],
+            dummy_run=True,
+        )
+    )
+
+    assert same[0] == same[1]
+    assert len({same[0], fewer, renamed}) == 3
+    assert all(name.startswith("lume_fbpic_") for name in (fewer, renamed))
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
+        {same[0], fewer, renamed}
+    )
+
+
 def test_load_rejects_a_file_without_actions(simulator, tmp_path):
     archive.save(simulator_model(simulator), tmp_path / "s.h5")
     with h5py.File(tmp_path / "s.h5", "a") as f:
@@ -201,30 +244,131 @@ def test_load_rejects_a_file_without_actions(simulator, tmp_path):
         archive.load(tmp_path / "s.h5")
 
 
-def test_load_rejects_an_unknown_action_class(full_model, tmp_path):
+def test_load_rejects_another_format_version(full_model, tmp_path):
+    archive.save(full_model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        assert f.attrs["format_version"] == archive._FORMAT_VERSION
+        f.attrs["format_version"] = 1
+
+    with pytest.raises(ValueError, match="format version 1"):
+        archive.load(tmp_path / "m.h5")
+
+
+def test_an_action_stores_the_module_name_and_package_version_of_its_class(
+    full_model, tmp_path
+):
+    archive.save(full_model, tmp_path / "m.h5")
+
+    with h5py.File(tmp_path / "m.h5") as f:
+        entry = f["actions/0000"]
+        assert entry.attrs["module"] == "lume_fbpic.actions"
+        first = next(iter(full_model.supported_variables.values()))
+        assert entry.attrs["class"] == type(first).__qualname__
+        assert entry.attrs["version"] == importlib.metadata.version("lume-fbpic")
+
+
+def test_a_custom_action_class_round_trips(simulator, tmp_path):
+    model = LUMEFBPICModel(
+        simulator,
+        [CustomLaserAction(name="mine", field_name="waist", unit="m")],
+        dummy_run=True,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        archive.save(model, tmp_path / "m.h5")
+        restored = archive.load(tmp_path / "m.h5")
+
+    action = restored.supported_variables["mine"]
+    assert type(action) is CustomLaserAction
+    assert restored.get(["mine"]) == model.get(["mine"])
+
+
+def test_another_package_version_is_not_a_warning(simulator, tmp_path):
+    model = LUMEFBPICModel(
+        simulator,
+        [CustomLaserAction(name="mine", field_name="waist", unit="m")],
+        dummy_run=True,
+    )
+    archive.save(model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        f["actions/0000"].attrs["version"] = "0.0.0"
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert "mine" in archive.load(tmp_path / "m.h5").supported_variables
+
+
+@pytest.mark.parametrize(
+    "attribute, value",
+    [("module", "no_such_package.actions"), ("class", "NoSuchAction")],
+)
+def test_an_action_whose_class_is_gone_is_left_out_with_a_warning(
+    full_model, tmp_path, attribute, value
+):
+    archive.save(full_model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        f["actions/0000"].attrs[attribute] = value
+        name = str(f["actions/0000"].attrs["name"])
+
+    with pytest.warns(UserWarning, match=f"action {name!r} .*cannot be rebuilt"):
+        restored = archive.load(tmp_path / "m.h5")
+
+    assert name not in restored.supported_variables
+    assert len(restored.supported_variables) == len(full_model.supported_variables) - 1
+
+
+def test_the_warning_names_the_archived_version(full_model, tmp_path):
+    archive.save(full_model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        f["actions/0000"].attrs["class"] = "NoSuchAction"
+        f["actions/0000"].attrs["version"] = "9.9"
+
+    with pytest.warns(UserWarning, match=r"archived with version 9\.9"):
+        archive.load(tmp_path / "m.h5")
+
+
+def test_an_action_that_no_longer_accepts_its_parameters_is_left_out(
+    full_model, tmp_path
+):
+    archive.save(full_model, tmp_path / "m.h5")
+    with h5py.File(tmp_path / "m.h5", "a") as f:
+        f["actions/0000/parameters"].attrs["read_only"] = "maybe"  # not a bool
+        name = str(f["actions/0000"].attrs["name"])
+
+    with pytest.warns(UserWarning, match="cannot be rebuilt"):
+        restored = archive.load(tmp_path / "m.h5")
+
+    assert name not in restored.supported_variables
+
+
+def test_strict_load_raises_for_an_action_that_cannot_be_rebuilt(full_model, tmp_path):
     archive.save(full_model, tmp_path / "m.h5")
     with h5py.File(tmp_path / "m.h5", "a") as f:
         f["actions/0000"].attrs["class"] = "NoSuchAction"
 
     with pytest.raises(ValueError, match="NoSuchAction"):
-        archive.load(tmp_path / "m.h5")
+        archive.load(tmp_path / "m.h5", strict=True)
 
 
-def test_an_action_class_from_outside_lume_fbpic_actions_cannot_be_loaded(
+def test_an_action_class_defined_in_a_function_is_saved_with_a_warning(
     simulator, tmp_path
 ):
-    class MyLaserAction(LaserFieldAction):
+    class LocalLaserAction(LaserFieldAction):
         pass
 
     model = LUMEFBPICModel(
         simulator,
-        [MyLaserAction(name="mine", field_name="waist", unit="m")],
+        [LocalLaserAction(name="mine", field_name="waist", unit="m")],
         dummy_run=True,
     )
-    archive.save(model, tmp_path / "m.h5")  # a custom action can still be written
 
-    with pytest.raises(ValueError, match="Unknown action class 'MyLaserAction'"):
-        archive.load(tmp_path / "m.h5")
+    with pytest.warns(
+        UserWarning, match="LocalLaserAction of action 'mine' will not load"
+    ):
+        archive.save(model, tmp_path / "m.h5")
+    with pytest.warns(UserWarning, match="action 'mine' .*cannot be rebuilt"):
+        restored = archive.load(tmp_path / "m.h5")
+    assert "mine" not in restored.supported_variables
 
 
 def test_action_parameters_are_stored_as_attributes_not_json(full_model, tmp_path):
@@ -378,8 +522,8 @@ def test_recorded_outputs_survive_archiving_again(recorded_model, tmp_path):
     assert recorded_values(tmp_path / "again.h5")["descriptor_mean_uz"] == 171.6
 
 
-def test_reset_restores_the_initial_config_without_running(recorded_model, mocker):
-    run = mocker.patch.object(recorded_model.simulator, "run")
+def test_reset_restores_the_initial_config_without_running(recorded_model, tmp_path):
+    recorded_model.simulator.working_directory = tmp_path / "work"
     energy = recorded_model.get(["laser_energy"])["laser_energy"]
     recorded_model.set({"laser_energy": 9.0})
     assert recorded_model.get(["laser_energy"])["laser_energy"] == 9.0
@@ -387,7 +531,7 @@ def test_reset_restores_the_initial_config_without_running(recorded_model, mocke
     recorded_model.reset()  # ActionModel.reset() would fail here: default_value is None
 
     assert recorded_model.get(["laser_energy"])["laser_energy"] == energy
-    run.assert_not_called()
+    assert not (tmp_path / "work").exists()  # nothing ran
 
 
 def test_reset_brings_back_the_recorded_outputs(recorded_model):

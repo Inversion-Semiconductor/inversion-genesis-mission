@@ -1,8 +1,8 @@
 """Serve an archived `LUMEFBPICModel` as EPICS PVs through `lume-pva`.
 
-`python -m lume_fbpic_twin.serve <archive.h5 | directory> ... [--prefix LPA:SIM:]` loads the archives
+`python -m lume_fbpic_twin.serve <archive.h5 | directory> ...` loads the archives
 (`LUMEFBPICModel.from_archive()`; a directory means its `*.h5` files) and serves every read-only
-scalar action -- the stats and the moment-descriptor features -- over PVA and CA, each named
+scalar action -- the stats and the moment-descriptor features -- over PV Access, each named
 `<prefix><action name>`; `lume-pva` adds `<prefix>RESET` and `<prefix>SNAPSHOT`.
 
 The archives are held by an `ArchiveSelector`: one writable enum PV, `<prefix>LPA_Archive`, lists
@@ -13,10 +13,8 @@ archive's: the live results when it holds the final particles, otherwise the rec
 values (as in the archives made by `docs/htu-twin/twin/initial_sample_archives.py`).
 `final_particles` is not served, as `lume-pva` has no handler for a particle group.
 
-The model is always loaded with `dummy_run=True`, so a put can change a parameter but can never
-start a simulation. The input actions (laser energy, ...) are served read-only, or read-write with
-`--include-inputs`; a put then changes the model's config only, and the outputs stay the recorded
-results.
+The model is always loaded with `dummy_run=True`, so nothing ever starts a simulation. The input
+actions (laser energy, ...) are served read-only.
 
 With `--twin` the archive's final particles are the source of the HTU transport twin
 (`lume_fbpic_twin.twin_stage.build_chain()`): the twin's own variables (magnets, steering,
@@ -28,18 +26,17 @@ twin's Phoebus displays use.
 
 A put is acknowledged at once and the served values update when the twin has re-tracked (a few
 seconds), because Phoebus waits one second for a put reply on its UI thread and would otherwise report
-a write error and freeze. `--wait-for-puts` acknowledges only after the re-track
-(`PutMode.Complete`), for scan clients that set and wait. The twin's camera images are made coarser
-(`--screen-binning`, 4 by default): the bunch has far fewer macroparticles than the twin's
-1024 x 1024 pixels.
+a write error and freeze. The twin's camera images are made `SCREEN_BINNING` times coarser: the
+bunch has far fewer macroparticles than the twin's 1024 x 1024 pixels.
 
 An archive without final particles (one reconstructed from a dataset, as
 `docs/htu-twin/twin/initial_sample_archives.py` writes) cannot feed the twin on its own. With
-`--synthesize-bunch` a bunch is built from its recorded moment descriptor (the selector's
-`synthetic_bunch_particles`): an APPROXIMATION of the real bunch, matching the descriptor's means,
+`--synthesize-bunch` a bunch of `SYNTHETIC_BUNCH_PARTICLES` macroparticles is built from its
+recorded moment descriptor: an APPROXIMATION of the real bunch, matching the descriptor's means,
 variances and main correlations, not its tails. The served descriptor values stay the recorded ones.
 
-Needs `lume-pva` (the `serve` extra of this package); it is imported only when serving.
+Needs `lume-pva` (the `serve` extra of this package); it is imported only when serving, after the
+arguments have been checked.
 """
 
 from __future__ import annotations
@@ -57,22 +54,23 @@ LPA_PREFIX = "LPA:SIM:"
 # The PV prefix with `--twin`. POSIT: the twin's own, `htu.config_tool.DEFAULT_PREFIX`, which its
 # Phoebus displays use.
 TWIN_PREFIX = "HTU:SIM:"
+# How many times coarser the twin's camera images are served, in each direction: 1024 x 1024
+# becomes 256 x 256 over the same field of view.
+SCREEN_BINNING = 4
+# The macroparticles of a bunch synthesized from a moment descriptor.
+SYNTHETIC_BUNCH_PARTICLES = 20_000
 
 
 def build_config(
     model,
     *,
-    include_inputs: bool = False,
     prefix: str = LPA_PREFIX,
-    protocol: list[str] | None = None,
     serve_always: set[str] | None = None,
-    wait_for_puts: bool = False,
 ) -> dict[str, typing.Any]:
     """The `lume_pva.runner.Runner` config for `model`: every variable of the model, with the
-    writable ones served read-only, unless `include_inputs`, in which case they are served
-    read-write. Variables named in `serve_always` are served in their natural mode either way.
-    `wait_for_puts` makes a put acknowledge only after the model has finished
-    (`PutMode.Complete`).
+    writable ones served read-only, apart from those named in `serve_always`, which are served
+    in their natural mode. A put is acknowledged at once (`PutMode.Immediate`), and the model is
+    served over PV Access only.
 
     The config holds every variable of the model: the `Runner` of the `lume-pva` the twin pins
     looks up each of them in it."""
@@ -80,19 +78,18 @@ def build_config(
     config = runner.Runner.generate_config(
         model,
         prefix=prefix,
-        put_mode=runner.PutMode.Complete if wait_for_puts else runner.PutMode.Immediate,
+        put_mode=runner.PutMode.Immediate,
     )
     always = serve_always or set()
     config["variables"] = {
         name: (
             entry
-            if include_inputs or name in always or str(entry["mode"]) == "ro"
+            if name in always or str(entry["mode"]) == "ro"
             else {**entry, "mode": type(entry["mode"]).RO}
         )
         for name, entry in config["variables"].items()
     }
-    if protocol:
-        config["protocol"] = list(protocol)
+    config["protocol"] = ["pva"]
     return config
 
 
@@ -127,28 +124,6 @@ def main(argv: list[str] | None = None) -> None:
         help="archives written by LUMEFBPICModel.archive(), or directories of them",
     )
     parser.add_argument(
-        "--selector-name",
-        default=DEFAULT_SELECTOR_NAME,
-        help="name of the archive-selector PV",
-    )
-    parser.add_argument(
-        "--prefix",
-        default=None,
-        help=f"PV name prefix (default {LPA_PREFIX}, or {TWIN_PREFIX} with --twin)",
-    )
-    parser.add_argument(
-        "--include-inputs",
-        action="store_true",
-        help="serve the writable actions read-write, not read-only (a put changes the config but "
-        "never runs it, and the outputs stay the recorded results)",
-    )
-    parser.add_argument(
-        "--protocol",
-        nargs="+",
-        choices=["ca", "pva"],
-        help="protocols to serve (default both)",
-    )
-    parser.add_argument(
         "--twin",
         action="store_true",
         help="feed the archive's final particles to the HTU twin and serve the twin as well",
@@ -159,32 +134,9 @@ def main(argv: list[str] | None = None) -> None:
         help="with --twin and no final particles in the archive, build an approximate bunch from "
         "the recorded moment descriptor",
     )
-    parser.add_argument(
-        "--bunch-particles",
-        type=int,
-        default=20_000,
-        help="macroparticles of the synthetic bunch",
-    )
-    parser.add_argument(
-        "--wait-for-puts",
-        action="store_true",
-        help="acknowledge a put only after the model has finished (PutMode.Complete), so a scan "
-        "client can set-and-wait. The default acknowledges at once: a Phoebus write waits one "
-        "second on its UI thread, shorter than a twin re-track",
-    )
-    parser.add_argument(
-        "--screen-binning",
-        type=int,
-        default=4,
-        help="with --twin, make the twin's camera images this many times coarser in each "
-        "direction (default 4: 1024 x 1024 becomes 256 x 256, over the same field of view; 1 "
-        "keeps the twin's own resolution)",
-    )
-    parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=args.log_level)
-    runner = _import_runner()
+    logging.basicConfig(level=logging.INFO)
     if args.synthesize_bunch and not args.twin:
         parser.error("--synthesize-bunch only applies with --twin")
     try:
@@ -213,25 +165,24 @@ def main(argv: list[str] | None = None) -> None:
             logging.getLogger(__name__).warning(
                 "serving SYNTHETIC bunches built from the moment descriptor (%d macroparticles) "
                 "for %s; they approximate the real bunches",
-                args.bunch_particles,
+                SYNTHETIC_BUNCH_PARTICLES,
                 without,
             )
     try:
         selector = ArchiveSelector(
             models,
-            selector_name=args.selector_name,
             synthetic_bunch_particles=(
-                args.bunch_particles if args.synthesize_bunch else None
+                SYNTHETIC_BUNCH_PARTICLES if args.synthesize_bunch else None
             ),
         )
     except ValueError as error:
         parser.error(str(error))
-    serve_always = {args.selector_name}
+    serve_always = {DEFAULT_SELECTOR_NAME}
     if args.twin:
         from lume_fbpic_twin.twin_stage import build_chain  # needs htu and torch
 
         try:
-            served = build_chain(selector, screen_binning=args.screen_binning)
+            served = build_chain(selector, screen_binning=SCREEN_BINNING)
         except ValueError as error:
             parser.error(str(error))
         serve_always |= set(served.lume_model_instances[1].supported_variables)
@@ -240,17 +191,13 @@ def main(argv: list[str] | None = None) -> None:
         served.set({})
     else:
         served = selector
-    prefix = args.prefix or (TWIN_PREFIX if args.twin else LPA_PREFIX)
     config = build_config(
         served,
-        include_inputs=args.include_inputs,
-        prefix=prefix,
-        protocol=args.protocol,
+        prefix=TWIN_PREFIX if args.twin else LPA_PREFIX,
         serve_always=serve_always,
-        wait_for_puts=args.wait_for_puts,
     )
     logging.getLogger(__name__).info("serving %d variables", len(config["variables"]))
-    runner.Runner(model=served, config=config).run()
+    _import_runner().Runner(model=served, config=config).run()
 
 
 def _import_runner():

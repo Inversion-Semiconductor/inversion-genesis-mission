@@ -2,11 +2,8 @@
 
 The display shows the twin's `Source_*` readbacks (the LPA bunch as injected), the 33
 moment-descriptor scalars (the covariance as an upper-triangular grid) and the run statistics.
-Every PV is `pva://$(P=HTU:SIM:)<name>`: the display macro `P`, which is `HTU:SIM:`, the prefix
-`python -m lume_fbpic_twin.serve --twin` uses, unless it is set. The file does not define `P`, so
-opening it with another prefix works (`phoebus -resource "file:<absolute
-path>/lpa_bunch.bob?P=OTHER:"`; the `file:` URL is needed, since a plain path takes the `?` as
-part of the file name).
+Every PV is `pva://HTU:SIM:<name>`, under the prefix `python -m lume_fbpic_twin.serve --twin`
+uses.
 
 A combo box selects among the archives the server was given (the `LPA_Archive` PV).
 A button opens `htu_synoptic_lpa.bob`, the twin's synoptic with the LPA tied in, which
@@ -221,7 +218,7 @@ def build() -> str:
     widgets.label(
         root,
         "SliceHeader",
-        "Longitudinal slices (equal particle count along z, tail to head)",
+        "Longitudinal slices along z, tail to head",
         left,
         y,
         560,
@@ -296,9 +293,8 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _pv(name: str) -> str:
-    """The PV `name`, under the prefix the display macro `P` gives, by default the one
-    `lume_fbpic_twin.serve --twin` uses."""
-    return f"pva://$(P={TWIN_PREFIX}){name}"
+    """The PV `name`, under the prefix `lume_fbpic_twin.serve --twin` uses."""
+    return f"pva://{TWIN_PREFIX}{name}"
 
 
 if __name__ == "__main__":

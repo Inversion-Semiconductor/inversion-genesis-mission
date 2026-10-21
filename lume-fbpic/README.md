@@ -78,7 +78,7 @@ To serve the outputs as PVs, or to feed the HTU twin, see `docs/htu-twin/README.
 | `lume_fbpic/simulator.py` | `BaseSimulator`: the lifecycle (`configure()`, `run()`, `reset()`), the results, and the input files of a loaded archive |
 | `lume_fbpic/lwfa_simulator.py` | `LWFASimulator`: LWFA, wraps `inversion_fbpic`'s `Simulation` |
 | `lume_fbpic/pwfa_simulator.py` | `PWFASimulator`: beam-driven PWFA, built directly on fbpic |
-| `lume_fbpic/archive.py` | Archives of a model, behind `LUMEFBPICModel.archive()` and `from_archive()`: `save()`, `load()`, and the `fingerprint()` that names one by default |
+| `lume_fbpic/archive.py` | Archives of a model, behind `LUMEFBPICModel.archive()` and `from_archive()`: `save()`, `load()`, and the `fingerprint()` of the config, which with the actions names one by default |
 | `lume_fbpic/archive_config.py` | How an archive stores the config: native HDF5 with no paths, input data files by basename and md5 |
 | `lume_fbpic/pwfa_config.py` | PWFA configs: `PWFAGrid` and the electron bunches (`FlatTopBunch`, `GaussianBunch`) |
 | `lume_fbpic/actions.py` | The input and output actions; `make_descriptor_actions()`, `make_stat_actions()` and `make_pwfa_actions()` |
@@ -102,6 +102,18 @@ pytest
 ```
 
 The twin tests need `htu` importable and `lume-pva` installed; without them they are skipped.
+
+CI (`.github/workflows/pytest.yml`) installs `lume_fbpic_twin` but not geecs-lume-twin, torch or
+`lume-pva`, so these run only locally, in an environment with the twin installed:
+
+- `tests/test_twin.py` (needs `htu` and `lume-pva`)
+- `tests/test_twin_helpers.py` (`twin_stage` imports torch)
+- the tests in `tests/test_serve.py` that need `lume-pva` or `htu`, and the one in
+  `tests/test_phoebus_displays.py` that needs `htu`
+- the Cheetah comparison in `tests/test_bunch_frame.py`
+
+Run them before merging a change to the twin stage, the server or the displays. geecs-lume-twin's
+own tests are not collected by the repository's `pytest.ini` either; run them from that package.
 
 ## Status and limits
 

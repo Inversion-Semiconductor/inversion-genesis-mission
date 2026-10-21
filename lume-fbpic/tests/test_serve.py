@@ -25,10 +25,14 @@ def full_model(simulator) -> LUMEFBPICModel:
     )
 
 
-def test_building_a_config_without_lume_pva_says_so(full_model, monkeypatch):
+@pytest.fixture()
+def without_lume_pva(monkeypatch) -> None:
+    """Makes importing `lume_pva` fail, as if it were not installed."""
     monkeypatch.setitem(sys.modules, "lume_pva", None)
     monkeypatch.setitem(sys.modules, "lume_pva.runner", None)
 
+
+def test_building_a_config_without_lume_pva_says_so(full_model, without_lume_pva):
     with pytest.raises(ImportError, match="lume-pva"):
         build_config(full_model)
 
@@ -45,36 +49,29 @@ def test_config_serves_every_variable_with_the_writable_ones_read_only_by_defaul
     assert all(str(entry["mode"]) == "ro" for entry in config["variables"].values())
 
 
-def test_config_can_include_the_inputs_read_write(full_model):
+def test_config_uses_the_prefix_and_serves_pva_only(full_model):
     pytest.importorskip("lume_pva")
 
-    config = build_config(full_model, include_inputs=True)
-
-    assert str(config["variables"]["laser_energy"]["mode"]) == "rw"
-    assert str(config["variables"]["charge_pc"]["mode"]) == "ro"
-
-
-def test_config_uses_the_prefix_and_protocol(full_model):
-    pytest.importorskip("lume_pva")
-
-    config = build_config(full_model, prefix="X:", protocol=["pva"])
+    config = build_config(full_model, prefix="X:")
 
     assert config["prefix"] == "X:"
     assert config["protocol"] == ["pva"]
 
 
-def test_synthesizing_a_bunch_needs_the_twin(full_model, tmp_path):
-    pytest.importorskip("lume_pva")
+def test_synthesizing_a_bunch_needs_the_twin(
+    full_model, tmp_path, capsys, without_lume_pva
+):
     archive.save(full_model, tmp_path / "a.h5")
 
     with pytest.raises(SystemExit):
         serve.main([str(tmp_path / "a.h5"), "--synthesize-bunch"])
 
+    assert "--synthesize-bunch only applies with --twin" in capsys.readouterr().err
+
 
 def test_the_twin_needs_particles_or_the_flag_to_synthesize_them(
-    full_model, tmp_path, capsys
+    full_model, tmp_path, capsys, without_lume_pva
 ):
-    pytest.importorskip("lume_pva")
     archive.save(full_model, tmp_path / "a.h5")  # no final particles
 
     with pytest.raises(SystemExit):
@@ -110,8 +107,9 @@ def test_an_empty_directory_or_a_missing_path_is_an_error(tmp_path):
         expand_archives([tmp_path / "missing.h5"])
 
 
-def test_archives_with_the_same_file_name_are_refused(full_model, tmp_path, capsys):
-    pytest.importorskip("lume_pva")
+def test_archives_with_the_same_file_name_are_refused(
+    full_model, tmp_path, capsys, without_lume_pva
+):
     for directory in ("one", "two"):
         (tmp_path / directory).mkdir()
         archive.save(full_model, tmp_path / directory / "run.h5")
@@ -123,9 +121,8 @@ def test_archives_with_the_same_file_name_are_refused(full_model, tmp_path, caps
 
 
 def test_the_twin_names_every_archive_that_lacks_particles(
-    full_model, tmp_path, capsys
+    full_model, tmp_path, capsys, without_lume_pva
 ):
-    pytest.importorskip("lume_pva")
     archive.save(full_model, tmp_path / "a.h5")
     archive.save(full_model, tmp_path / "b.h5")
 

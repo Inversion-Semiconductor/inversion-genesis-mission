@@ -247,6 +247,37 @@ def test_an_embedded_input_file_loaded_without_a_working_directory_is_written_ou
     assert loaded.densities[0].filename == expected and expected.is_file()
 
 
+def test_an_embedded_input_file_is_not_read_again_on_every_configure(tmp_path, mocker):
+    simulator, _ = _referenced(tmp_path)
+    archive.save(
+        simulator_model(simulator), tmp_path / "a.h5", input_dirs=tmp_path / "empty"
+    )
+    loaded = load_simulator(tmp_path / "a.h5", working_directory=tmp_path / "one")
+    loaded.configure()
+    checksum = mocker.spy(archive_config, "checksum")
+
+    loaded.configure()
+    loaded.configure()
+
+    checksum.assert_not_called()
+
+
+def test_an_embedded_input_file_changed_on_disk_is_written_again(tmp_path):
+    simulator, _ = _referenced(tmp_path)
+    archive.save(
+        simulator_model(simulator), tmp_path / "a.h5", input_dirs=tmp_path / "empty"
+    )
+    loaded = load_simulator(tmp_path / "a.h5", working_directory=tmp_path / "one")
+    loaded.configure()
+    extracted = Path(loaded.densities[0].filename)
+    original = extracted.read_bytes()
+
+    extracted.write_bytes(b"changed")
+    loaded.configure()
+
+    assert extracted.read_bytes() == original
+
+
 def test_an_embedded_input_file_loads_in_an_empty_directory(tmp_path, monkeypatch):
     simulator, _ = _referenced(tmp_path)
     archive.save(

@@ -28,9 +28,8 @@ The displays in `phoebus/` are laid out for those PVs.
   (`ParticleGroup.drift_to_z()`), shared by `TwinStage` and the synthetic bunch.
 - `serve.py` (`python -m lume_fbpic_twin.serve`): serves archives as EPICS PVs through `lume-pva`.
   It loads each archive without running anything (`dummy_run=True`) and serves the model's
-  variables as `<prefix><name>`: the outputs, and the inputs read-only unless `--include-inputs`
-  is given. With `--twin` it also builds the chain and serves the twin's variables, which
-  re-track on each put.
+  variables as `<prefix><name>`: the outputs, and the inputs read-only. With `--twin` it also
+  builds the chain and serves the twin's variables, which re-track on each put.
 - `archive_selector.py`: `ArchiveSelector` holds several archives and presents the active one as a single
   LPA model, with one writable enum PV (`LPA_Archive`) to switch. A switch reaches the twin like
   a new LPA result. For archives without particles it can build an approximate bunch from the
@@ -38,8 +37,8 @@ The displays in `phoebus/` are laid out for those PVs.
 
 **`twin/`**
 
-- `lpa_to_twin.py`: a script that runs that chain once, from an archive or a finished run's
-  diagnostics, and prints what the twin received and the fraction of the charge that reaches each
+- `lpa_to_twin.py`: a script that runs that chain once, from an archive with the final particles,
+  and prints what the twin received and the fraction of the charge that reaches each
   screen.
 - `initial_sample_archives.py`: turns the seven runs of the NERSC `initial_sample` dataset into
   archives. They hold the recorded 33 moment-descriptor values and no particles, so the twin gets a
@@ -84,9 +83,7 @@ PV can show 0 for about a second, until the server's first update.
 
 The writable LPA inputs (`laser_energy`, the Zernike coefficients, ...) are served read-only, so
 every variable is in the served config: the `lume-pva` the twin pins fails with
-`KeyError: 'laser_energy'` if a variable of the model is missing from it. `--include-inputs` serves
-them read-write instead. A put to one then changes the config only (the server runs with
-`dummy_run=True`), and the outputs stay the recorded results.
+`KeyError: 'laser_energy'` if a variable of the model is missing from it.
 
 ### Check the PVs (optional)
 
@@ -128,21 +125,19 @@ To stop, press Ctrl-C in the server terminal and close Phoebus.
 - `--synthesize-bunch` builds an approximate bunch from each archive's recorded moment descriptor.
   It is needed for archives without final particles (such as the reconstructed `initial_sample`
   runs); leave it out for archives saved with `save_final_particles=True`.
-- Other options: `--prefix` (default `HTU:SIM:` with `--twin`), `--screen-binning N` (camera images
-  N times coarser, default 4; 1 keeps the twin's 1024 x 1024), `--bunch-particles N` (synthetic
-  bunch size, default 20000), `--wait-for-puts` (acknowledge a put only after the twin re-tracks,
-  for scan clients; the default acknowledges at once).
-- Without `--twin`, the server serves just the archives' variables, by default with the prefix
-  `LPA:SIM:`: `python -m lume_fbpic_twin.serve run.h5 --prefix LPA:SIM:`.
+- The server is a demo, so the rest is fixed: the PV prefix is `HTU:SIM:` with `--twin` (the
+  twin's own, which its displays use), the camera images are 4 times coarser than the twin's
+  1024 x 1024, a synthetic bunch has 20000 macroparticles, and a put is acknowledged at once.
+  These are constants in `serve.py`.
+- Without `--twin`, the server serves just the archives' variables, with the prefix `LPA:SIM:`:
+  `python -m lume_fbpic_twin.serve run.h5`.
 
 ### Run the chain once
 
-To run the chain once without a server, from an archive saved with `save_final_particles=True` or
-from the working directory of a finished `ionization_injection.py` run:
+To run the chain once without a server, from an archive saved with `save_final_particles=True`:
 
 ```bash
-python docs/htu-twin/twin/lpa_to_twin.py --archive run.h5
-python docs/htu-twin/twin/lpa_to_twin.py --run-dir <working directory>
+python docs/htu-twin/twin/lpa_to_twin.py run.h5
 ```
 
 ## Limits

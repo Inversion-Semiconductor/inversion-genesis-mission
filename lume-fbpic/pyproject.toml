@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lume_fbpic"
+name = "lume-fbpic"
 version = "0.1.0"
 description = "LUMEModel implementation wrapping inversion_fbpic for virtual accelerators."
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
     "scipy",
     "h5py",
     "openpmd-viewer",
-    "openpmd-beamphysics>=0.16",
+    "openpmd-beamphysics>=0.16.1",  # 0.16.1 reads particles from an HDF5 subgroup: archive.load()
 ]
 
 [project.optional-dependencies]

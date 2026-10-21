@@ -39,8 +39,6 @@ session, so older windows may open too; use the one with the LPA strip along its
   another directory, set the macro when opening the display, with a `file:` URL (a plain path takes
   the `?` as part of the file name): `-resource "file:<this directory>/htu_synoptic_lpa.bob?TWIN_DISPLAYS=<twin display directory>"`.
   Both `<...>` are absolute paths.
-- **`lpa_bunch.bob` on its own** takes a `P` macro for the PV prefix (default `HTU:SIM:`), set the
-  same way: `-resource "file:<this directory>/lpa_bunch.bob?P=OTHER:"`.
 
 ## Regenerate the displays
 

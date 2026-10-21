@@ -198,11 +198,14 @@ def particles_from_descriptor(
     and `longitudinal_rms_uz_NN` for each longitudinal bin, `total_beam_charge_pc`). It is an
     APPROXIMATION of the bunch it summarizes -- those 33 numbers do not determine a distribution:
 
-    - The longitudinal `uz` structure is a mixture of the descriptor's bins. The bins are equal
-      in particle count but their means are charge-weighted, so the charge fractions of the bins
-      are recovered (nearest to equal) from the descriptor's `mean_uz` and `cov_uz_uz`; `z` is
-      Gaussian with the descriptor's `cov_z_z`, cut into bins of those charge fractions, so the
-      energy rises along `z` as it does in the descriptor.
+    - The longitudinal `uz` structure is a mixture of the descriptor's bins. The descriptor does
+      not store the charge fraction of each bin. `compute_moment_descriptor` now cuts bins of
+      equal charge, but before inversion-genesis-mission #24 it cut bins of equal particle count
+      (with charge-weighted means), and the `initial_sample` dataset was written then. So the
+      fractions are solved for, nearest to equal, from `mean_uz` and `cov_uz_uz`
+      (`_slice_charge_fractions`). `z` is Gaussian with the descriptor's `cov_z_z`,
+      cut into bins of those charge fractions, so the energy rises along `z` as it does in the
+      descriptor.
     - The transverse coordinates (`x, ux, y, uy`) are Gaussian, conditional on `(z, uz)`, with
       the regression and residual covariance the descriptor's 6D covariance implies.
     - The mean position is zero (the descriptor does not carry it), and the tails of the real
@@ -292,7 +295,9 @@ def _slice_charge_fractions(
 ) -> numpy.ndarray:
     """Charge fraction of each longitudinal bin: the non-negative fractions, summing to one, that
     reproduce `mean` and `variance` of `uz` as a mixture of the bins and lie nearest to equal.
-    Equal fractions, with a warning, if no such fractions exist."""
+    For a descriptor with equal-charge bins that is equal fractions; one with equal-count bins
+    (an older descriptor) needs others. Equal fractions, with a warning, if no such fractions exist.
+    """
     bins = len(slice_mean)
     second = slice_rms**2 + slice_mean**2
     result = minimize(

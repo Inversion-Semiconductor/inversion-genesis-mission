@@ -58,7 +58,7 @@
     <y>70</y>
     <width>260</width>
     <height>24</height>
-    <pv_name>pva://$(P=HTU:SIM:)LPA_Archive</pv_name>
+    <pv_name>pva://HTU:SIM:LPA_Archive</pv_name>
     <items_from_pv>true</items_from_pv>
   </widget>
   <widget type="label" version="2.0.0">
@@ -108,7 +108,7 @@
     <y>140</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_Energy_MeV</pv_name>
+    <pv_name>pva://HTU:SIM:Source_Energy_MeV</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -127,7 +127,7 @@
     <y>140</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_EnergySpread_pct</pv_name>
+    <pv_name>pva://HTU:SIM:Source_EnergySpread_pct</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -146,7 +146,7 @@
     <y>166</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_Charge_pC</pv_name>
+    <pv_name>pva://HTU:SIM:Source_Charge_pC</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -165,7 +165,7 @@
     <y>166</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_NumParticles</pv_name>
+    <pv_name>pva://HTU:SIM:Source_NumParticles</pv_name>
     <precision>0</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -184,7 +184,7 @@
     <y>192</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_BetaX_mm</pv_name>
+    <pv_name>pva://HTU:SIM:Source_BetaX_mm</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -203,7 +203,7 @@
     <y>192</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_BetaY_mm</pv_name>
+    <pv_name>pva://HTU:SIM:Source_BetaY_mm</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -222,7 +222,7 @@
     <y>218</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_AlphaX</pv_name>
+    <pv_name>pva://HTU:SIM:Source_AlphaX</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -241,7 +241,7 @@
     <y>218</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_AlphaY</pv_name>
+    <pv_name>pva://HTU:SIM:Source_AlphaY</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -260,7 +260,7 @@
     <y>244</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_NormEmitX_um</pv_name>
+    <pv_name>pva://HTU:SIM:Source_NormEmitX_um</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -279,7 +279,7 @@
     <y>244</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_NormEmitY_um</pv_name>
+    <pv_name>pva://HTU:SIM:Source_NormEmitY_um</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -298,7 +298,7 @@
     <y>270</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_X_um</pv_name>
+    <pv_name>pva://HTU:SIM:Source_X_um</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -317,7 +317,7 @@
     <y>270</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_Y_um</pv_name>
+    <pv_name>pva://HTU:SIM:Source_Y_um</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -336,7 +336,7 @@
     <y>296</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_Xp_mrad</pv_name>
+    <pv_name>pva://HTU:SIM:Source_Xp_mrad</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -355,7 +355,7 @@
     <y>296</y>
     <width>110</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)Source_Yp_mrad</pv_name>
+    <pv_name>pva://HTU:SIM:Source_Yp_mrad</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -396,7 +396,7 @@
     <y>368</y>
     <width>108</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_ux</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_mean_ux</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -415,7 +415,7 @@
     <y>368</y>
     <width>108</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_uy</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_mean_uy</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -434,7 +434,7 @@
     <y>368</y>
     <width>108</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_mean_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_mean_uz</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -454,7 +454,7 @@
     <y>394</y>
     <width>108</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_total_beam_charge_pc</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_total_beam_charge_pc</pv_name>
     <precision>2</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -570,7 +570,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_x</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_x</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -582,7 +582,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_ux</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_ux</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -594,7 +594,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_y</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_y</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -606,7 +606,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_uy</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_uy</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -618,7 +618,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_z</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_z</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -630,7 +630,7 @@
     <y>486</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_x_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_x_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -653,7 +653,7 @@
     <y>510</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_ux</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_ux_ux</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -665,7 +665,7 @@
     <y>510</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_y</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_ux_y</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -677,7 +677,7 @@
     <y>510</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_uy</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_ux_uy</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -689,7 +689,7 @@
     <y>510</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_z</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_ux_z</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -701,7 +701,7 @@
     <y>510</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_ux_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_ux_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -724,7 +724,7 @@
     <y>534</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_y</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_y_y</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -736,7 +736,7 @@
     <y>534</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_uy</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_y_uy</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -748,7 +748,7 @@
     <y>534</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_z</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_y_z</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -760,7 +760,7 @@
     <y>534</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_y_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_y_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -783,7 +783,7 @@
     <y>558</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_uy</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_uy_uy</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -795,7 +795,7 @@
     <y>558</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_z</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_uy_z</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -807,7 +807,7 @@
     <y>558</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uy_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_uy_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -830,7 +830,7 @@
     <y>582</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_z_z</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_z_z</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -842,7 +842,7 @@
     <y>582</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_z_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_z_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -865,7 +865,7 @@
     <y>606</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_cov_uz_uz</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_cov_uz_uz</pv_name>
     <format>2</format>
     <precision>3</precision>
     <precision_from_pv>false</precision_from_pv>
@@ -877,7 +877,7 @@
     <y>644</y>
     <width>560</width>
     <height>22</height>
-    <text>Longitudinal slices (equal particle count along z, tail to head)</text>
+    <text>Longitudinal slices along z, tail to head</text>
     <font>
       <font family="Liberation Sans" style="BOLD" size="12.0" />
     </font>
@@ -927,7 +927,7 @@
     <y>700</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_00</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_mean_uz_00</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -938,7 +938,7 @@
     <y>726</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_00</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_rms_uz_00</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -961,7 +961,7 @@
     <y>700</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_01</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_mean_uz_01</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -972,7 +972,7 @@
     <y>726</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_01</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_rms_uz_01</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -995,7 +995,7 @@
     <y>700</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_02</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_mean_uz_02</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1006,7 +1006,7 @@
     <y>726</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_02</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_rms_uz_02</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1029,7 +1029,7 @@
     <y>700</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_mean_uz_03</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_mean_uz_03</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1040,7 +1040,7 @@
     <y>726</y>
     <width>104</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)descriptor_longitudinal_rms_uz_03</pv_name>
+    <pv_name>pva://HTU:SIM:descriptor_longitudinal_rms_uz_03</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1081,7 +1081,7 @@
     <y>816</y>
     <width>140</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)charge_pc</pv_name>
+    <pv_name>pva://HTU:SIM:charge_pc</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1100,7 +1100,7 @@
     <y>816</y>
     <width>140</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)energy_mean_mev</pv_name>
+    <pv_name>pva://HTU:SIM:energy_mean_mev</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
@@ -1119,7 +1119,7 @@
     <y>816</y>
     <width>140</width>
     <height>22</height>
-    <pv_name>pva://$(P=HTU:SIM:)energy_std_mev</pv_name>
+    <pv_name>pva://HTU:SIM:energy_std_mev</pv_name>
     <precision>4</precision>
     <precision_from_pv>false</precision_from_pv>
     <show_units>false</show_units>
