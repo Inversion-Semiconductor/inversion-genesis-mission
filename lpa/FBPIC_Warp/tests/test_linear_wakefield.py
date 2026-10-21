@@ -40,6 +40,7 @@ from scipy.integrate import quad
 from fbpic.main import Simulation
 from fbpic.lpa_utils.laser import add_laser_pulse, GaussianLaser, LaguerreGaussLaser
 from fbpic.openpmd_diag import FieldDiagnostic, ParticleDiagnostic
+from fbpic.utils.mpi import comm
 
 # Parameters for running the test
 # -------------------------------
@@ -77,6 +78,8 @@ def test_linear_wakefield(Nm=1, show=False):
     """
     # Automatically choose higher number of macroparticles along theta
     p_nt = 2 * Nm
+    # MPI decomposition requires a finite-order stencil
+    n_order = 32 if comm.size > 1 else -1
     # Initialize the simulation object
     sim = Simulation(
         Nz,
@@ -93,6 +96,7 @@ def test_linear_wakefield(Nm=1, show=False):
         p_nr,
         p_nt,
         n_e,
+        n_order=n_order,
         use_cuda=use_cuda,
         boundaries={"z": "open", "r": "reflective"},
     )
