@@ -8,7 +8,14 @@ It defines the structure necessary to implement the boundary exchanges.
 import warnings
 import numpy as np
 from scipy.constants import c
-from fbpic.utils.mpi import comm, mpi_type_dict, mpi_installed, gpudirect_enabled
+from fbpic.utils.mpi import (
+    comm,
+    mpi_type_dict,
+    mpi_installed,
+    gpudirect_enabled,
+    comm_backend,
+)
+from fbpic.utils.nccl import nccl, nccl_installed, get_nccl_comm, as_nccl_buffer
 from fbpic.fields.fields import InterpolationGrid
 from fbpic.fields.utility_methods import get_stencil_reach
 from fbpic.particles.particles import Particles
@@ -346,6 +353,10 @@ class BoundaryCommunicator(object):
         # set_moving_window in main.py to initialize a proper moving window)
         self.moving_win = None
 
+        # Initialize the NCCL communicator to None (See the method init_nccl,
+        # which selects the transport of the exchanges on the GPU)
+        self.nccl_comm = None
+
         # Initialize a buffer handler object, for MPI communications
         if self.size > 1:
             Nr_with_damp = self.get_Nr(with_damp=True)
@@ -417,6 +428,77 @@ class BoundaryCommunicator(object):
 
         # Return the new boundaries to the simulation object
         return (zmin_local_enlarged, zmax_local_enlarged, Nz_enlarged)
+
+    def init_nccl(self, use_cuda):
+        """
+        Select the transport of the field exchanges between domains:
+        NCCL if FBPIC_COMM_BACKEND=nccl and the simulation runs on GPUs,
+        and MPI otherwise.
+
+        This is collective over all MPI ranks. All ranks take the same
+        decision, because it uses only gathered values.
+
+        Parameters:
+        -----------
+        use_cuda: bool
+            Whether the simulation runs on the GPU
+
+        Raises:
+        -------
+        RuntimeError
+            If NCCL is requested but the ranks do not agree on the backend
+            or on the GPU usage, nccl4py is missing, two ranks share a GPU,
+            or the exchange buffers differ in size between ranks.
+        """
+        self.nccl_comm = None
+        if self.size == 1:
+            return
+
+        # Gather the backend, GPU and buffer-size information of all ranks
+        # (The environment variable could differ between ranks.)
+        uuid = None
+        if use_cuda:
+            runtime = get_runtime()
+            runtime.use()
+            props = cupy.cuda.runtime.getDeviceProperties(runtime.ordinal)
+            uuid = bytes(props["uuid"])
+        buffer_shape = (
+            self.n_guard,
+            self.Nm,
+            self.get_Nr(with_damp=True),
+            self.use_pml,
+        )
+        local_info = (comm_backend, bool(use_cuda), nccl_installed, uuid, buffer_shape)
+        backends, use_cudas, installed, uuids, shapes = zip(
+            *self.mpi_comm.allgather(local_info)
+        )
+
+        # Use MPI if no rank requests NCCL, or if no rank uses the GPU
+        if "nccl" not in backends:
+            return
+        if not any(use_cudas):
+            if self.rank == 0:
+                warnings.warn("FBPIC_COMM_BACKEND=nccl is ignored on the CPU.")
+            return
+        # Otherwise, refuse inconsistent setups (no silent fallback to MPI)
+        if len(set(backends)) > 1 or not all(use_cudas):
+            raise RuntimeError(
+                "FBPIC_COMM_BACKEND=nccl requires the same backend and "
+                "use_cuda=True on all MPI ranks."
+            )
+        if not all(installed):
+            raise RuntimeError(
+                "FBPIC_COMM_BACKEND=nccl requires nccl4py "
+                "(pip install nccl4py[cu12]) on all MPI ranks."
+            )
+        if len(set(uuids)) < len(uuids):
+            raise RuntimeError("FBPIC_COMM_BACKEND=nccl requires one GPU per MPI rank.")
+        if len(set(shapes)) > 1:
+            raise RuntimeError(
+                "The field exchange buffers differ between MPI ranks: %s" % (shapes,)
+            )
+
+        self.nccl_comm = get_nccl_comm(self.mpi_comm)
 
     def get_Nr(self, with_damp):
         """
@@ -642,7 +724,8 @@ class BoundaryCommunicator(object):
 
         fldtype: str
             An identifier for the field to send
-            (Either 'E', 'B', 'J' or 'rho')
+            (Either 'E', 'B', 'EB', 'J' or 'rho'. 'EB' exchanges E and B;
+            with NCCL, both fields go in one message per side.)
 
         method: str
             Can either be 'replace' or 'add' depending on the type
@@ -652,15 +735,103 @@ class BoundaryCommunicator(object):
         if self.size == 1:
             return
 
+        # Without NCCL, E and B are exchanged one after the other
+        if fldtype == "EB" and self.nccl_comm is None:
+            self.exchange_fields(interp, "E", method)
+            self.exchange_fields(interp, "B", method)
+            return
+
         # Build the string `exchange_type`:
-        # This is either 'E:replace', 'B:replace', 'J:add', or 'rho:add'
+        # This is either 'E:replace', 'B:replace', 'EB:replace',
+        # 'J:add', or 'rho:add'
         exchange_type = ":".join([fldtype, method])
 
         # Shortcut
-        Nm = self.Nm
         use_cuda = interp[0].use_cuda
+        # With NCCL, the exchange uses the GPU buffers directly (as GPUDirect)
+        use_nccl = self.nccl_comm is not None
+        gpu_buffers = gpudirect_enabled or use_nccl
+        if use_nccl and get_runtime().recorded_launches is not None:
+            # The pack kernels would only run at the end of the section,
+            # after NCCL has already sent the buffers
+            raise RuntimeError("NCCL exchanges cannot run inside a CUDA graph section.")
 
         # Fill the sending buffers with data from the interpolation grid
+        # (E and B fill the two halves of the 'EB:replace' buffers)
+        fldtypes = ("E", "B") if fldtype == "EB" else (fldtype,)
+        for fld in fldtypes:
+            self.handle_field_buffers(
+                interp,
+                fld,
+                method,
+                use_cuda,
+                before_sending=True,
+                gpudirect=gpu_buffers,
+            )
+        if gpudirect_enabled and not use_nccl:
+            # Synchronize GPU execution (break asynchroneous kernel
+            # execution to make sure that writing the buffer arrays
+            # completed before sendind via MPI directly)
+            get_runtime().synchronize()
+
+        # Prepare MPI call by pointing to the correct sending/receiving buffers
+        if gpu_buffers:
+            # Create create pointers to GPU array, for cuda-aware MPI or NCCL
+            send_l = self.mpi_buffers.d_send_l[exchange_type]
+            send_r = self.mpi_buffers.d_send_r[exchange_type]
+            recv_l = self.mpi_buffers.d_recv_l[exchange_type]
+            recv_r = self.mpi_buffers.d_recv_r[exchange_type]
+        else:
+            # Use arrays that are on the CPU
+            send_l = self.mpi_buffers.send_l[exchange_type]
+            send_r = self.mpi_buffers.send_r[exchange_type]
+            recv_l = self.mpi_buffers.recv_l[exchange_type]
+            recv_r = self.mpi_buffers.recv_r[exchange_type]
+
+        # Send and receive the buffers via MPI or NCCL
+        if use_nccl:
+            self.exchange_domains_nccl(send_l, send_r, recv_l, recv_r)
+        else:
+            self.exchange_domains(send_l, send_r, recv_l, recv_r)
+
+        # Copy/Add the received buffers to the interpolation grid
+        for fld in fldtypes:
+            self.handle_field_buffers(
+                interp,
+                fld,
+                method,
+                use_cuda,
+                after_receiving=True,
+                gpudirect=gpu_buffers,
+            )
+
+    def handle_field_buffers(self, interp, fldtype, method, use_cuda, **kwargs):
+        """
+        Copy the field `fldtype` to the sending buffers, or copy/add the
+        receiving buffers to it (see `BufferHandler.handle_vec_buffer`).
+
+        Parameters:
+        ------------
+        interp: list
+            A list of InterpolationGrid objects
+            (one element per azimuthal mode)
+
+        fldtype: str
+            Either 'E', 'B', 'J' or 'rho'
+
+        method: str
+            Either 'replace' or 'add'
+
+        use_cuda: bool
+            Whether the fields are on the GPU
+
+        kwargs: dict
+            `before_sending` or `after_receiving`, and `gpudirect`
+        """
+        # Shortcut
+        Nm = self.Nm
+        exchange_type = ":".join([fldtype, method])
+
         if fldtype in ("E", "B", "J"):
             # Vector field
             grid_r = [getattr(interp[m], fldtype + "r") for m in range(Nm)]
@@ -682,8 +853,7 @@ class BoundaryCommunicator(object):
                 method,
                 exchange_type,
                 use_cuda,
-                before_sending=True,
-                gpudirect=gpudirect_enabled,
+                **kwargs,
             )
         else:
             # Scalar field
@@ -693,56 +863,7 @@ class BoundaryCommunicator(object):
                 method,
                 exchange_type,
                 use_cuda,
-                before_sending=True,
-                gpudirect=gpudirect_enabled,
-            )
-        if gpudirect_enabled:
-            # Synchronize GPU execution (break asynchroneous kernel
-            # execution to make sure that writing the buffer arrays
-            # completed before sendind via MPI directly)
-            get_runtime().synchronize()
-
-        # Prepare MPI call by pointing to the correct sending/receiving buffers
-        if gpudirect_enabled:
-            # Create create pointers to GPU array, for cuda-aware MPI
-            send_l = self.mpi_buffers.d_send_l[exchange_type]
-            send_r = self.mpi_buffers.d_send_r[exchange_type]
-            recv_l = self.mpi_buffers.d_recv_l[exchange_type]
-            recv_r = self.mpi_buffers.d_recv_r[exchange_type]
-        else:
-            # Use arrays that are on the CPU
-            send_l = self.mpi_buffers.send_l[exchange_type]
-            send_r = self.mpi_buffers.send_r[exchange_type]
-            recv_l = self.mpi_buffers.recv_l[exchange_type]
-            recv_r = self.mpi_buffers.recv_r[exchange_type]
-
-        # Send and receive the buffers via MPI
-        self.exchange_domains(send_l, send_r, recv_l, recv_r)
-
-        # Copy/Add the received buffers to the interpolation grid
-        if fldtype in ("E", "B", "J"):
-            # Vector field
-            self.mpi_buffers.handle_vec_buffer(
-                grid_r,
-                grid_t,
-                grid_z,
-                pml_r,
-                pml_t,
-                method,
-                exchange_type,
-                use_cuda,
-                after_receiving=True,
-                gpudirect=gpudirect_enabled,
-            )
-        else:
-            # Scalar field
-            self.mpi_buffers.handle_scal_buffer(
-                grid,
-                method,
-                exchange_type,
-                use_cuda,
-                after_receiving=True,
-                gpudirect=gpudirect_enabled,
+                **kwargs,
             )
 
     def exchange_domains(self, send_left, send_right, recv_left, recv_right):
@@ -775,6 +896,47 @@ class BoundaryCommunicator(object):
         if self.right_proc is not None:
             req_rr.Wait()
             req_sr.Wait()
+
+    def exchange_domains_nccl(self, send_left, send_right, recv_left, recv_right):
+        """
+        Send the GPU arrays send_left and send_right to the left and right
+        processes respectively, and receive the arrays from the neighboring
+        processes into recv_left and recv_right, with NCCL.
+
+        The transfers are enqueued on the shared CUDA stream, after the
+        kernels that fill the sending buffers and before the kernels that
+        read the receiving buffers. The host does not wait for them.
+
+        Parameters :
+        ------------
+        - send_left, send_right, recv_left, recv_right : C-contiguous GPU arrays
+             Sending and receiving buffers. An empty array is skipped;
+             the size of each receiving buffer must match the size of the
+             corresponding sending buffer of the neighbor.
+        """
+        stream = get_runtime().cupy_stream.ptr
+        # NCCL has no tags: it pairs the operations between two ranks in the
+        # order in which they are posted. Every rank posts: send left,
+        # send right, receive from right, receive from left, so that the
+        # left (resp. right) message of a rank goes to the right (resp. left)
+        # receiving buffer of its neighbor, also when left_proc == right_proc.
+        with nccl.group():
+            if self.left_proc is not None and send_left.size > 0:
+                self.nccl_comm.send(
+                    as_nccl_buffer(send_left), self.left_proc, stream=stream
+                )
+            if self.right_proc is not None and send_right.size > 0:
+                self.nccl_comm.send(
+                    as_nccl_buffer(send_right), self.right_proc, stream=stream
+                )
+            if self.right_proc is not None and recv_right.size > 0:
+                self.nccl_comm.recv(
+                    as_nccl_buffer(recv_right), self.right_proc, stream=stream
+                )
+            if self.left_proc is not None and recv_left.size > 0:
+                self.nccl_comm.recv(
+                    as_nccl_buffer(recv_left), self.left_proc, stream=stream
+                )
 
     def exchange_particles(self, species, fld, time):
         """

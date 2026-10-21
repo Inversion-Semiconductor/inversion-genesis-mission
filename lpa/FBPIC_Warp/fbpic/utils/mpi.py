@@ -8,6 +8,16 @@ is not installed
 """
 import os
 
+# The environment variable FBPIC_COMM_BACKEND selects the transport of the
+# domain exchanges on the GPU: "mpi" (default) or "nccl".
+# (See fbpic/utils/nccl.py for the NCCL communicator.)
+comm_backend = os.environ.get("FBPIC_COMM_BACKEND", "mpi").strip().lower()
+if comm_backend not in ("mpi", "nccl"):
+    raise ValueError(
+        "Unrecognized FBPIC_COMM_BACKEND: '%s'\n"
+        "(Valid values are 'mpi' and 'nccl')." % comm_backend
+    )
+
 try:
     # Try to import MPI objects
     import mpi4py

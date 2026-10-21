@@ -121,6 +121,20 @@ class BufferHandler(object):
             self.d_recv_r = {
                 key: cupy.asarray(value) for key, value in self.recv_r.items()
             }
+            # The device buffers of E and B are the two halves of one buffer,
+            # so that the NCCL exchange "EB:replace" sends both fields in one
+            # message per side. (Leading-axis slices remain C-contiguous.)
+            n_EB = n_fld * Nm
+            for d_buffers in (
+                self.d_send_l,
+                self.d_send_r,
+                self.d_recv_l,
+                self.d_recv_r,
+            ):
+                d_EB = cupy.empty((2 * n_EB, ng, Nr), dtype=np.complex128)
+                d_buffers["EB:replace"] = d_EB
+                d_buffers["E:replace"] = d_EB[:n_EB]
+                d_buffers["B:replace"] = d_EB[n_EB:]
 
     def handle_vec_buffer(
         self,

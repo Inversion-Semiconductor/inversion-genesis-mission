@@ -342,6 +342,8 @@ class Simulation(object):
             exchange_period,
             use_all_mpi_ranks,
         )
+        # Select MPI or NCCL for the exchanges (collective over all ranks)
+        self.comm.init_nccl(self.use_cuda)
         self.use_pml = self.comm.use_pml
         # Modify domain region
         zmin, zmax, Nz = self.comm.divide_into_domain()
@@ -508,8 +510,7 @@ class Simulation(object):
         # Get the E and B fields in spectral space initially
         # (In the rest of the loop, E and B will only be transformed
         # from spectal space to real space, but never the other way around)
-        self.comm.exchange_fields(fld.interp, "E", "replace")
-        self.comm.exchange_fields(fld.interp, "B", "replace")
+        self.comm.exchange_fields(fld.interp, "EB", "replace")
         self.comm.damp_EB_open_boundary(fld.interp)
         fld.interp2spect("E")
         fld.interp2spect("B")
@@ -864,8 +865,7 @@ class Simulation(object):
             fld.spect2partial_interp("B")
 
         # - Exchange guard cells and damp fields
-        self.comm.exchange_fields(fld.interp, "E", "replace")
-        self.comm.exchange_fields(fld.interp, "B", "replace")
+        self.comm.exchange_fields(fld.interp, "EB", "replace")
         self.comm.damp_EB_open_boundary(fld.interp)  # Damp along z
         if self.use_pml:
             self.comm.damp_pml_EB(fld.interp)  # Damp in radial PML
