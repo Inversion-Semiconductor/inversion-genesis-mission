@@ -47,8 +47,10 @@ class CudaRuntime:
 
         self.ordinal = ordinal
         self.device = wp.get_device(f"cuda:{ordinal}")
-        with cupy.cuda.Device(ordinal):
-            self.cupy_stream = cupy.cuda.Stream(non_blocking=False)
+        # Keep the device current. A `with cupy.cuda.Device(...)` block
+        # restores device 0 on exit, which creates a context on GPU 0.
+        cupy.cuda.Device(ordinal).use()
+        self.cupy_stream = cupy.cuda.Stream(non_blocking=False)
         self.stream = wp.Stream(self.device, cuda_stream=self.cupy_stream.ptr)
         self.launch_count = 0
         self.recorded_launches = None
