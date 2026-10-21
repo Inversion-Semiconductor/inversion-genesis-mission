@@ -28,6 +28,7 @@ dependencies:
       - "warp-lang @ https://github.com/NVIDIA/warp/releases/download/v1.18.0/warp_lang-1.18.0%2Bcu12-py3-none-manylinux_2_28_x86_64.whl#sha256=6dda3c163dde4edaa7d46ade9fff3ddb1126ee7b147d9d890cd38cc70dafd656"
       - cuda-python==12.9.7
       - cuda-bindings==12.9.9
+      - nccl4py[cu12]==0.6.0
       - openPMD-viewer==1.11.0
       - lasy==0.7.0
       - picmistandard==0.34.0
