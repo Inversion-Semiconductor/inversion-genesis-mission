@@ -9,9 +9,16 @@
 export NERSC_PROJECT="gen0007"
 export NERSC_ACCOUNT="gen0007"
 
-# Bare clones of this repository and upstream FBPIC (managed by sync.sh).
-export FBPIC_SRC="$HOME/fbpic-src"
+# Worktree root for this repository (managed by sync.sh), laid out like the workstation:
+#   $FBPIC_WORKTREES/.bare     bare clone; origin branches are refs/remotes/origin/*
+#   $FBPIC_WORKTREES/.git      the line "gitdir: ./.bare"
+#   $FBPIC_WORKTREES/<name>/   one worktree per branch; <name> is the part after the last "/"
+export FBPIC_WORKTREES="$HOME/fbpic/inversion-genesis-mission-worktrees"
 export FBPIC_REPO_URL="git@github.com:Inversion-Semiconductor/inversion-genesis-mission.git"
+# Branches that sync.sh keeps as worktrees.
+export FBPIC_WORKTREE_BRANCHES="snidhan/perl-main-run snidhan/perl-warp-run main snidhan/dev-main"
+# Bare mirror of upstream FBPIC. launch.sh only archives UPSTREAM_FBPIC_SHA from it.
+export UPSTREAM_FBPIC_GIT="$HOME/fbpic/fbpic.git"
 export UPSTREAM_FBPIC_URL="https://github.com/fbpic/fbpic.git"
 # The upstream commit that FBPIC-Warp forked from (FBPIC 0.27.1).
 export UPSTREAM_FBPIC_SHA="dc1cc32ca36ab1ee813d82ea5e9f6b180be0e2a9"

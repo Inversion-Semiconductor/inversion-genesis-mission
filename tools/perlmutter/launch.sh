@@ -148,8 +148,14 @@ stage_run() {
         tree="$(snapshot_worktree)"
     else
         source_ref="${ref:-$(variant_branch "$variant")}"
-        source_sha="$(git -C "$REPO_GIT" rev-parse --verify --quiet "$source_ref^{commit}")" ||
+        source_sha="$(resolve_ref "$source_ref")" ||
             die "unknown ref $source_ref in $REPO_GIT (run sync.sh)"
+        local checkout
+        checkout="$(worktree_dir "$source_ref")"
+        if [[ -d "$checkout" && -n "$(git -C "$checkout" status --porcelain -- lpa 2>/dev/null)" ]]; then
+            log "warning: $checkout has uncommitted lpa/ changes; the run uses commit ${source_sha:0:12}" \
+                "(use --src-dir $checkout to include them)"
+        fi
         source_dirty=0
         tree="$(snapshot_ref "$source_sha")"
     fi

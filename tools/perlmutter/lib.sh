@@ -18,12 +18,24 @@ load_config() {
     # shellcheck source=/dev/null
     source "$config"
     local name
-    for name in FBPIC_SRC FBPIC_REPO_URL UPSTREAM_FBPIC_URL UPSTREAM_FBPIC_SHA FBPIC_ENV FBPIC_RUNS; do
+    for name in FBPIC_WORKTREES FBPIC_REPO_URL UPSTREAM_FBPIC_GIT UPSTREAM_FBPIC_URL \
+        UPSTREAM_FBPIC_SHA FBPIC_ENV FBPIC_RUNS; do
         [[ -n "${!name:-}" ]] || die "$name is not set in $config"
     done
     export FBPIC_PERLMUTTER_CONFIG="$config"
-    REPO_GIT="$FBPIC_SRC/inversion-genesis-mission.git"
-    UPSTREAM_GIT="$FBPIC_SRC/fbpic.git"
+    REPO_GIT="$FBPIC_WORKTREES/.bare"
+    UPSTREAM_GIT="$UPSTREAM_FBPIC_GIT"
+}
+
+# Worktree directory of a branch: the part of the name after the last "/".
+worktree_dir() {
+    echo "$FBPIC_WORKTREES/${1##*/}"
+}
+
+# Resolve a ref to a commit: the local branch first, then origin/<ref>.
+resolve_ref() {
+    git -C "$REPO_GIT" rev-parse --verify --quiet "$1^{commit}" ||
+        git -C "$REPO_GIT" rev-parse --verify --quiet "refs/remotes/origin/$1^{commit}"
 }
 
 # Variant table: branch, solver kind, and FBPIC options live in bench/variants.py.
