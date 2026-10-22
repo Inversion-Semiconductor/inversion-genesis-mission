@@ -24,6 +24,7 @@
 - [10. Risks and mitigations](#10-risks-and-mitigations)
 - [11. Decisions](#11-decisions)
 - [12. Future work](#12-future-work)
+- [13. Execution results](#13-execution-results)
 - [Appendix A. Unverified claims and required probes](#appendix-a-unverified-claims-and-required-probes)
 
 ## Notation
@@ -175,7 +176,7 @@ This document describes how FBPIC-Warp can move its z-domain exchanges from mpi4
 The Python binding is nccl4py 0.6.0, imported as `nccl.core`.
 Every NCCL operation runs on the single runtime stream $S$. When `use_cuda_graphs=True`, CUDA graphs capture the per-step field exchanges.
 The reference pattern is `/tmp/example_fdtd_3d_nccl.py` (Warp kernels, NCCL halos, and one CUDA graph per step).
-Nothing in this document is implemented. The document gives the information that you need to accept or reject the migration.
+Sections 1 to 12 are the design, as approved before the implementation. Section 13 records the implementation, the probe results, and the verification results (2026-10-21).
 
 All code paths are relative to `lpa/FBPIC_Warp/`. The line numbers come from the working tree at commit `f6fca8a`.
 The nccl4py citations (`nccl/core/...`) come from the nccl4py 0.6.0 install in conda env `warp-env`. The env `fbpic-warp` does not have nccl4py yet.
@@ -206,7 +207,7 @@ In pseudocode, `PBH` means `fbpic/boundaries/particle_buffer_handling.py` and `B
 | Particle phase depth | Decided (D1, 2026-10-21) | Tier A: NCCL payload, one D2H count read per exchange (Section 6.6). Tier B is future work F1 (Section 12.1). |
 | Backend selector | Decided (D2, 2026-10-21) | Environment variable `FBPIC_COMM_BACKEND`, default `mpi` (Section 4.6, option A). |
 | Stray GPU 0 context | Decided (D3, 2026-10-21) | Fix `fbpic/utils/warp.py:50` in a separate commit before commit 1 (option a). Sections 4.2 and 11 give the details. |
-| Runtime probes | Not run | Baseline timings, NCCL same-peer ordering, zero-count behavior, capture, and transport selection (Section 9 step 2). |
+| Runtime probes | Done (2026-10-21) | Section 13.2 gives the results. R4 (capture) is not run. |
 
 Pip must not install a second CuPy or change the `cuda-bindings==12.9.9` pin in `environment.yml` (`environment.yml:30`).
 The nccl4py 0.6.0 metadata lists these requirements:
@@ -2113,7 +2114,73 @@ NCCL has no Gatherv. A field gather therefore needs one of two forms: a gather o
 
 Copy the count table to pinned host memory with an asynchronous copy, and record an event on $S$. Then issue device work that does not use the particle arrays. Wait on the event before the host sizes the new arrays. The gain depends on the amount of independent device work, which is small at this point of the step (inference).
 
+## 13. Execution results
+
+This section records the execution of the rollout on 2026-10-21, on branch `snidhan/dev-nccl`. The host has 2 RTX 6000 Ada GPUs (PCIe, topology PHB, no NVLink). The environment is `fbpic-warp` with nccl4py 0.6.0 and `libnccl` 2.32.3 (CUDA 12.9).
+
+### 13.1 Commits
+
+| Commit | Subject | Rollout step |
+|---|---|---|
+| `4799ec8` | `docs(lpa): add NCCL migration plan for FBPIC-Warp` | 0 |
+| `480418d` | `build(lpa): add nccl4py[cu12] to fbpic-warp environment` | 1 |
+| `8f27245` | `fix(lpa): keep the runtime GPU current to avoid a GPU 0 context` | 3a (D3) |
+| `2c76fcc` | `test(lpa): run the wakefield test with finite order on 2 ranks` | 3b |
+| `ad858cd` | `feat(lpa): exchange field guard cells over NCCL` | 3c (commit 1) |
+| `1ef1939` | `feat(lpa): exchange particle payloads over NCCL` | 4 (commit 2) |
+
+The install added `cuda-core` 1.2.2, `nccl4py` 0.6.0, `nvidia-nccl-cu12` 2.32.3, `nvidia-cutlass-dsl` 4.8.1 and `protobuf` 7.36.2. CuPy 14.2.0, Warp 1.18.0, NumPy 2.2.6 and `cuda-bindings` 12.9.9 did not change. `pip check` found no broken requirement.
+
+### 13.2 Probe results
+
+| Probe | Result |
+|---|---|
+| R1 ordering | Two sends to one peer in one group match in posting order. With the order send L, send R, receive R, receive L, $P = 2$ periodic gives the correct faces. Level 1 F1 and P1 confirm this, and a swapped send order makes F1 fail. |
+| R2 zero count | A send and a receive with count 0 and a null pointer are a no-op inside a group, and the next operations still match. The code still skips zero-size pairs on both sides. |
+| R3 transport | NCCL selects `SHM/direct` for the 2 ranks. `NCCL_P2P_LEVEL=PHB` forces `P2P/CUMEM`, which is slower: 282 µs against 215 µs for a group of 4 messages of 0.59 MB. Keep the default. |
+| R4 capture | Not run (graph capture is out of scope). |
+| R5 baseline | Plasma wave: 1 rank passes. 2 ranks with MPI fail the divE assertion (1.46e-6, limit 1e-11). The CPU path gives the same 1.46e-6, so this failure is in the algorithm or the test, not in the GPU port or the transport. Wakefield: 1 rank passes. 2 ranks raised the `ValueError` of Section 8.3, which `2c76fcc` removes. |
+| R6 context | Rank 1 held 426 MiB on GPU 0. After `8f27245`, rank 1 has no context on GPU 0. Rank 0 shows a transient 12 MiB on GPU 1 before and after the fix (cause not known). |
+
+The plasma loading draws random angles (`fbpic/particles/injection/continuous_injection.py:366`). Without a fixed seed, two runs of the same code differ by order 1 in the particle positions. The comparison driver therefore seeds NumPy with `seed + rank`. With the seed, the noise floor of the plasma wave is about 1e-12 relative for most fields, and up to 2e-9 for $B_\theta$.
+
+### 13.3 Implementation compared with the design
+
+1. Fields (Algorithm 3 and option 2b). The NCCL path uses the existing GPUDirect branch of `BufferHandler`, which works on the device buffers and has no host copy. Thus `handle_vec_buffer` and `handle_scal_buffer` do not change. The device buffers of E and B are the two leading-axis halves of one `EB:replace` buffer, on both backends. `exchange_fields(interp, "EB", "replace")` sends one message per side with NCCL, and runs E then B with MPI.
+2. Bootstrap (Algorithm 1). The process has one NCCL communicator, which later `Simulation` objects reuse. The size check uses the gathered tuple `(n_guard, Nm, Nr with damping, use_pml)`. The teardown calls `destroy` at exit, except after an unhandled exception, because `destroy` is collective over the ranks of a node.
+3. Particles (Algorithm 7). The count array has 14 rows. Each exchanged block holds the particle count, the number of float attributes, and the number of integer attributes. The count exchange therefore also checks the buffer layout of each neighbor, without an extra collective. The count kernel runs once per species. The pack and unpack kernels run once per attribute. The unpack writes `[recv_L | stay | recv_R]`, which is the order of the MPI path, so both backends give bitwise equal arrays. A CuPy in-place add on the runtime stream applies the $\pm L_{\mathrm{tot}}$ shift. Continuously injected particles go to the GPU one attribute row at a time and replace the right receive range, as in the MPI path.
+4. Errors. An exchange inside a CUDA graph section raises an error. A growth of the particle buffers goes through `catch_gpu_memory_error`, so an out-of-memory error stops all ranks.
+
+### 13.4 Verification results
+
+Level 1 (`tests/test_nccl_exchange.py`, 2 ranks): the field cases F1 and F2, with and without PML, for E, B, EB, J and rho, and the particle cases P1 to P4 pass. MPI, NCCL and the oracle are bitwise equal. The particle cases use a tracked electron species and a tracked, ionizable nitrogen species, so IDs and ionization levels travel. A ninth test checks that different attributes on two neighbors raise an error on both ranks. Mutation checks confirm that the tests detect a swapped send order, dropped receives, and a wrong sign of the periodic shift. Case F3 (graph replay) is not run.
+
+Level 2 (3 MPI and 3 NCCL runs per case, `use_cuda_graphs=False`, gate $k_{\mathrm{acc}} = 10$): the table gives the largest ratio of the NCCL-to-MPI difference to the MPI noise floor, over all fields and particle quantities. Particle IDs are equal on each rank in all runs.
+
+| Commit | Plasma wave | Wakefield | Graphs on (plasma wave) | MPI against the previous commit |
+|---|---|---|---|---|
+| `ad858cd` (fields) | 1.69 ($E_z$) | 1.41 ($u_z$) | pass | pass |
+| `1ef1939` (fields and particles) | 2.07 ($u_x$) | 1.16 ($B_z$) | pass | pass |
+
+Level 3 (time per step, ABBA, 4 pairs, `use_cuda_graphs=False`, medians):
+
+| Commit | Plasma wave MPI | Plasma wave NCCL | Speedup | Wakefield MPI | Wakefield NCCL | Speedup |
+|---|---|---|---|---|---|---|
+| `ad858cd` (fields) | 10.659 ms | 9.870 ms | 1.080 | 4.998 ms | 4.592 ms | 1.088 |
+| `1ef1939` (fields and particles) | 10.665 ms | 9.845 ms | 1.083 | 4.954 ms | 4.542 ms | 1.091 |
+
+The run-to-run spread is 2 % to 4 %. Commit 2 reduces the NCCL time per step by 0.3 % (plasma wave) and 1.1 % (wakefield) relative to commit 1. Both values are inside the spread, because the particle exchange runs once every $K$ steps. The speedup agrees with the estimate of Section 4.7: the gain comes from the removed host staging and host synchronization, not from the bandwidth.
+
+### 13.5 Open items
+
+1. The 2-rank plasma wave test fails its divE assertion with both backends and on the CPU (Section 13.2, R5). It is not a regression of this work.
+2. $P \ge 3$ is not tested, because the host has 2 GPUs (risk 9 in Section 10).
+3. Graph capture of the exchanges (F2), Tier B (F1), and the whole-step graph (F3) stay future work.
+4. The nccl4py host cost per call and an nsys profile of each backend are not measured.
+
 ## Appendix A. Unverified claims and required probes
+
+Status on 2026-10-21: probes R1, R2, E1 and Level 1 settle claims 1, 2 and 6 (Section 13.2). Claims 3 to 5 need probe R4, which is not run.
 
 Probe identifiers:
 
