@@ -25,6 +25,19 @@ from .particle_buffer_handling import (
     remove_outside_particles,
     add_buffers_to_particles,
     shift_particles_periodic_subdomain,
+    get_particle_attributes,
+    ParticleExchangeBuffers,
+    count_particles_gpu,
+    pack_particles_gpu,
+    unpack_particles_gpu,
+    SEND_L,
+    SEND_R,
+    RECV_R,
+    RECV_L,
+    N_SEND_L,
+    N_SEND_R,
+    N_RECV_R,
+    N_RECV_L,
 )
 
 # Check if CUDA is available, then import CUDA functions
@@ -356,6 +369,7 @@ class BoundaryCommunicator(object):
         # Initialize the NCCL communicator to None (See the method init_nccl,
         # which selects the transport of the exchanges on the GPU)
         self.nccl_comm = None
+        self.particle_buffers = None
 
         # Initialize a buffer handler object, for MPI communications
         if self.size > 1:
@@ -937,6 +951,155 @@ class BoundaryCommunicator(object):
                 self.nccl_comm.recv(
                     as_nccl_buffer(recv_left), self.left_proc, stream=stream
                 )
+
+    def exchange_all_particles(self, species_list, fld, time):
+        """
+        Exchange the particles of all species (see `exchange_particles`).
+
+        With NCCL, all species share one exchange of the particle counts
+        and one exchange of the particle data, on the GPU.
+
+        Parameters:
+        ------------
+        species_list: list of Particle objects
+
+        fld: a Fields object
+
+        time: float (seconds)
+            The global time of the simulation
+        """
+        if self.nccl_comm is not None and self.n_guard != 0:
+            self.exchange_particles_nccl(species_list, fld, time)
+        else:
+            for species in species_list:
+                self.exchange_particles(species, fld, time)
+
+    def exchange_particles_nccl(self, species_list, fld, time):
+        """
+        Exchange the particles that are outside of the local physical
+        subdomain with the neighboring processors, for all species, with
+        NCCL (see `exchange_particles_aperiodic_subdomain` for the MPI
+        version). Also remove the particles at an open boundary, and add
+        the continuously-injected particles of the moving window.
+
+        The data stays on the GPU. The host reads the particle counts of
+        all species once (one device-to-host copy).
+
+        Parameters:
+        ------------
+        species_list: list of Particle objects
+
+        fld: a Fields object
+            Contains information about the dimension of the grid,
+            and the prefix sum.
+
+        time: float (seconds)
+            The global time of the simulation
+        """
+        if get_runtime().recorded_launches is not None:
+            raise RuntimeError("NCCL exchanges cannot run inside a CUDA graph section.")
+        if self.particle_buffers is None:
+            self.particle_buffers = ParticleExchangeBuffers()
+        n_species = len(species_list)
+        attributes = [get_particle_attributes(species) for species in species_list]
+        n_attrs = [len(f) + len(i) for f, i in attributes]
+
+        # Find the particles to send, and exchange their numbers
+        counts = self.particle_buffers.get_counts(n_species)
+        for i_species, species in enumerate(species_list):
+            count_particles_gpu(
+                species,
+                fld,
+                self.n_guard,
+                self.left_proc,
+                self.right_proc,
+                i_species,
+                counts,
+            )
+        self.exchange_domains_nccl(
+            counts[SEND_L], counts[SEND_R], counts[RECV_L], counts[RECV_R]
+        )
+        # Single device-to-host copy (waits for the work queued on the stream)
+        h_counts = counts.get()
+        # The buffer layout (attributes per species) must match the neighbors
+        layout = h_counts[SEND_L][1:]
+        if (
+            self.right_proc is not None
+            and not np.array_equal(h_counts[RECV_R][1:], layout)
+        ) or (
+            self.left_proc is not None
+            and not np.array_equal(h_counts[RECV_L][1:], layout)
+        ):
+            raise RuntimeError(
+                "The particle attributes differ between neighboring MPI ranks."
+            )
+
+        # Word offsets of each species in the flat buffers
+        def offsets(row):
+            words = np.array(n_attrs, dtype=np.int64) * h_counts[row]
+            return np.concatenate(([0], np.cumsum(words))).tolist()
+
+        start_send_l, start_send_r = offsets(N_SEND_L), offsets(N_SEND_R)
+        start_recv_l, start_recv_r = offsets(N_RECV_L), offsets(N_RECV_R)
+        buffers = {}
+        for name, n_words in [
+            ("send_l", start_send_l[-1]),
+            ("send_r", start_send_r[-1]),
+            ("recv_l", start_recv_l[-1]),
+            ("recv_r", start_recv_r[-1]),
+        ]:
+            buffers[name] = {
+                dtype: self.particle_buffers.get(name, n_words, dtype)
+                for dtype in (np.float64, np.uint64)
+            }
+
+        # Pack all species, then exchange the data in one NCCL group
+        for i_species, species in enumerate(species_list):
+            pack_particles_gpu(
+                species,
+                h_counts,
+                i_species,
+                buffers["send_l"],
+                buffers["send_r"],
+                start_send_l[i_species],
+                start_send_r[i_species],
+            )
+        self.exchange_domains_nccl(
+            buffers["send_l"][np.float64],
+            buffers["send_r"][np.float64],
+            buffers["recv_l"][np.float64],
+            buffers["recv_r"][np.float64],
+        )
+
+        # Build the new particle arrays
+        Ltot = self._Nz_global_domain * self.dz
+        for i_species, species in enumerate(species_list):
+            # When using a moving window, create new particles at the right end
+            # (They replace the particles received from the right.)
+            injected = None
+            if (
+                (self.moving_win is not None)
+                and (self.rank == self.size - 1)
+                and species.continuous_injection
+            ):
+                injected = species.generate_continuously_injected_particles(time)
+            M_l, N_stay, M_r = unpack_particles_gpu(
+                species,
+                h_counts,
+                i_species,
+                buffers["recv_l"],
+                buffers["recv_r"],
+                start_recv_l[i_species],
+                start_recv_r[i_species],
+                injected,
+            )
+            # Periodic boundary conditions for exchanging particles
+            # Particles received at the right (resp. left) end of the
+            # simulation box are shifted by zmax-zmin to the right (resp. left).
+            if self.right_proc == 0:
+                species.z[M_l + N_stay :] += Ltot
+            if self.left_proc == self.size - 1:
+                species.z[:M_l] -= Ltot
 
     def exchange_particles(self, species, fld, time):
         """

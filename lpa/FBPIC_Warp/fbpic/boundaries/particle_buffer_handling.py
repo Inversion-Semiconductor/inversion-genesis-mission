@@ -383,6 +383,15 @@ def add_buffers_to_particles(
 
     # Reallocate the particles auxiliary arrays. This needs to be done,
     # as the total number of particles in this domain has changed.
+    resize_auxiliary_arrays(species)
+
+
+def resize_auxiliary_arrays(species):
+    """
+    Reallocate the auxiliary arrays of `species` (field-on-particle and
+    sorting arrays) to its new number of particles, and mark the
+    particles as unsorted.
+    """
     if species.use_cuda:
         shape = (species.Ntot,)
         # Reallocate empty field-on-particle arrays on the GPU
@@ -631,6 +640,273 @@ def shift_particles_periodic_numba(z, zmin, zmax):
             z[i] += l_box
 
 
+# NCCL particle exchange (all species together)
+# ---------------------------------------------
+# The functions below keep the exchanged particles on the GPU. Each species
+# packs its outgoing particles into one flat buffer per side, attribute after
+# attribute (float attributes first, then integer attributes as uint64 views
+# of the same 8-byte words). See NCCL_MIGRATION.md, Algorithm 7.
+
+# Rows of the (14, n_species) int64 count array. Each exchanged block holds
+# (number of particles, number of float attributes, number of integer
+# attributes), so that the count exchange also checks that neighbors use
+# the same buffer layout.
+SEND_L, SEND_R, RECV_R, RECV_L = slice(0, 3), slice(3, 6), slice(6, 9), slice(9, 12)
+N_SEND_L, N_SEND_R, N_RECV_R, N_RECV_L = 0, 3, 6, 9
+I_MIN, I_MAX = 12, 13
+N_COUNT_ROWS = 14
+
+
+def get_particle_attributes(species):
+    """
+    Return the exchanged attributes of `species`, in buffer order.
+
+    Returns
+    -------
+    float_attrs, int_attrs: lists of (object, attribute name)
+        The float64 and uint64 particle arrays (same order as the MPI path)
+    """
+    float_attrs = [
+        (species, "x"),
+        (species, "y"),
+        (species, "z"),
+        (species, "ux"),
+        (species, "uy"),
+        (species, "uz"),
+        (species, "inv_gamma"),
+        (species, "w"),
+    ]
+    if species.ionizer is not None:
+        float_attrs.append((species.ionizer, "w_times_level"))
+    if species.spin_tracker is not None:
+        float_attrs += [
+            (species.spin_tracker, "sx"),
+            (species.spin_tracker, "sy"),
+            (species.spin_tracker, "sz"),
+        ]
+    int_attrs = []
+    if species.tracker is not None:
+        int_attrs.append((species.tracker, "id"))
+    if species.ionizer is not None:
+        int_attrs.append((species.ionizer, "ionization_level"))
+    return float_attrs, int_attrs
+
+
+class ParticleExchangeBuffers(object):
+    """
+    Persistent GPU buffers for the NCCL particle exchange.
+
+    The sending and receiving buffers are flat float64 arrays (with uint64
+    views for the integer attributes). They grow when an exchange needs
+    more words, and are reused otherwise.
+    """
+
+    growth_factor = 1.5
+
+    def __init__(self):
+        self.counts = None
+        self.buffers = {}
+
+    @catch_gpu_memory_error
+    def get_counts(self, n_species):
+        """Return the (N_COUNT_ROWS, n_species) int64 count array on the GPU."""
+        if self.counts is None or self.counts.shape[1] != n_species:
+            self.counts = cupy.zeros((N_COUNT_ROWS, n_species), dtype=np.int64)
+        return self.counts
+
+    @catch_gpu_memory_error
+    def get(self, name, n_words, dtype):
+        """
+        Return the first `n_words` words of buffer `name` ('send_l',
+        'send_r', 'recv_l' or 'recv_r'), as a C-contiguous array of `dtype`
+        (float64 or uint64). Grow the buffer if needed.
+        """
+        buffer = self.buffers.get(name)
+        if buffer is None or buffer.size < n_words:
+            n_alloc = max(n_words, int(self.growth_factor * n_words), 1)
+            buffer = cupy.empty(n_alloc, dtype=np.float64)
+            self.buffers[name] = buffer
+        return buffer[:n_words].view(dtype)
+
+
+@catch_gpu_memory_error
+def count_particles_gpu(
+    species, fld, n_guard, left_proc, right_proc, i_species, counts
+):
+    """
+    Write the kept range and the sending counts of `species` to column
+    `i_species` of `counts`, on the GPU (no host synchronization).
+
+    Parameters
+    ----------
+    species: a Particles object
+        Contains the data of this species (sorted here if needed)
+
+    fld: a Fields object
+        Contains information about the dimension of the grid
+
+    n_guard: int
+        Number of guard cells
+
+    left_proc, right_proc: int or None
+        The neighboring processors (None for an open boundary, where the
+        outgoing particles are removed and not sent)
+
+    i_species: int
+        Column of `counts` for this species
+
+    counts: (N_COUNT_ROWS, n_species) int64 device array
+        Blocks SEND_L, SEND_R and rows I_MIN, I_MAX are filled;
+        blocks RECV_R, RECV_L are set to 0 (filled by the count exchange)
+    """
+    # Check if particles are sorted (as in `remove_particles_gpu`)
+    if not species.sorted:
+        species.sort_particles(fld=fld)
+        species.sorted = True
+
+    # Same index range as in `remove_particles_gpu`
+    Nz = fld.Nz
+    Nr = fld.Nr
+    iz_min = max(n_guard + species.prefix_sum_shift, 0)
+    iz_max = min(Nz - n_guard + species.prefix_sum_shift + 1, Nz)
+    float_attrs, int_attrs = get_particle_attributes(species)
+    count_particles_to_exchange[1, 1](
+        species.prefix_sum,
+        iz_min * (Nr + 1) - 1,
+        iz_max * (Nr + 1) - 1,
+        species.Ntot,
+        left_proc is not None,
+        right_proc is not None,
+        len(float_attrs),
+        len(int_attrs),
+        i_species,
+        counts,
+    )
+
+
+@catch_gpu_memory_error
+def pack_particles_gpu(species, h_counts, i_species, send_l, send_r, start_l, start_r):
+    """
+    Copy the outgoing particles of `species` to the flat sending buffers.
+
+    Parameters
+    ----------
+    species: a Particles object
+
+    h_counts: (N_COUNT_ROWS, n_species) int64 host array
+        The counts of all species (after the count exchange)
+
+    i_species: int
+        Column of `h_counts` for this species
+
+    send_l, send_r: dicts of 1d device arrays
+        The sending buffers, as views of dtype float64 and uint64
+        (keys np.float64 and np.uint64)
+
+    start_l, start_r: int
+        First word of this species in send_l and send_r
+    """
+    N_l = int(h_counts[N_SEND_L, i_species])
+    N_r = int(h_counts[N_SEND_R, i_species])
+    i_max = int(h_counts[I_MAX, i_species])
+    float_attrs, int_attrs = get_particle_attributes(species)
+    dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(N_l + N_r)
+    for i_attr, (obj, name) in enumerate(float_attrs + int_attrs):
+        dtype = np.float64 if i_attr < len(float_attrs) else np.uint64
+        pack_particles_to_buffers[dim_grid_1d, dim_block_1d](
+            getattr(obj, name),
+            i_max,
+            N_l,
+            N_r,
+            send_l[dtype],
+            start_l + i_attr * N_l,
+            send_r[dtype],
+            start_r + i_attr * N_r,
+        )
+
+
+@catch_gpu_memory_error
+def unpack_particles_gpu(
+    species,
+    h_counts,
+    i_species,
+    recv_l,
+    recv_r,
+    start_l,
+    start_r,
+    injected=None,
+):
+    """
+    Build the new particle arrays of `species` on the GPU, in the order
+    [received from left | kept | received from right], as `add_buffers_gpu`.
+    Resize the auxiliary arrays.
+
+    Parameters
+    ----------
+    species: a Particles object
+
+    h_counts: (N_COUNT_ROWS, n_species) int64 host array
+        The counts of all species (after the count exchange)
+
+    i_species: int
+        Column of `h_counts` for this species
+
+    recv_l, recv_r: dicts of 1d device arrays
+        The receiving buffers, as views of dtype float64 and uint64
+        (keys np.float64 and np.uint64)
+
+    start_l, start_r: int
+        First word of this species in recv_l and recv_r
+
+    injected: tuple (float_buffer, uint_buffer) of 2d host arrays, or None
+        Particles from continuous injection. They replace the particles
+        received from the right (as in the MPI path).
+    """
+    M_l = int(h_counts[N_RECV_L, i_species])
+    M_r = int(h_counts[N_RECV_R, i_species])
+    i_min = int(h_counts[I_MIN, i_species])
+    N_stay = int(h_counts[I_MAX, i_species]) - i_min
+    if injected is not None:
+        M_r = injected[0].shape[1]
+    new_Ntot = M_l + N_stay + M_r
+
+    float_attrs, int_attrs = get_particle_attributes(species)
+    dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(new_Ntot)
+    for i_attr, (obj, name) in enumerate(float_attrs + int_attrs):
+        is_float = i_attr < len(float_attrs)
+        dtype = np.float64 if is_float else np.uint64
+        if injected is not None:
+            # One row of the injected particles, uploaded to the GPU
+            row = (
+                injected[0][i_attr]
+                if is_float
+                else injected[1][i_attr - len(float_attrs)]
+            )
+            right_buffer = cupy.asarray(row)
+            right_start = 0
+        else:
+            right_buffer = recv_r[dtype]
+            right_start = start_r + i_attr * M_r
+        particle_array = cupy.empty((new_Ntot,), dtype=dtype)
+        unpack_particles_from_buffers[dim_grid_1d, dim_block_1d](
+            particle_array,
+            getattr(obj, name),
+            i_min,
+            N_stay,
+            recv_l[dtype],
+            start_l + i_attr * M_l,
+            M_l,
+            right_buffer,
+            right_start,
+            M_r,
+        )
+        setattr(obj, name, particle_array)
+
+    species.Ntot = new_Ntot
+    resize_auxiliary_arrays(species)
+    return M_l, N_stay, M_r
+
+
 # Cuda routines
 # -------------
 if cuda_installed:
@@ -746,3 +1022,155 @@ if cuda_installed:
                 z[i] -= l_box
             while z[i] < zmin:
                 z[i] += l_box
+
+    @warp_kernel
+    def count_particles_to_exchange(
+        prefix_sum: wp.array(dtype=wp.int32),
+        i_cell_min: int,
+        i_cell_max: int,
+        Ntot: int,
+        send_left: bool,
+        send_right: bool,
+        n_float: int,
+        n_int: int,
+        i_species: int,
+        counts: wp.array2d(dtype=wp.int64),
+    ):
+        """
+        Read the kept particle range of one species from its prefix sum,
+        and write it to column `i_species` of `counts` (launch with 1 thread).
+
+        Parameters:
+        ------------
+        prefix_sum: 1d device array of ints
+            Inclusive prefix sum of the number of particles per cell
+
+        i_cell_min, i_cell_max: int
+            Last cell before the kept cells (-1 if none), and last kept cell
+
+        Ntot: int
+            Number of particles of the species
+
+        send_left, send_right: bool
+            Whether the particles outside the kept range are sent to the
+            left and right neighbors (False at an open boundary)
+
+        n_float, n_int: int
+            Number of float and integer attributes of the species
+
+        i_species: int
+            Column of `counts`
+
+        counts: 2d device array of int64, shape (N_COUNT_ROWS, n_species)
+            Rows 0-2: (number sent left, n_float, n_int);
+            rows 3-5: (number sent right, n_float, n_int);
+            rows 6-11: received from the right and from the left (0 here);
+            row 12: first kept index (i_min); row 13: end of the kept range
+        """
+        if wp.tid() == 0:
+            i_min = wp.int64(0)
+            if i_cell_min >= 0:
+                i_min = wp.int64(prefix_sum[i_cell_min])
+            i_max = wp.int64(prefix_sum[i_cell_max])
+            N_left = wp.int64(0)
+            if send_left:
+                N_left = i_min
+            N_right = wp.int64(0)
+            if send_right:
+                N_right = wp.int64(Ntot) - i_max
+            counts[0, i_species] = N_left
+            counts[1, i_species] = wp.int64(n_float)
+            counts[2, i_species] = wp.int64(n_int)
+            counts[3, i_species] = N_right
+            counts[4, i_species] = wp.int64(n_float)
+            counts[5, i_species] = wp.int64(n_int)
+            for row in range(6, 12):
+                counts[row, i_species] = wp.int64(0)
+            counts[12, i_species] = i_min
+            counts[13, i_species] = i_max
+
+    @warp_kernel
+    def pack_particles_to_buffers(
+        particle_array: wp.array(dtype=Any),
+        i_max: int,
+        N_left: int,
+        N_right: int,
+        left_buffer: wp.array(dtype=Any),
+        left_start: int,
+        right_buffer: wp.array(dtype=Any),
+        right_start: int,
+    ):
+        """
+        Copy the first `N_left` particles to `left_buffer` (from index
+        `left_start`) and the `N_right` particles from `i_max` to
+        `right_buffer` (from index `right_start`). Launch N_left + N_right
+        threads.
+
+        Parameters:
+        ------------
+        particle_array: 1d device array
+            One of the (sorted) particle quantities
+
+        i_max: int
+            First particle sent to the right
+
+        N_left, N_right: int
+            Number of particles sent to the left and to the right
+
+        left_buffer, right_buffer: 1d device arrays (same dtype)
+            Flat sending buffers
+
+        left_start, right_start: int
+            Offsets of this quantity in the sending buffers
+        """
+        i = wp.tid()
+        if i < N_left:
+            left_buffer[left_start + i] = particle_array[i]
+        elif i < N_left + N_right:
+            right_buffer[right_start + i - N_left] = particle_array[i_max + i - N_left]
+
+    @warp_kernel
+    def unpack_particles_from_buffers(
+        new_array: wp.array(dtype=Any),
+        old_array: wp.array(dtype=Any),
+        i_min: int,
+        N_stay: int,
+        left_buffer: wp.array(dtype=Any),
+        left_start: int,
+        N_left: int,
+        right_buffer: wp.array(dtype=Any),
+        right_start: int,
+        N_right: int,
+    ):
+        """
+        Fill `new_array` with [N_left received from the left | N_stay kept
+        particles from `old_array`, from i_min | N_right received from the
+        right]. Launch N_left + N_stay + N_right threads.
+
+        Parameters:
+        ------------
+        new_array: 1d device array
+            The new particle quantity
+
+        old_array: 1d device array
+            The (sorted) particle quantity before the exchange
+
+        i_min, N_stay: int
+            First kept particle in `old_array`, and number of kept particles
+
+        left_buffer, right_buffer: 1d device arrays (same dtype)
+            Receiving buffers (or injected particles, for right_buffer)
+
+        left_start, right_start: int
+            Offsets of this quantity in the receiving buffers
+
+        N_left, N_right: int
+            Number of particles received from the left and from the right
+        """
+        j = wp.tid()
+        if j < N_left:
+            new_array[j] = left_buffer[left_start + j]
+        elif j < N_left + N_stay:
+            new_array[j] = old_array[i_min + j - N_left]
+        elif j < N_left + N_stay + N_right:
+            new_array[j] = right_buffer[right_start + j - N_left - N_stay]

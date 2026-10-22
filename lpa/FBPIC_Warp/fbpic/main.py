@@ -542,8 +542,7 @@ class Simulation(object):
                 # continuous injection of new particles by the moving window.
                 # (In the case of single-proc periodic simulations, particles
                 # are shifted by one box length, so they remain inside the box)
-                for species in self.ptcl:
-                    self.comm.exchange_particles(species, fld, self.time)
+                self.comm.exchange_all_particles(self.ptcl, fld, self.time)
                 for antenna in self.laser_antennas:
                     antenna.update_current_rank(self.comm)
 

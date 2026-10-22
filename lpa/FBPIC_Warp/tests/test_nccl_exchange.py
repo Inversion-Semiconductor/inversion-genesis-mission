@@ -184,3 +184,170 @@ def test_field_exchange_matches_mpi_and_oracle(z_boundary, r_boundary):
 
     all_failures = comm.allgather(failures)
     assert not any(all_failures), all_failures
+
+
+# Particle exchange (cases P1 to P4)
+# ----------------------------------
+# Particle groups, chosen from the particle ID: stay, cross the left face,
+# cross the right face. Each case selects which groups exist.
+PARTICLE_CASES = {
+    "P1": ("periodic", ("stay", "left", "right")),
+    "P2": ("periodic", ("stay", "right")),
+    "P3": ("periodic", ("stay",)),
+    "P4": ("open", ("stay", "left", "right")),
+}
+FLOAT_CODES = {"ux": 3, "uy": 4, "uz": 5, "inv_gamma": 6, "w": 7}
+
+
+def make_particle_sim(z_boundary, groups):
+    from scipy.constants import e, m_e, m_p
+
+    np.random.seed(1234 + comm.rank)
+    sim = make_sim(z_boundary, "reflective")
+    common = dict(p_zmin=zmin, p_zmax=zmax, p_rmax=0.8 * rmax, p_nr=2, p_nt=4)
+    electrons = sim.add_new_species(q=-e, m=m_e, n=1.0e24, p_nz=2, **common)
+    ions = sim.add_new_species(q=e, m=14 * m_p, n=2.0e23, p_nz=1, **common)
+    ions.make_ionizable("N", target_species=electrons, level_start=1)
+    for species in sim.ptcl:
+        species.track(sim.comm)
+        code_particles(sim, species, groups)
+    return sim
+
+
+def group_of(ids, groups):
+    return np.array(groups)[(ids % len(groups)).astype(np.int64)]
+
+
+def source_z(sim, ids, groups, zmin_loc, zmax_loc):
+    """Position of each particle before the exchange (exact in float64)."""
+    dz = sim.fld.interp[0].dz
+    ng = sim.comm.n_guard
+    g = group_of(ids, groups)
+    z = zmin_loc + (ng + 2 + (ids % 5).astype(np.float64) + 0.3) * dz
+    z = np.where(g == "left", zmin_loc + (ng - 2.3) * dz, z)
+    z = np.where(g == "right", zmax_loc - (ng - 2.3) * dz, z)
+    return z
+
+
+def code_particles(sim, species, groups):
+    ids = species.tracker.id
+    grid = sim.fld.interp[0]
+    species.z[:] = source_z(sim, ids, groups, grid.zmin, grid.zmax)
+    for name, a in FLOAT_CODES.items():
+        getattr(species, name)[:] = ids.astype(np.float64) * 16 + a
+    if species.ionizer is not None:
+        species.ionizer.w_times_level[:] = ids.astype(np.float64) * 16 + 8
+        species.ionizer.ionization_level[:] = ids % 5 + 1
+
+
+def particle_arrays(species):
+    get_runtime().synchronize()
+    out = {}
+    for name in ["x", "y", "z", "ux", "uy", "uz", "inv_gamma", "w"]:
+        out[name] = getattr(species, name).get()
+    out["id"] = species.tracker.id.get()
+    if species.ionizer is not None:
+        out["w_times_level"] = species.ionizer.w_times_level.get()
+        out["ionization_level"] = species.ionizer.ionization_level.get()
+    return out
+
+
+def check_particle_oracle(sim, before, after, groups):
+    """Compare one species with the exact result of the exchange."""
+    rank, left, right = sim.comm.rank, sim.comm.left_proc, sim.comm.right_proc
+    grid = sim.fld.interp[0]
+    edges = comm.allgather((grid.zmin, grid.zmax))
+    all_ids = comm.allgather(before["id"])
+    # Expected IDs: kept particles, and particles that cross toward this rank
+    g = group_of(before["id"], groups)
+    expected = [before["id"][g == "stay"]]
+    if left is not None:
+        g_left = group_of(all_ids[left], groups)
+        expected.append(all_ids[left][g_left == "right"])
+    if right is not None:
+        g_right = group_of(all_ids[right], groups)
+        expected.append(all_ids[right][g_right == "left"])
+    expected = np.sort(np.concatenate(expected))
+    errors = []
+    if not np.array_equal(np.sort(after["id"]), expected):
+        errors.append("IDs differ from the oracle")
+        return errors
+    ids = after["id"]
+    for name, a in FLOAT_CODES.items():
+        if not np.array_equal(after[name], ids.astype(np.float64) * 16 + a):
+            errors.append("%s differs from its code" % name)
+    if "ionization_level" in after:
+        if not np.array_equal(after["ionization_level"], ids % 5 + 1):
+            errors.append("ionization_level differs from its code")
+        if not np.array_equal(after["w_times_level"], ids.astype(np.float64) * 16 + 8):
+            errors.append("w_times_level differs from its code")
+    # Positions: the source rank of each particle follows from its ID
+    Ltot = sim.comm._Nz_global_domain * sim.comm.dz
+    src = (ids % comm.size).astype(np.int64)
+    z_expected = np.empty_like(after["z"])
+    for r in range(comm.size):
+        sel = src == r
+        z_expected[sel] = source_z(sim, ids[sel], groups, *edges[r])
+    from_right = (src == right) & (group_of(ids, groups) == "left") & (src != rank)
+    from_left = (src == left) & (group_of(ids, groups) == "right") & (src != rank)
+    if right == 0:
+        z_expected[from_right] = z_expected[from_right] + Ltot
+    if left == comm.size - 1:
+        z_expected[from_left] = z_expected[from_left] - Ltot
+    if not np.array_equal(after["z"], z_expected):
+        errors.append("z differs from the oracle")
+    return errors
+
+
+@pytest.mark.parametrize("case", sorted(PARTICLE_CASES))
+def test_particle_exchange_matches_mpi_and_oracle(case):
+    z_boundary, groups = PARTICLE_CASES[case]
+    nccl_comm = None
+    results = {}
+    for backend in ("mpi", "nccl"):
+        sim = make_particle_sim(z_boundary, groups)
+        send_data_to_gpu(sim)
+        if nccl_comm is None:
+            nccl_comm = get_nccl_comm(sim.comm.mpi_comm)
+        sim.comm.nccl_comm = nccl_comm if backend == "nccl" else None
+        before = [particle_arrays(species) for species in sim.ptcl]
+        sim.comm.exchange_all_particles(sim.ptcl, sim.fld, 0.0)
+        after = [particle_arrays(species) for species in sim.ptcl]
+        sim.comm.nccl_comm = None
+        results[backend] = (before, after)
+
+    failures = []
+    for i_species in range(2):
+        before, after = results["mpi"][0][i_species], results["mpi"][1][i_species]
+        failures += [
+            "species %d MPI: %s" % (i_species, err)
+            for err in check_particle_oracle(sim, before, after, groups)
+        ]
+        nccl_after = results["nccl"][1][i_species]
+        for name, values in after.items():
+            if not np.array_equal(
+                values.view(np.uint64), nccl_after[name].view(np.uint64)
+            ):
+                failures.append("species %d: NCCL != MPI for %s" % (i_species, name))
+        if case == "P3" and len(after["id"]) != len(before["id"]):
+            failures.append("species %d: P3 changed the particle number" % i_species)
+
+    all_failures = comm.allgather(failures)
+    assert not any(all_failures), all_failures
+
+
+def test_particle_layout_mismatch_raises():
+    """Different attributes on two neighbors give an error on both, no hang."""
+    from scipy.constants import e, m_e
+
+    sim = make_sim("periodic", "reflective")
+    electrons = sim.add_new_species(
+        q=-e, m=m_e, n=1.0e24, p_nz=1, p_nr=1, p_nt=4, p_zmin=zmin, p_zmax=zmax
+    )
+    if comm.rank == 0:
+        electrons.track(sim.comm)
+    send_data_to_gpu(sim)
+    sim.comm.nccl_comm = get_nccl_comm(sim.comm.mpi_comm)
+    with pytest.raises(RuntimeError, match="attributes differ"):
+        sim.comm.exchange_all_particles(sim.ptcl, sim.fld, 0.0)
+    sim.comm.nccl_comm = None
