@@ -163,12 +163,14 @@ def load(
                 strict=strict,
             )
     if _ACTIONS not in h5:
-        raise ValueError("The archive has no actions: it was not written by save()")
+        raise ValueError(
+            f"{_archive_label(h5)}: the archive has no actions: it was not written by save()"
+        )
     version = int(h5.attrs.get("format_version", 1))
     if version != _FORMAT_VERSION:
         raise ValueError(
-            f"The archive is of format version {version}; this lume-fbpic reads version "
-            f"{_FORMAT_VERSION}. Write it again with save()."
+            f"{_archive_label(h5)}: the archive is of format version {version}; this "
+            f"lume-fbpic reads version {_FORMAT_VERSION}. Write it again with save()."
         )
     outputs = {
         name: value
@@ -177,7 +179,7 @@ def load(
     }
     return LUMEFBPICModel(
         _load_simulator(h5, working_directory, input_dirs, outputs),
-        _read_actions(h5[_ACTIONS], strict),
+        _read_actions(h5[_ACTIONS], strict, _archive_label(h5)),
         dummy_run=dummy_run,
     )
 
@@ -270,6 +272,12 @@ def _action_to_config(action: Action) -> dict[str, typing.Any]:
         "class": type(action).__qualname__,
         "parameters": action.model_dump(mode="json"),
     }
+
+
+def _archive_label(h5) -> str:
+    """The open archive `h5` for a message: its file, and its group when it is not the file's
+    root."""
+    return h5.file.filename + ("" if h5.name == "/" else f":{h5.name}")
 
 
 def _check_loadable(action: Action) -> None:
@@ -389,9 +397,10 @@ def _package_version(module: str) -> str | None:
     return None
 
 
-def _read_actions(group: h5py.Group, strict: bool) -> list[Action]:
+def _read_actions(group: h5py.Group, strict: bool, label: str) -> list[Action]:
     """The actions of an archive's `actions` group, in the order they were archived, leaving out
-    with a warning those that cannot be rebuilt.
+    with a warning those that cannot be rebuilt. `label` names the archive in the warning or
+    error (`_archive_label()`).
 
     Raises:
         ValueError: With `strict`, if an action cannot be rebuilt.
@@ -415,7 +424,7 @@ def _read_actions(group: h5py.Group, strict: bool) -> list[Action]:
         except (ImportError, AttributeError, TypeError, ValueError) as error:
             version = entry.attrs.get("version")
             message = (
-                f"action {str(entry.attrs['name'])!r} of class {config['module']}."
+                f"{label}: action {str(entry.attrs['name'])!r} of class {config['module']}."
                 f"{config['class']}"
                 + (f" (archived with version {version})" if version is not None else "")
                 + f" cannot be rebuilt: {error}"

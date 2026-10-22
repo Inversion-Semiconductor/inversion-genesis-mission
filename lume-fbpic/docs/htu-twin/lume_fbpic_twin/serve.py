@@ -14,7 +14,9 @@ values (as in the archives made by `docs/htu-twin/twin/initial_sample_archives.p
 `final_particles` is not served, as `lume-pva` has no handler for a particle group.
 
 The model is always loaded with `dummy_run=True`, so nothing ever starts a simulation. The input
-actions (laser energy, ...) are served read-only.
+actions (laser energy, ...) are served read-only. An archive is loaded with `strict=True`: an
+action whose class cannot be imported is an error naming the archive and the class, rather than a
+warning and a model short of that variable.
 
 With `--twin` the archive's final particles are the source of the HTU transport twin
 (`lume_fbpic_twin.twin_stage.build_chain()`): the twin's own variables (magnets, steering,
@@ -149,7 +151,8 @@ def main(argv: list[str] | None = None) -> None:
             f"archive file names must be unique to name the runs: {sorted(stems)}"
         )
     models = {
-        path.stem: LUMEFBPICModel.from_archive(path, dummy_run=True) for path in paths
+        path.stem: LUMEFBPICModel.from_archive(path, dummy_run=True, strict=True)
+        for path in paths
     }
     if args.twin:
         without = [

@@ -78,6 +78,7 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
         dummy_run: bool = False,
         working_directory: str | Path | None = None,
         input_dirs: str | Path | typing.Sequence[str | Path] | None = None,
+        strict: bool = False,
     ) -> "LUMEFBPICModel":
         """The model an archive holds: `lume_fbpic.archive.load()`, which describes the
         arguments."""
@@ -88,6 +89,7 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
             dummy_run=dummy_run,
             working_directory=working_directory,
             input_dirs=input_dirs,
+            strict=strict,
         )
 
     def reset(self) -> None:

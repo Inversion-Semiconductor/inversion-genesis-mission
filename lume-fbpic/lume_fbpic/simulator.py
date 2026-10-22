@@ -229,8 +229,15 @@ class BaseSimulator(ABC):
         A `run()` call means "run this now", not "skip if a previous run in this working
         directory already matches this config" (that skip-if-hashed default is meant for
         repeated script invocations, not a live model's `set()`).
+
+        A run replaces the dumps of the previous run in the same working directory: the
+        `data*.h5` files in `diagnostics_directory()` are removed first. The results are read
+        from the last dump there, so a dump left by a longer earlier run would otherwise be read
+        as this run's. Nothing else is removed. A script that calls `run_simulation()` itself,
+        on every MPI rank, does not get this, and should run in a fresh working directory.
         """
         self.configure()
+        self._remove_dumps()
         self.run_simulation()
         self.load_results()
 
@@ -311,6 +318,12 @@ class BaseSimulator(ABC):
             dict(self.stats),
             dict(self.recorded_outputs),
         )
+
+    def _remove_dumps(self) -> None:
+        """Remove the openPMD dumps (`data*.h5`) in `diagnostics_directory()` of the working
+        directory, which a previous run left there."""
+        for dump in self.diagnostics_directory(self.working_directory).glob("data*.h5"):
+            dump.unlink()
 
     def _update_output(self, diags_path: Path) -> None:
         """Read `final_particles` and `stats` from the diagnostics in `diags_path`; they replace

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 
+import h5py
 import pytest
 
 pytest.importorskip("lume_fbpic_twin")
@@ -78,6 +79,18 @@ def test_the_twin_needs_particles_or_the_flag_to_synthesize_them(
         serve.main([str(tmp_path / "a.h5"), "--twin"])
 
     assert "--synthesize-bunch" in capsys.readouterr().err
+
+
+def test_an_archive_with_an_action_that_cannot_be_rebuilt_is_an_error(
+    full_model, tmp_path, without_lume_pva
+):
+    archive.save(full_model, tmp_path / "a.h5")
+    with h5py.File(tmp_path / "a.h5", "a") as f:
+        f["actions/0000"].attrs["module"] = "no_such_module"
+
+    # the archive and the real cause, rather than a mismatch of the archives' variables
+    with pytest.raises(ValueError, match=r"a\.h5: action .*no_such_module"):
+        serve.main([str(tmp_path / "a.h5")])
 
 
 def test_a_directory_expands_to_its_archives_in_name_order(tmp_path):

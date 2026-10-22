@@ -213,6 +213,53 @@ def test_load_results_reads_diagnostics_under_the_given_directory(tmp_path):
     numpy.testing.assert_array_equal(other.final_particles.z, ran.final_particles.z)
     assert other.stats == ran.stats
     assert not (tmp_path / "other").exists()  # nothing ran there
+    # reading the results of a run made elsewhere removes none of its dumps
+    assert list(ran.diagnostics_directory(tmp_path / "ran").glob("data*.h5"))
+
+
+def _pwfa_of_steps(directory, n_steps):
+    """`short_pwfa_simulator(directory)` running `n_steps` steps."""
+    simulator = short_pwfa_simulator(directory)
+    simulator.grid = attrs.evolve(simulator.grid, n_steps=n_steps)
+    return simulator
+
+
+def test_a_run_does_not_read_the_dumps_of_a_longer_earlier_run(tmp_path):
+    _pwfa_of_steps(tmp_path / "run", 6).run()
+    shorter = _pwfa_of_steps(tmp_path / "run", 3)
+    fresh = _pwfa_of_steps(tmp_path / "fresh", 3)
+
+    shorter.run()
+    fresh.run()
+
+    # without removing the earlier dumps, the 6-step run's last dump would be read, 3 um further
+    # on; the two 3-step runs agree to rounding
+    numpy.testing.assert_allclose(
+        shorter.final_particles.z, fresh.final_particles.z, rtol=1e-12
+    )
+    assert shorter.stats == pytest.approx(fresh.stats, rel=1e-9)
+
+
+def test_a_run_removes_only_the_dumps_of_the_previous_run(tmp_path):
+    simulator = short_pwfa_simulator(tmp_path)
+    dumps = simulator.diagnostics_directory(tmp_path)
+    dumps.mkdir(parents=True)
+    stale = dumps / "data00000099.h5"
+    stale.write_bytes(b"an earlier run's dump")
+    other = dumps / "notes.txt"
+    other.write_text("kept")
+    beside = dumps.parent / "lasy_laser_00000.h5"  # where a LASY laser file is written
+    beside.write_bytes(b"kept")
+
+    simulator.run()
+
+    assert not stale.exists()
+    assert other.read_text() == "kept" and beside.read_bytes() == b"kept"
+    assert sorted(path.name for path in dumps.glob("data*.h5")) == [
+        "data00000000.h5",
+        "data00000002.h5",
+        "data00000003.h5",
+    ]
 
 
 def test_archive_with_a_lume_fbpic_profile_loads_in_a_fresh_process(

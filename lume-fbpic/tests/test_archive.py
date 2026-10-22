@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import math
+import re
 import warnings
 
 import h5py
@@ -240,7 +241,9 @@ def test_load_rejects_a_file_without_actions(simulator, tmp_path):
     with h5py.File(tmp_path / "s.h5", "a") as f:
         del f["actions"]
 
-    with pytest.raises(ValueError, match="no actions"):
+    with pytest.raises(
+        ValueError, match=rf"^{re.escape(str(tmp_path / 's.h5'))}: .*no actions"
+    ):
         archive.load(tmp_path / "s.h5")
 
 
@@ -250,8 +253,24 @@ def test_load_rejects_another_format_version(full_model, tmp_path):
         assert f.attrs["format_version"] == archive._FORMAT_VERSION
         f.attrs["format_version"] = 1
 
-    with pytest.raises(ValueError, match="format version 1"):
+    with pytest.raises(
+        ValueError, match=rf"^{re.escape(str(tmp_path / 'm.h5'))}: .*format version 1"
+    ):
         archive.load(tmp_path / "m.h5")
+
+
+def test_a_load_error_names_the_group_of_an_archive_in_a_file(full_model, tmp_path):
+    with h5py.File(tmp_path / "f.h5", "w") as f:
+        archive.save(full_model, f.create_group("sub"))
+        f["sub"].attrs["format_version"] = 1
+
+    with (
+        h5py.File(tmp_path / "f.h5", "r") as f,
+        pytest.raises(
+            ValueError, match=rf"^{re.escape(str(tmp_path / 'f.h5'))}:/sub: "
+        ),
+    ):
+        archive.load(f["sub"])
 
 
 def test_an_action_stores_the_module_name_and_package_version_of_its_class(
@@ -310,7 +329,10 @@ def test_an_action_whose_class_is_gone_is_left_out_with_a_warning(
         f["actions/0000"].attrs[attribute] = value
         name = str(f["actions/0000"].attrs["name"])
 
-    with pytest.warns(UserWarning, match=f"action {name!r} .*cannot be rebuilt"):
+    with pytest.warns(
+        UserWarning,
+        match=rf"^{re.escape(str(tmp_path / 'm.h5'))}: action {name!r} .*cannot be rebuilt",
+    ):
         restored = archive.load(tmp_path / "m.h5")
 
     assert name not in restored.supported_variables
@@ -346,7 +368,9 @@ def test_strict_load_raises_for_an_action_that_cannot_be_rebuilt(full_model, tmp
     with h5py.File(tmp_path / "m.h5", "a") as f:
         f["actions/0000"].attrs["class"] = "NoSuchAction"
 
-    with pytest.raises(ValueError, match="NoSuchAction"):
+    with pytest.raises(
+        ValueError, match=rf"^{re.escape(str(tmp_path / 'm.h5'))}: .*NoSuchAction"
+    ):
         archive.load(tmp_path / "m.h5", strict=True)
 
 
