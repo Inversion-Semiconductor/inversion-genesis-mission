@@ -1,0 +1,39 @@
+# Shared dependencies for upstream FBPIC (numba) and FBPIC-Warp runs.
+# Pins follow lpa/FBPIC_Warp/environment.yml so that both solvers use one stack.
+# The env holds no fbpic, inversion_fbpic, or exploration_fbpic package.
+# Each run selects its solver and producer sources with PYTHONPATH.
+# setup_env.sh adds mpi4py and the MPI library after creation (see FBPIC_MPI).
+name: fbpic-deps
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip
+  - numpy=2.2.6
+  - scipy=1.17.1
+  - numba=0.61.2
+  - cupy=14.2.0
+  - cuda-version=12.9
+  - cuda-nvcc
+  - cuda-nvrtc
+  - h5py
+  - python-dateutil
+  - pyfftw
+  - matplotlib
+  - numexpr
+  - periodictable
+  - attrs>=23.2
+  - pyyaml
+  - setuptools
+  - wheel
+  - pip:
+      - "warp-lang @ https://github.com/NVIDIA/warp/releases/download/v1.18.0/warp_lang-1.18.0%2Bcu12-py3-none-manylinux_2_28_x86_64.whl#sha256=6dda3c163dde4edaa7d46ade9fff3ddb1126ee7b147d9d890cd38cc70dafd656"
+      - cuda-python==12.9.7
+      - cuda-bindings==12.9.9
+      - "openpmd-api>=0.16.1,<0.17"
+      - openPMD-viewer==1.11.0
+      - lasy==0.7.0
+      - picmistandard==0.34.0
+variables:
+  OPENPMD_VERIFY_HOMOGENEOUS_EXTENTS: "0"
