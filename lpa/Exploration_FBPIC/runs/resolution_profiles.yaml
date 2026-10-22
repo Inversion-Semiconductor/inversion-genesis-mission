@@ -1,0 +1,35 @@
+# Named FBPIC resolution profiles for production campaigns.
+# A campaign selects one profile with execution.resolution_profile. The loader
+# merges the profile into execution.hyperparameters before fingerprinting.
+# A key must not appear in both the profile and execution.hyperparameters.
+#
+# Resolution checks use the lab-frame 800 nm laser wavelength:
+#   cells per wavelength = 800e-9 * nz / (zmax - zmin)
+#   dr = rmax / nr
+# Particle-per-cell (PPC) triplets are [p_nz, p_nr, p_nt].
+profiles:
+  minimum:
+    # 20.74 cells per wavelength, dr = 0.370 um.
+    gamma_boost: 3.0
+    zmin: -100.0e-6
+    zmax: 0.0
+    nz: 2592
+    rmax: 400.0e-6
+    nr: 1080
+    n_azimuthal_modes: 5
+    p_rmax: 90.0e-6
+    helium_ppc: [1, 2, 10]
+    nitrogen_ppc: [2, 2, 15]
+  ideal:
+    # 30.72 cells per wavelength, dr = 0.320 um.
+    gamma_boost: 2.0
+    zmin: -150.0e-6
+    zmax: 0.0
+    nz: 5760
+    rmax: 480.0e-6
+    nr: 1500
+    n_azimuthal_modes: 5
+    # Approximate value from the ideal specification (~120 um).
+    p_rmax: 120.0e-6
+    helium_ppc: [2, 2, 20]
+    nitrogen_ppc: [2, 2, 20]
