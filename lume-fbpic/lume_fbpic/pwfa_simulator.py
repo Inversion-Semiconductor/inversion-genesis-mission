@@ -98,18 +98,14 @@ class PWFASimulator(BaseSimulator):
         grid = self.grid
         if grid.random_seed is not None:
             numpy.random.seed(grid.random_seed)
-        # No smoothing is a filter of zero passes: fbpic replaces `smoother=None` by its one-pass
-        # default
-        smoother = (
-            BinomialSmoother(
-                n_passes={"z": grid.smoother_passes, "r": grid.smoother_passes},
-                compensator={
-                    "z": grid.smoother_compensator,
-                    "r": grid.smoother_compensator,
-                },
-            )
-            if grid.use_smoother
-            else BinomialSmoother(n_passes=0, compensator=False)
+        # The smoother is always passed: fbpic replaces `smoother=None` by its one-pass default,
+        # so zero passes, no smoothing, has to be a filter of its own
+        smoother = BinomialSmoother(
+            n_passes={"z": grid.smoother_passes, "r": grid.smoother_passes},
+            compensator={
+                "z": grid.smoother_compensator,
+                "r": grid.smoother_compensator,
+            },
         )
         simulation = Simulation(
             grid.nz,

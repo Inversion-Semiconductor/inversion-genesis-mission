@@ -99,26 +99,14 @@ def test_the_default_smoother_is_fbpics_own(tmp_path):
     assert smoother.compensator == default.compensator
 
 
-def test_without_the_smoother_the_charge_and_currents_are_not_filtered(tmp_path):
-    simulator = short_pwfa_simulator(tmp_path, use_smoother=False, smoother_passes=3)
+def test_zero_smoother_passes_leave_the_charge_and_currents_unfiltered(tmp_path):
+    simulator = short_pwfa_simulator(tmp_path, smoother_passes=0)
 
     smoother = simulator.run_simulation().fld.smoother
 
     k = numpy.linspace(0.0, 1.0e6, 7)
     filt_z, filt_r = smoother.get_filter_array(k, k, 1.0e-6, 1.0e-6)
     assert numpy.all(filt_z == 1.0) and numpy.all(filt_r == 1.0)
-
-
-def test_an_archive_without_use_smoother_loads_with_the_smoother_on(
-    pwfa_model, tmp_path
-):
-    archive.save(pwfa_model, tmp_path / "p.h5")
-    with h5py.File(tmp_path / "p.h5", "a") as f:
-        del f["grid/parameters/use_smoother"]  # as written before the field existed
-
-    restored = archive.load(tmp_path / "p.h5")
-
-    assert restored.simulator.grid.use_smoother is True
 
 
 def test_configure_rejects_a_target_species_that_does_not_exist(pwfa_model):
