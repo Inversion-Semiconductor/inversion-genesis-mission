@@ -22,11 +22,11 @@ CAMERAS = [
     ("ChicaneSlit", "camera_view.bob"),
     ("DCPhosphor", "camera_view.bob"),
     ("Phosphor1", "camera_view.bob"),
+    ("MagSpec_FrontScreen", "magspec_front_view.bob"),
+    ("MagSpec_SideScreen", "magspec_side_view.bob"),
     ("UC_ALineEbeam1", "camera_view.bob"),
     ("UC_ALineEBeam2", "camera_view.bob"),
     ("UC_ALineEBeam3", "camera_view.bob"),
-    ("MagSpec_FrontScreen", "magspec_front_view.bob"),
-    ("MagSpec_SideScreen", "magspec_side_view.bob"),
     *[(f"UC_VisaEBeam{i}", "camera_view.bob") for i in range(1, 9)],
 ]
 
@@ -47,7 +47,8 @@ def color_xml(rgb):
 
 def label(text, x, y, w, h, size=10, rotated=False, bold=False):
     style = "BOLD" if bold else "REGULAR"
-    rot = "<rotation_step>90.0</rotation_step>" if rotated else ""
+    # rotation_step is an enum ordinal (1 = 90 degrees counter-clockwise), not an angle
+    rot = "<rotation_step>1</rotation_step>" if rotated else ""
     return f"""  <widget type="label" version="2.0.0">
     <name>lbl_{escape(text)}_{x}</name>
     <text>{escape(text)}</text>
