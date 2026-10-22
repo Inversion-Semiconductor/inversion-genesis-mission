@@ -1,0 +1,84 @@
+"""Make a `lume-fbpic` bunch the source of the HTU transport twin (`geecs-lume-twin`).
+
+`build_chain(lpa_model)` is `StagedModel([lpa_model, TwinStage(twin_model)])`: it hands the LPA
+stage's `final_particles` to the twin's `initial_particles` (see `lume_fbpic_twin.twin_stage`), and the
+twin's own `Source_*` variables become read-only readbacks of that bunch. The bunch comes from an
+archive written with `model.archive(..., save_final_particles=True)`.
+
+The script then reports what the twin received (its `Source_*` readbacks) and the charge each
+screen sees along the line, as a fraction of the injected charge.
+
+The bunch is injected where the snapshot has it. How the twin's source plane (its `PlasmaExit`
+screen; the 5.2 cm to the first magnet is the twin's own `SrcToPMQ1` drift) relates to the
+simulation's `z` is not known, so no drift is applied unless you give one:
+`--plasma-exit-z <metres>` drifts the bunch from its mean `z` to that lab-frame plane first.
+
+The twin needs `htu` (`geecs-lume-twin` in this repository) importable, for example
+`PYTHONPATH=<repository>/geecs-lume-twin python lpa_to_twin.py <archive.h5>`. Its magnets keep
+the settings they have for a 100 MeV beam, so a bunch of very different energy or large energy
+spread is mostly lost; this shows the hand-off, not a matched optics.
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import numpy
+from lume_fbpic import descriptor
+from lume_fbpic.model import LUMEFBPICModel
+from lume_fbpic_twin.twin_stage import build_chain
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("archive", type=Path, help="archive with the final particles")
+    parser.add_argument("--uz-min", type=float, default=descriptor.UZ_MIN)
+    parser.add_argument(
+        "--central-fraction", type=float, default=descriptor.CENTRAL_FRACTION
+    )
+    parser.add_argument(
+        "--plasma-exit-z",
+        type=float,
+        help="lab z [m] of the twin's source plane; the bunch is drifted there (default: no drift)",
+    )
+    args = parser.parse_args(argv)
+
+    from htu.lattice import SCREEN_NAMES
+    from htu.model import build_htu_model
+
+    lpa = LUMEFBPICModel.from_archive(args.archive, dummy_run=True)
+    chain = build_chain(
+        lpa,
+        build_htu_model(),
+        central_fraction=args.central_fraction,
+        uz_min=args.uz_min,
+        plasma_exit_z=args.plasma_exit_z,
+    )
+    twin = chain.lume_model_instances[1]
+
+    # A set of the chain, even an empty one, passes the LPA bunch on.
+    chain.set({})
+
+    injected = twin.initial_particles
+    print(f"injected {len(injected)} particles, {injected.charge * 1e12:.1f} pC")
+    if twin.drift_length is None:
+        print("not drifted: injected where the snapshot has it")
+    else:
+        print(
+            f"drifted {twin.drift_length * 1e3:+.3f} mm to z = {args.plasma_exit_z * 1e3:.3f} mm"
+        )
+    print(
+        f"Source_* are read-only: {chain.supported_variables['Source_Energy_MeV'].read_only}"
+    )
+    for name in twin.source_names:
+        print(f"  {name:26} {float(chain.get([name])[name]):.4g}")
+    print("charge on each screen (pC, fraction of injected):")
+    for screen in SCREEN_NAMES:
+        image = numpy.asarray(chain.get([f"{screen}_image"])[f"{screen}_image"])
+        charge = float(image.sum()) * 1e12
+        print(f"  {screen:18} {charge:8.1f}  {charge / (injected.charge * 1e12):6.1%}")
+
+
+if __name__ == "__main__":
+    main()

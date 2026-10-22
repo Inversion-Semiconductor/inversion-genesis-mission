@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lume-fbpic"
+version = "0.1.0"
+description = "LUMEModel implementation wrapping inversion_fbpic for virtual accelerators."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "lume-base>=0.5.0",  # the oldest tested; the code uses lume.actions and lume.staged_model
+    "inversion_fbpic",
+    "attrs>=23.2",
+    "numpy",
+    "scipy",
+    "h5py",
+    "openpmd-viewer",
+    "openpmd-beamphysics>=0.16.1",  # 0.16.1 reads particles from an HDF5 subgroup: archive.load()
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-mock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["lume_fbpic"]
+namespaces = false
