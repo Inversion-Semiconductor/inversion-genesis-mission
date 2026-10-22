@@ -70,6 +70,8 @@ class IonizationInjectionSimulation:
         "p_nz": 4,
         "p_nr": 4,
         "p_nt": 30,
+        "helium_ppc": None,  # (p_nz, p_nr, p_nt); None uses the shared values
+        "nitrogen_ppc": None,
         "r_boundary": "reflective",
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
         "analysis_select": {"uz": [10.0, None]},  # which particles are analyzed
@@ -206,10 +208,21 @@ class IonizationInjectionSimulation:
             save_path = simulation.working_directory / save_path
         return _MOVIE_EXECUTOR.submit(self._plot_movies, movie_simulation, save_path)
 
+    def _species_ppc(self, key: str) -> tuple[int, int, int]:
+        """Return (p_nz, p_nr, p_nt) for one species, with shared fallback."""
+        ppc = self.hyperparameters[key]
+        if ppc is None:
+            return tuple(int(self.hyperparameters[k]) for k in ("p_nz", "p_nr", "p_nt"))
+        if len(ppc) != 3:
+            raise ValueError(f"{key} must be (p_nz, p_nr, p_nt), got {ppc!r}")
+        return tuple(int(n) for n in ppc)
+
     def run(self) -> None:
         """Run and save the simulation, then queue optional background movies."""
         hyperparameters = self.hyperparameters
         physical_parameters = self.physical_parameters
+        he_nz, he_nr, he_nt = self._species_ppc("helium_ppc")
+        n2_nz, n2_nr, n2_nt = self._species_ppc("nitrogen_ppc")
 
         density_he = dn.BilateralSuperGaussian(
             nominal_density=physical_parameters["peak_neutral_density_cm3"]
@@ -221,9 +234,9 @@ class IonizationInjectionSimulation:
             beta_left=physical_parameters["density_beta_left"],
             beta_right=physical_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
-            p_nz=hyperparameters["p_nz"],
-            p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
+            p_nz=he_nz,
+            p_nr=he_nr,
+            p_nt=he_nt,
             p_zmin=hyperparameters["p_zmin"],
             p_rmax=hyperparameters["p_rmax"],
             species="He",
@@ -242,9 +255,9 @@ class IonizationInjectionSimulation:
             beta_left=physical_parameters["density_beta_left"],
             beta_right=physical_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
-            p_nz=hyperparameters["p_nz"],
-            p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
+            p_nz=n2_nz,
+            p_nr=n2_nr,
+            p_nt=n2_nt,
             p_zmin=hyperparameters["p_zmin"],
             p_rmax=hyperparameters["p_rmax"],
             species="N",

@@ -29,6 +29,25 @@ def _normalize_numeric_strings(value: Any) -> Any:
     return value
 
 
+def _resolve_resolution_profile(execution: dict[str, Any], base: Path) -> dict[str, Any]:
+    """Merge the selected resolution profile into the execution hyperparameters."""
+    selection = execution.get("resolution_profile")
+    if selection is None:
+        return execution
+    profile_path = base / selection["file"]
+    profiles = yaml.safe_load(profile_path.read_text(encoding="utf-8"))["profiles"]
+    name = selection["name"]
+    if name not in profiles:
+        raise KeyError(f"unknown resolution profile {name!r}; choose from {sorted(profiles)}")
+    hyperparameters = dict(execution.get("hyperparameters") or {})
+    overlap = set(profiles[name]) & set(hyperparameters)
+    if overlap:
+        raise ValueError(
+            f"hyperparameters {sorted(overlap)} are set by resolution profile {name!r}"
+        )
+    return {**execution, "hyperparameters": {**profiles[name], **hyperparameters}}
+
+
 def _exploration_package_version() -> str:
     """Return installed package metadata, with an in-tree source fallback."""
     try:
@@ -161,7 +180,9 @@ class CampaignConfig:
             parameters=parameters,
             stages=stages,
             analysis=dict(data["analysis"]),
-            execution=_normalize_numeric_strings(data["execution"]),
+            execution=_normalize_numeric_strings(
+                _resolve_resolution_profile(dict(data["execution"]), path.parent)
+            ),
         )
 
     def active_parameters(self, stage: str) -> tuple[Parameter, ...]:
