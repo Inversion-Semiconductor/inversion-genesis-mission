@@ -5,8 +5,8 @@ served by `python -m lume_fbpic_twin.serve --twin`. All PVs are `pva://HTU:SIM:.
 
 | File | What it is |
 |---|---|
-| `htu_synoptic_lpa.bob` | The twin's synoptic with the LPA tied in: a bottom strip with the LPA run selector, the twin's source readbacks and whether the twin is simulating, and the `SRC` element opening `lpa_bunch.bob`. Generated; do not edit. |
-| `lpa_bunch.bob` | The LPA bunch: run selector, the twin's `Source_*` readbacks, the 33 moment-descriptor scalars (covariance as a grid), run statistics. Generated; do not edit. |
+| `htu_synoptic_lpa.bob` | The twin's synoptic with the LPA tied in: a bottom strip with the LPA run selector, the twin's source readbacks and whether the twin is simulating, and the `SRC` element opening `lpa_bunch.bob`. Generated, and not in the repository: see "Generate the displays". |
+| `lpa_bunch.bob` | The LPA bunch: run selector, the twin's `Source_*` readbacks, the 33 moment-descriptor scalars (covariance as a grid), run statistics. Generated, and not in the repository: see "Generate the displays". |
 | `generate_linked_synoptic.py` | Builds `htu_synoptic_lpa.bob` from the twin's own `htu_synoptic.bob`, which is left untouched. |
 | `generate_lpa_display.py` | Builds `lpa_bunch.bob` from the descriptor action names. |
 | `widgets.py` | The Phoebus widgets both generators build the displays from. |
@@ -14,6 +14,20 @@ served by `python -m lume_fbpic_twin.serve --twin`. All PVs are `pva://HTU:SIM:.
 ## Run the server
 
 See `../README.md` (`python -m lume_fbpic_twin.serve --twin`).
+
+## Generate the displays
+
+The two `.bob` files are generated, and git ignores them, so write them before opening Phoebus.
+From this directory:
+
+```bash
+python generate_lpa_display.py
+python generate_linked_synoptic.py ../../../../geecs-lume-twin/display
+```
+
+The second reads the twin's own `htu_synoptic.bob` in that directory and leaves the twin's files
+as they are. Run the first again after a change to the generators or to the descriptor actions,
+and the second whenever the twin's synoptic changes too. Do not edit the generated files by hand.
 
 ## Open the display
 
@@ -40,15 +54,6 @@ session, so older windows may open too; use the one with the LPA strip along its
   the `?` as part of the file name): `-resource "file:<this directory>/htu_synoptic_lpa.bob?TWIN_DISPLAYS=<twin display directory>"`.
   Both `<...>` are absolute paths.
 
-## Regenerate the displays
-
-```bash
-python generate_lpa_display.py
-python generate_linked_synoptic.py <twin display directory>
-```
-
-Run the second whenever the twin's synoptic changes. The twin's own files are only read.
-
 ## Things to know
 
 - The `Source_*` PVs are read-only: the LPA run is the twin's source. They show the bunch's moments.
@@ -57,9 +62,8 @@ Run the second whenever the twin's synoptic changes. The twin's own files are on
 - Phoebus waits one second, on its UI thread, for a put reply; a server that acknowledged only after
   a re-track (a few seconds) made every write time out. That is why puts are acknowledged at once by
   default.
-- The tests in `tests/test_phoebus_displays.py` check the generators and that the committed
-  `lpa_bunch.bob` is up to date. `htu_synoptic_lpa.bob` is built from the twin's own synoptic, so
-  regenerate it whenever that changes.
+- The tests in `tests/test_phoebus_displays.py` check what the generators write. They do not
+  check the files in this directory, which are not in the repository.
 - The twin's `generate_synoptic.py` writes `<rotation_step>90.0</rotation_step>` for its rotated
   elements, but Phoebus's `rotation_step` is an enum (0 none, 1 = 90 degrees, 2 = 180, 3 = 270),
   not degrees, so those elements are not rotated. The fix belongs in the twin, in

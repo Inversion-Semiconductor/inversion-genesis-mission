@@ -16,6 +16,7 @@ from __future__ import annotations
 import typing
 
 import attrs
+import pydantic
 
 from lume.actions import Action, ReadOnlyActionMixin, WritableActionMixin
 from lume.variables import ParticleGroupVariable, ScalarVariable
@@ -119,25 +120,37 @@ class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
     """Writable dopant fraction of a two-gas mixture, held in two density profiles of
     `simulator.densities` (`host_index` for the background gas, `dopant_index` for the dopant).
 
-    The fraction is `dopant atoms / (host atoms + dopant atoms)`, with each profile's atom density
-    from `lume_fbpic.density_profiles.atom_density()`. Setting a new fraction rewrites BOTH
-    `nominal_density` values while keeping the total atom density (host + dopant) constant. That is the scan variable `nitrogen_dopant_fraction` of the
-    `initial_sample` dataset, where `n_N = n_gas * fraction` and `n_He = n_gas * (1 - fraction)`
-    with `n_gas` fixed. Both profiles must have a `species`, and the fraction must lie strictly
-    between 0 and 1 (a profile's `nominal_density` has to stay positive).
+    The fraction is `dopant molecules / (host molecules + dopant molecules)`. Each gas's molecule
+    density is its profile's atom density (`lume_fbpic.density_profiles.atom_density()`) over its
+    atoms per molecule: 1 by default, so the fraction is one of atoms, and 2 for a dopant of
+    diatomic molecules such as N2. Setting a new fraction rewrites BOTH `nominal_density` values
+    while keeping the total molecule density (the neutral gas density) constant: with N2 in He,
+    `n_N2 = n_gas * fraction` and `n_He = n_gas * (1 - fraction)`. Both profiles must have a
+    `species`, and the fraction must lie strictly between 0 and 1 (a profile's `nominal_density`
+    has to stay positive).
     """
 
     SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
 
+    dopant_atoms_per_molecule: int = pydantic.Field(default=1, ge=1)
     dopant_index: int
+    host_atoms_per_molecule: int = pydantic.Field(default=1, ge=1)
     host_index: int
 
     def default_unit(self, simulator: LWFASimulator) -> str | None:
         return "1"  # a fraction
 
     def _get(self, simulator: LWFASimulator) -> typing.Any:
+        host, dopant = self._molecule_densities(simulator)
+        return dopant / (host + dopant)
+
+    def _molecule_densities(self, simulator: LWFASimulator) -> tuple[float, float]:
+        """The host's and the dopant's molecule densities [m^-3]."""
         host, dopant = self._profiles(simulator)
-        return atom_density(dopant) / (atom_density(host) + atom_density(dopant))
+        return (
+            atom_density(host) / self.host_atoms_per_molecule,
+            atom_density(dopant) / self.dopant_atoms_per_molecule,
+        )
 
     def _profiles(self, simulator: LWFASimulator) -> tuple[typing.Any, typing.Any]:
         """The host and the dopant profiles."""
@@ -152,13 +165,19 @@ class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
                 f"Dopant fraction must be strictly between 0 and 1, got {value}."
             )
         host, dopant = self._profiles(simulator)
-        total = atom_density(host) + atom_density(dopant)
+        total = sum(self._molecule_densities(simulator))
         densities = list(simulator.densities)
         densities[self.host_index] = attrs.evolve(
-            host, nominal_density=nominal_density(host.species, total * (1.0 - value))
+            host,
+            nominal_density=nominal_density(
+                host.species, total * (1.0 - value) * self.host_atoms_per_molecule
+            ),
         )
         densities[self.dopant_index] = attrs.evolve(
-            dopant, nominal_density=nominal_density(dopant.species, total * value)
+            dopant,
+            nominal_density=nominal_density(
+                dopant.species, total * value * self.dopant_atoms_per_molecule
+            ),
         )
         simulator.densities = densities
 

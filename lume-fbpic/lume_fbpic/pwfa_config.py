@@ -41,8 +41,9 @@ class PWFAGrid(SerializableConfig):
         z_boundary: (str) |OPTIONAL| "open" or "periodic". Defaults to "open".
         r_boundary: (str) |OPTIONAL| "open" or "reflective". Defaults to "open".
         use_cuda: (bool) |OPTIONAL| Run on a GPU. Defaults to False.
-        smoother_passes: (int) |OPTIONAL| Binomial smoothing passes of the charge and currents, along z and r. Defaults to 1 (fbpic's default).
-        smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Defaults to True (fbpic's default).
+        use_smoother: (bool) |OPTIONAL| Whether the charge and currents are smoothed with fbpic's binomial filter. Defaults to True (fbpic's default); False means no smoothing at all.
+        smoother_passes: (int) |OPTIONAL| Binomial smoothing passes, along z and r. Ignored when `use_smoother` is False. Defaults to 1 (fbpic's default).
+        smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Ignored when `use_smoother` is False. Defaults to False (fbpic's default).
         random_seed: (int|None) |OPTIONAL| Seed for numpy's random generator before the bunches are drawn. Defaults to None (unset).
         write_plasma: (bool) |OPTIONAL| Whether the diagnostics include the plasma electrons (millions of macroparticles per dump on a large grid). Defaults to True.
     """
@@ -70,10 +71,11 @@ class PWFAGrid(SerializableConfig):
     z_boundary: str = attrs.field(default="open")
     r_boundary: str = attrs.field(default="open")
     use_cuda: bool = attrs.field(default=False)
+    use_smoother: bool = attrs.field(default=True)
     smoother_passes: int = attrs.field(
         default=1, converter=int, validator=attrs.validators.ge(0)
     )
-    smoother_compensator: bool = attrs.field(default=True)
+    smoother_compensator: bool = attrs.field(default=False)
     random_seed: int | None = attrs.field(
         default=None, converter=attrs.converters.optional(int)
     )

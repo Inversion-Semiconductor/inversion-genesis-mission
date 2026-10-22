@@ -49,7 +49,8 @@ The displays in `phoebus/` are laid out for those PVs.
 
 - Phoebus displays for the twin when it is fed by an LPA run: the twin's synoptic with an LPA strip
   and run selector, and `lpa_bunch.bob` showing the bunch, the 33 descriptor values and the run
-  statistics. Two scripts generate them, so do not edit the `.bob` files; see its README.
+  statistics. Two scripts generate them, and the `.bob` files are not in the repository: generate
+  them before opening Phoebus (see "Open the display in Phoebus", and the directory's README).
 
 ## Install
 
@@ -67,6 +68,11 @@ pip install -e geecs-lume-twin           # the twin (htu), with Cheetah, lume-pv
 
 The twin installs the `lume-pva` commit it pins (from GitHub), replacing any other `lume-pva` in the
 environment.
+
+No EPICS installation is needed. The server is itself the EPICS server: `lume-pva` serves PV Access
+through `p4p`, and both `p4p` and `pcaspy` install from pip with the EPICS libraries built in.
+Phoebus has its own PV Access client. EPICS base is needed only for its command-line tools, such
+as `pvget` (see "Check the PVs").
 
 ## Run the twin
 
@@ -87,11 +93,21 @@ every variable is in the served config: the `lume-pva` the twin pins fails with
 
 ### Check the PVs (optional)
 
-From another terminal, with the EPICS command-line tools:
+This step is not needed to run the twin or the displays. From another terminal, with the
+environment active, `p4p` (installed with the twin) reads the PVs:
+
+```bash
+python -c "from p4p.client.thread import Context; ctx = Context('pva'); [print(name, ctx.get(name)) for name in ('HTU:SIM:LPA_Archive', 'HTU:SIM:STATUS', 'HTU:SIM:Source_Charge_pC')]"
+```
+
+On a machine with EPICS base installed, its command-line tools do the same:
 
 ```bash
 pvget HTU:SIM:LPA_Archive HTU:SIM:STATUS HTU:SIM:Source_Charge_pC
 ```
+
+`pvget` is part of EPICS base, not of this package or the twin, so it is only there on a system
+with EPICS installed.
 
 Expect `sim_0000`, `Idle` and the charge of `sim_0000`'s bunch. `HTU:SIM:STATUS` is `Idle` or `Simulating`, and is
 `Simulating` while the twin re-tracks. If your Phoebus settings pin `epics_pva_addr_list`, add
@@ -99,7 +115,15 @@ Expect `sim_0000`, `Idle` and the charge of `sim_0000`'s bunch. `HTU:SIM:STATUS`
 
 ### Open the display in Phoebus
 
-From the Phoebus product directory, with an absolute path to the display:
+The displays are generated, not in the repository. Write them first, from the repository root:
+
+```bash
+cd lume-fbpic/docs/htu-twin/phoebus
+python generate_lpa_display.py
+python generate_linked_synoptic.py ../../../../geecs-lume-twin/display
+```
+
+Then start Phoebus from its product directory, with an absolute path to the display:
 
 ```bash
 java -jar target/product-<version>.jar -resource <repository>/lume-fbpic/docs/htu-twin/phoebus/htu_synoptic_lpa.bob

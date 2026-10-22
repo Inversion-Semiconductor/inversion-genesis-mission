@@ -137,10 +137,21 @@ def test_descriptor_settings_must_match_the_dataset(script, dataset, tmp_path):
         )
 
 
-def test_the_dataset_actions_are_the_examples():
-    import ionization_injection
+def test_the_dataset_actions_are_the_models(script):
+    names = set(script.build_model().supported_variables)
 
-    names = set(ionization_injection.build_model().supported_variables)
+    assert set(script.DATASET_ACTIONS.values()) <= names
+    assert any(name.startswith(script.ZERNIKE_PREFIX) for name in names)
 
-    assert set(ionization_injection.DATASET_ACTIONS.values()) <= names
-    assert any(name.startswith(ionization_injection.ZERNIKE_PREFIX) for name in names)
+
+def test_the_model_writes_the_electrons_the_dataset_describes(script, dataset):
+    simulator = script.build_model().simulator
+
+    assert simulator.target_species == dataset["metadata"]["species"]
+    assert simulator.densities[1].elec_select == {"uz": [10.0, None]}
+
+
+def test_the_script_does_not_use_the_ionization_injection_example():
+    import initial_sample_archives
+
+    assert "ionization_injection" not in vars(initial_sample_archives)

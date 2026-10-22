@@ -164,23 +164,15 @@ def test_the_lpa_display_links_back_to_the_linked_synoptic(lpa_display):
     assert "htu_synoptic_lpa.bob" in _files(root)
 
 
-def test_the_committed_lpa_display_is_up_to_date(lpa_display):
-    committed = (_DOCS / "lpa_bunch.bob").read_text()
+def test_the_lpa_display_generator_writes_the_display(lpa_display, tmp_path):
+    written = tmp_path / "lpa_bunch.bob"
 
-    assert committed == lpa_display.build()
+    lpa_display.main([str(written)])
+
+    assert written.read_text() == lpa_display.build()
 
 
 # --- the linked synoptic
-
-
-def test_the_committed_linked_synoptic_is_up_to_date(linked_synoptic):
-    twin = _DOCS.parents[3] / "geecs-lume-twin" / "display"
-    if not (twin / "htu_synoptic.bob").is_file():
-        pytest.skip("the twin's displays are not in this checkout")
-
-    committed = (_DOCS / "htu_synoptic_lpa.bob").read_text(encoding="utf-8")
-
-    assert committed == linked_synoptic.build(twin, _DOCS)
 
 
 def test_other_buttons_are_pointed_at_the_twins_display_directory(

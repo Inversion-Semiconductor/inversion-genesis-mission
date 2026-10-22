@@ -27,6 +27,12 @@ class PWFASimulator(BaseSimulator):
     diagnostics as the species `plasma`, `driver` and `witness`; `target_species` is the one
     read back as `final_particles`.
 
+    It runs in the lab frame only: there is no boosted-frame option (`gamma_boost`), as
+    `LWFASimulator` has through `SimulationHyperparameters`. A boost is what would make long
+    plasmas practical, such as the 20 cm cell of `docs/examples/pwfa_clara_febe.py`. It is left
+    for when beams are added to `inversion_fbpic`'s `Simulation`, which already handles boosted
+    frames and back-transformed diagnostics, and this class merges with `LWFASimulator`.
+
     Parameters
     ----------
     grid : PWFAGrid
@@ -92,12 +98,18 @@ class PWFASimulator(BaseSimulator):
         grid = self.grid
         if grid.random_seed is not None:
             numpy.random.seed(grid.random_seed)
-        smoother = BinomialSmoother(
-            n_passes={"z": grid.smoother_passes, "r": grid.smoother_passes},
-            compensator={
-                "z": grid.smoother_compensator,
-                "r": grid.smoother_compensator,
-            },
+        # No smoothing is a filter of zero passes: fbpic replaces `smoother=None` by its one-pass
+        # default
+        smoother = (
+            BinomialSmoother(
+                n_passes={"z": grid.smoother_passes, "r": grid.smoother_passes},
+                compensator={
+                    "z": grid.smoother_compensator,
+                    "r": grid.smoother_compensator,
+                },
+            )
+            if grid.use_smoother
+            else BinomialSmoother(n_passes=0, compensator=False)
         )
         simulation = Simulation(
             grid.nz,
