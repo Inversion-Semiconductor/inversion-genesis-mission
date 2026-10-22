@@ -12,7 +12,8 @@ import re
 
 FAMILIES: tuple[tuple[str, str], ...] = (
     ("push_momentum", r"push_p"),
-    ("ionization", r"ioniz|adk|copy_ionized|curand|philox"),
+    ("ionization", r"ioniz|adk|copy_ionized|copy_particle_data|curand|philox"),
+    ("diagnostics", r"extract_particles|openpmd_diag"),
     ("deposition_rho", r"deposit_rho|linear_rho|_rho_m\d"),
     ("deposition_J", r"deposit_j|linear_j_|_j_m\d"),
     ("deposition_normalize", r"by_volume|erase_(vector|scalar)"),
