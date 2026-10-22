@@ -33,40 +33,60 @@ The producer computes the full step count at run time. At commit `39e0722` it is
 - per-segment ms/step every 100 steps;
 - final particle counts and ionization-level histograms.
 
+## Worktree layout
+
+The scripts use the same layout as the workstation:
+
+```text
+~/fbpic/inversion-genesis-mission-worktrees/
+  .bare/           bare clone; origin branches are refs/remotes/origin/*
+  .git             the line "gitdir: ./.bare"
+  perl-main-run/   worktree of snidhan/perl-main-run
+  perl-warp-run/   worktree of snidhan/perl-warp-run (the tools run from here)
+  main/            worktree of main
+  dev-main/        worktree of snidhan/dev-main
+~/fbpic/fbpic.git  bare mirror of upstream FBPIC
+```
+
+`FBPIC_WORKTREE_BRANCHES` in the config sets the list of worktrees.
+`launch.sh` snapshots the committed state of a branch. It warns when that worktree has uncommitted `lpa/` changes.
+To run uncommitted changes, add `--src-dir <worktree>`.
+
 ## One-time setup (login node)
 
 1. Connect with agent forwarding, so that git can use your GitHub key: `ssh -A perlmutter.nersc.gov`.
-2. Clone the repository as a bare repository:
+2. Create the bare clone and the first worktree:
 
    ```sh
-   mkdir -p ~/fbpic-src
+   mkdir -p ~/fbpic/inversion-genesis-mission-worktrees
+   cd ~/fbpic/inversion-genesis-mission-worktrees
    GIT_LFS_SKIP_SMUDGE=1 git clone --bare \
-     git@github.com:Inversion-Semiconductor/inversion-genesis-mission.git \
-     ~/fbpic-src/inversion-genesis-mission.git
+     git@github.com:Inversion-Semiconductor/inversion-genesis-mission.git .bare
+   echo "gitdir: ./.bare" > .git
+   git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+   git fetch origin
+   GIT_LFS_SKIP_SMUDGE=1 git worktree add perl-warp-run snidhan/perl-warp-run
+   git -C perl-warp-run branch --set-upstream-to=origin/snidhan/perl-warp-run
    ```
 
-3. Add a launcher checkout of the tools:
-
-   ```sh
-   git -C ~/fbpic-src/inversion-genesis-mission.git worktree add --detach \
-     ~/fbpic-src/launcher snidhan/perl-warp-run
-   ```
-
-4. Copy the configuration file, then edit `NERSC_PROJECT` and `NERSC_ACCOUNT`:
+3. Copy the configuration file, then edit `NERSC_PROJECT` and `NERSC_ACCOUNT`:
 
    ```sh
    mkdir -p ~/.config
-   cp ~/fbpic-src/launcher/tools/perlmutter/config.example.sh ~/.config/fbpic-perlmutter.sh
+   cp perl-warp-run/tools/perlmutter/config.example.sh ~/.config/fbpic-perlmutter.sh
    ```
 
-5. Define a shortcut: `export PM=~/fbpic-src/launcher/tools/perlmutter`.
-6. Fetch the branches and upstream FBPIC: `$PM/sync.sh`.
-7. Check the Global Common quota: `showquota --cmn <project>`. The env needs about 6 GB of the 10 GB project quota.
-8. Create the env: `$PM/setup_env.sh`. This step takes about 10 minutes.
+4. Define a shortcut. Add it to `~/.bashrc` to keep it:
+   `export PM=~/fbpic/inversion-genesis-mission-worktrees/perl-warp-run/tools/perlmutter`.
+5. Create the other worktrees and the upstream FBPIC mirror: `$PM/sync.sh`.
+6. Check the Global Common quota: `showquota --cmn <project>`. The env needs about 6 GB of the 10 GB project quota.
+7. Create the env: `$PM/setup_env.sh`. This step takes about 10 minutes.
 
 ## Each session
 
-1. Update the sources and the launcher checkout: `$PM/sync.sh`.
+1. Update the worktrees: `$PM/sync.sh`.
+   It fast-forwards each clean worktree to `origin/<branch>`.
+   It does not change a worktree with uncommitted changes or local commits.
 
 ## Benchmark runs
 
@@ -130,6 +150,6 @@ Then use `--here` instead of `--submit`.
 
 ## Local test (workstation)
 
-1. Create a config file with local paths. Point `FBPIC_SRC` to a directory with links `inversion-genesis-mission.git` and `fbpic.git`.
+1. Create a config file with local paths. Set `FBPIC_WORKTREES` to the local worktree root and `UPSTREAM_FBPIC_GIT` to an upstream FBPIC clone.
 2. Build the env with `setup_env.sh --local --mpi conda --prefix <dir>`.
 3. Run `launch.sh --mode smoke --local --gpu 0`. Add `--src-dir <worktree>` to test uncommitted changes.
