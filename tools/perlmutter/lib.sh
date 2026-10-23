@@ -43,15 +43,15 @@ resolve_ref() {
 variant_branch() {
     case "$1" in
         numba) echo "snidhan/perl-main-run" ;;
-        warp-fp64 | warp-fp32) echo "snidhan/perl-warp-run" ;;
-        *) die "unknown variant '$1' (numba, warp-fp64, warp-fp32)" ;;
+        warp-fp64 | warp-fp32 | warp-fp64-tpb16) echo "snidhan/perl-warp-run" ;;
+        *) die "unknown variant '$1' (numba, warp-fp64, warp-fp32, warp-fp64-tpb16)" ;;
     esac
 }
 
 variant_solver() {
     case "$1" in
         numba) echo "upstream-fbpic" ;;
-        warp-fp64 | warp-fp32) echo "lpa/FBPIC_Warp" ;;
+        warp-fp64 | warp-fp32 | warp-fp64-tpb16) echo "lpa/FBPIC_Warp" ;;
         *) die "unknown variant '$1'" ;;
     esac
 }

@@ -10,18 +10,20 @@ They record per-kernel GPU time with Nsight Systems and the end-to-end time of t
 | `numba` | `snidhan/perl-main-run` | upstream fbpic `dc1cc32` | upstream defaults |
 | `warp-fp64` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | graphs off, fused particle kernels, FP64 Hankel |
 | `warp-fp32` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | graphs off, fused particle kernels, FP32 Hankel |
+| `warp-fp64-tpb16` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 16 threads per block for linear deposition |
 
 The variant table is in `bench/variants.py`.
 Two cases are available (`--case`):
 
-- `production`: the nominal point of `lpa/Exploration_FBPIC/runs/production_study/campaign.yaml` with its resolution profile (`minimum`: 2592 x 1080, Nm=5, gamma_boost=3). Kernel timing uses this case by default.
-- `reduced`: `lpa/Simulation_FBPIC/runs/initial_sample/ionization_injection_runscript_00.py`. Other modes use this case by default.
+- `production`: the nominal point of `lpa/Exploration_FBPIC/runs/production_study/campaign.yaml` with its resolution profile (`minimum`: 2592 x 1080, Nm=5, gamma_boost=3). Use it with `--case production`.
+- `reduced`: `lpa/Simulation_FBPIC/runs/initial_sample/ionization_injection_runscript_00.py`. All modes use this case by default.
 
 The report starts with a table that compares the grid, particles per cell, physics, step count, particles, and GPU memory of each case.
 
 All variants use ID-based ionization draws by default (`--rng shared`). Each draw is a Philox value of (seed 0, species stream, ion ID, iteration, level), so numba and Warp draw the same numbers for the same ion.
 The numba variant uses upstream FBPIC `dc1cc32` plus this feature: `nv-snidhan/fbpic` branch `snidhan/ionization-rng`, commit `0b39054` (`UPSTREAM_FBPIC_URL` and `UPSTREAM_FBPIC_SHA` in the config). The report checks that ion IDs and ionization levels match numba bit for bit.
 The Warp variants set linear deposition to 32 threads per block. Upstream FBPIC uses 16 on A100.
+The `warp-fp64-tpb16` variant is a control: it uses 16 threads per block, as upstream FBPIC does on A100. It is not in the default variant set.
 The reduced case uses Nz=1500, Nr=300, Nm=5, and gamma_boost=1.5. The producer computes the full step count at run time; for the reduced case it is 11,974 steps.
 
 ## How a run works
