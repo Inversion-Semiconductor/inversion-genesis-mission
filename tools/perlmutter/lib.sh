@@ -39,20 +39,28 @@ resolve_ref() {
 }
 
 # Variant table: branch, solver kind, and FBPIC options live in bench/variants.py.
-# The shell layer needs only the default branch and the solver source.
+# The shell layer needs only the default branch and the solver source: numba runs
+# upstream FBPIC from perl-main-run; every warp-* variant runs lpa/FBPIC_Warp.
+variant_known() {
+    [[ "$1" =~ ^[a-z0-9-]+$ ]] &&
+        grep -qE "^\s*(Variant\()?\"$1\"," "$PERLMUTTER_TOOLS/bench/variants.py"
+}
+
 variant_branch() {
+    variant_known "$1" || die "unknown variant '$1' (see $PERLMUTTER_TOOLS/bench/variants.py)"
     case "$1" in
         numba) echo "snidhan/perl-main-run" ;;
-        warp-fp64 | warp-fp32 | warp-fp64-tpb16) echo "snidhan/perl-warp-run" ;;
-        *) die "unknown variant '$1' (numba, warp-fp64, warp-fp32, warp-fp64-tpb16)" ;;
+        warp-*) echo "snidhan/perl-warp-run" ;;
+        *) die "variant '$1' has no default branch" ;;
     esac
 }
 
 variant_solver() {
+    variant_known "$1" || die "unknown variant '$1' (see $PERLMUTTER_TOOLS/bench/variants.py)"
     case "$1" in
         numba) echo "upstream-fbpic" ;;
-        warp-fp64 | warp-fp32 | warp-fp64-tpb16) echo "lpa/FBPIC_Warp" ;;
-        *) die "unknown variant '$1'" ;;
+        warp-*) echo "lpa/FBPIC_Warp" ;;
+        *) die "variant '$1' has no solver source" ;;
     esac
 }
 
@@ -61,8 +69,8 @@ mode_steps() {
     case "$1" in
         smoke) echo 100 ;;
         kernels | window) echo 1/10 ;;
-        full) echo 0 ;;
-        *) die "unknown mode '$1' (smoke, kernels, window, full)" ;;
+        full | tests) echo 0 ;;
+        *) die "unknown mode '$1' (smoke, kernels, window, full, tests)" ;;
     esac
 }
 

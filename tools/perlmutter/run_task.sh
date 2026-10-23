@@ -72,6 +72,30 @@ if ! "${launcher[@]}" python -m bench.check_node --out "$run/meta/node_check.jso
     die "node check failed for $run"
 fi
 
+if [[ "$MODE" == tests ]]; then
+    # One pytest process per file, run from the FBPIC-Warp root (CONTRIBUTING.md).
+    mkdir -p "$run/tests"
+    python -c "import pytest" 2>/dev/null ||
+        die "pytest is missing in $FBPIC_ENV; install it with: conda activate $FBPIC_ENV && conda install -c conda-forge pytest"
+    status=0
+    for name in ${TEST_FILES:-test_fused_particle_operations.py}; do
+        [[ -f "$SOLVER_DIR/tests/$name" ]] || die "missing $SOLVER_DIR/tests/$name"
+        log "pytest tests/$name"
+        # pytest exits 0 when every test is skipped; require at least one passed test.
+        if (cd "$SOLVER_DIR" && "${launcher[@]}" python -m pytest -q -p no:cacheprovider \
+            "tests/$name") >"$run/tests/${name%.py}.log" 2>&1 &&
+            tail -n 1 "$run/tests/${name%.py}.log" | grep -q ' passed'; then
+            result=passed
+        else
+            result=FAILED
+            status=1
+        fi
+        echo "$result $name: $(tail -n 1 "$run/tests/${name%.py}.log")" | tee -a "$run/tests/summary.txt"
+    done
+    log "run $run exited with $status"
+    exit "$status"
+fi
+
 command=(python -u -m bench.run_case --run-dir "$run" --variant "$VARIANT" --steps "$STEPS"
     --case "$CASE" --rng "$RNG")
 if [[ -n "$PROFILE_WINDOW" ]]; then

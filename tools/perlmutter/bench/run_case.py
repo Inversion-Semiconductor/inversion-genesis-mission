@@ -240,6 +240,29 @@ def particle_summary(fbpic_sim) -> list[dict]:
     return summary
 
 
+def apply_deposition_settings(fbpic_sim, variant) -> None:
+    """Set the variant's deposition launch settings on every linear species.
+
+    Raises:
+        RuntimeError: The solver lacks an attribute that the variant sets.
+    """
+    for species in fbpic_sim.ptcl:
+        if species.particle_shape != "linear":
+            continue
+        if variant.deposit_tpb is not None:
+            species.deposit_tpb = variant.deposit_tpb
+        if variant.deposit_lanes is not None:
+            if not isinstance(getattr(species, "deposit_lanes", None), dict):
+                raise RuntimeError("this FBPIC has no Particles.deposit_lanes")
+            species.deposit_lanes = {**species.deposit_lanes, **variant.deposit_lanes}
+        if variant.deposit_tpb_single_mode is not None:
+            if not hasattr(species, "deposit_tpb_single_mode"):
+                raise RuntimeError(
+                    "this FBPIC has no Particles.deposit_tpb_single_mode"
+                )
+            species.deposit_tpb_single_mode = variant.deposit_tpb_single_mode
+
+
 def execution_settings(fbpic_sim) -> dict:
     """Read back the solver options that the variant requested."""
     hankel = []
@@ -255,6 +278,10 @@ def execution_settings(fbpic_sim) -> dict:
                 "deposition": getattr(species, "fuse_deposition", None),
                 "gather": getattr(species, "fuse_gather", None),
                 "deposit_tpb": getattr(species, "deposit_tpb", None),
+                "deposit_lanes": getattr(species, "deposit_lanes", None),
+                "deposit_tpb_single_mode": getattr(
+                    species, "deposit_tpb_single_mode", None
+                ),
             }
             for species in fbpic_sim.ptcl
         ],
@@ -439,6 +466,8 @@ def main() -> int:
         "engine": variant.engine,
         "simulation_kwargs": variant.simulation_kwargs,
         "deposit_tpb_override": variant.deposit_tpb,
+        "deposit_lanes_override": variant.deposit_lanes,
+        "deposit_tpb_single_mode_override": variant.deposit_tpb_single_mode,
         "rng": args.rng,
         "requested_steps": (
             f"1/{args.fraction}" if args.fraction else args.steps or None
@@ -532,10 +561,7 @@ def main() -> int:
             clock = StepClock(args.clock_every, args.profile_window)
             self.simulation.diags.append(clock)
             state["sim"] = self
-            if variant.deposit_tpb is not None:
-                for species in self.simulation.ptcl:
-                    if species.particle_shape == "linear":
-                        species.deposit_tpb = variant.deposit_tpb
+            apply_deposition_settings(self.simulation, variant)
             settings = execution_settings(self.simulation)
             result["execution"] = settings
             expected = {"seed": RNG_SEED if args.rng == "shared" else None}
