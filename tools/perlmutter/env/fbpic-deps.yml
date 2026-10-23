@@ -25,6 +25,7 @@ dependencies:
   - periodictable
   - attrs>=23.2
   - pyyaml
+  - pytest
   - setuptools
   - wheel
   - pip:

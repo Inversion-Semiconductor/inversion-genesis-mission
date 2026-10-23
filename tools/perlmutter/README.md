@@ -11,6 +11,9 @@ They record per-kernel GPU time with Nsight Systems and the end-to-end time of t
 | `warp-fp64` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | graphs off, fused particle kernels, FP64 Hankel |
 | `warp-fp32` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | graphs off, fused particle kernels, FP32 Hankel |
 | `warp-fp64-tpb16` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 16 threads per block for linear deposition |
+| `warp-fp64-m1tpb16` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 16 threads per block for the one-mode current group only |
+| `warp-fp64-jg2`, `-jg4`, `-jg8` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 2, 4, or 8 lanes per cell for current deposition |
+| `warp-fp64-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 4 lanes per cell for charge deposition |
 
 The variant table is in `bench/variants.py`.
 Two cases are available (`--case`):
@@ -106,7 +109,7 @@ To run uncommitted changes, add `--src-dir <worktree>`.
    $PM/launch.sh --mode smoke --submit --qos debug --time 00:30:00
    ```
 
-2. Run the kernel profile (1/10 of the full steps under nsys, capture window 200:end):
+2. Run the kernel profile (1/10 of the full steps under nsys, capture window: the last 300 steps):
 
    ```sh
    $PM/launch.sh --mode kernels --submit --time 02:00:00
@@ -137,6 +140,47 @@ Each `launch.sh` call prints the batch directory. `$FBPIC_RUNS/jobs.log` lists e
 For an interactive test, request a node with `salloc -A <account> -C gpu -q interactive -N 1 -t 01:00:00 --gpus-per-node=4`.
 Then use `--here` instead of `--submit`.
 
+## Deposition experiments
+
+The `warp-fp64-*` experiment variants change one deposition launch setting each.
+The defaults of FBPIC-Warp do not change, so `warp-fp64` stays the reference.
+
+- Lanes per cell (`jg*`, `rhog*`): several adjacent lanes share one cell.
+  Each lane takes every Gth particle of the cell, so one warp load reads whole 32-byte sectors.
+  Each lane adds its partial sums with atomics, so a cell gets up to G times the atomics.
+  The kernel is `make_lane_kernel` in `lpa/FBPIC_Warp/fbpic/particles/deposition/cuda_methods_fused.py`.
+- One-mode block size (`m1tpb16`): the last current group (mode 4 of 5) uses 16 threads per block.
+  The two-mode groups keep 32 threads per block.
+
+Do these steps after `sync.sh`:
+
+1. Run the GPU tests of the deposition kernels (about 10 minutes on one GPU):
+
+   ```sh
+   $PM/launch.sh --mode tests --qos shared --constraint 'gpu&hbm40g' --time 00:30:00 --submit
+   ```
+
+2. Read `<batch>/warp-fp64_r1/tests/summary.txt`. Each line must start with `passed`.
+3. Submit one kernel job for each variant (about 5 minutes each on one GPU):
+
+   ```sh
+   for v in warp-fp64 warp-fp64-tpb16 warp-fp64-m1tpb16 warp-fp64-jg2 warp-fp64-jg4 warp-fp64-jg8 warp-fp64-rhog4; do
+       $PM/launch.sh --mode kernels --variant "$v" --qos shared --constraint 'gpu&hbm40g' --time 00:45:00 --submit
+   done
+   ```
+
+4. When the jobs finish, print the deposition and gather kernels of each variant on a login node:
+
+   ```sh
+   module load conda && conda activate "$FBPIC_ENV"
+   cd <batch>/tools && python -m bench.kernel_table <batch> [<batch>...]
+   ```
+
+5. Make the full report with `python -m bench.compare <batch> [<batch>...]`. It also compares the particle counts and ion states with numba.
+
+`bench.kernel_table` reads `profile/rank0.sqlite`. It shows registers, spill bytes, threads per block, launches per step, microseconds per launch, and milliseconds per step.
+Use `--match REGEX` to select other kernels.
+
 ## Options
 
 - `--variant V`: run only some variants. Repeat the option for more than one.
@@ -145,11 +189,12 @@ Then use `--here` instead of `--submit`.
 - `--steps N|1/K`: change the step count. `0` runs the full interaction. `1/K` runs that fraction of it.
 - `--profile-window A:B`: capture iterations A to B with nsys. `B` can be `end`.
 - `--qos shared`: use one GPU of a shared node. Use `--layout sequential` with it.
-- `--case production|reduced`: select the case. The default is `production` for `kernels` and `reduced` for other modes.
+- `--case production|reduced`: select the case. The default is `reduced` for all modes.
 - `--rng shared|original`: select the ionization draws. The default is `shared`.
 - `--constraint 'gpu&hbm80g'`: request 80 GB A100 nodes. Use it for the production case and for full runs. The reduced case uses about 32 GiB at 1,197 steps.
 - `--upstream-src DIR`: use an upstream FBPIC working tree for numba, for example to test an uncommitted patch.
 - `--stage-only`: create the batch and stop.
+- `--mode tests --tests "test_a.py test_b.py"`: run FBPIC-Warp test files on a GPU node, one pytest process for each file. The default is `test_fused_particle_operations.py`.
 
 ## Troubleshooting
 

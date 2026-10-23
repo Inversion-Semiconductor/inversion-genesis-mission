@@ -2,11 +2,15 @@
 # Stage and run one benchmark batch: variants x repeats for one mode.
 #
 # Usage:
-#   launch.sh --mode {smoke,kernels,window,full} [options] {--submit|--here|--local|--stage-only}
+#   launch.sh --mode {smoke,kernels,window,full,tests} [options] {--submit|--here|--local|--stage-only}
+#
+# Mode tests runs FBPIC-Warp GPU test files with pytest instead of the producer case.
 #
 # Options:
-#   --variant V          numba, warp-fp64, warp-fp32, or warp-fp64-tpb16; repeat for several
-#                        (default: numba, warp-fp64, warp-fp32)
+#   --variant V          a name from bench/variants.py; repeat for several
+#                        (default: numba, warp-fp64, warp-fp32; for tests: warp-fp64)
+#   --tests "F ..."      test files in lpa/FBPIC_Warp/tests for mode tests, one process each
+#                        (default: test_fused_particle_operations.py)
 #   --ref REF            git ref for every variant (default: the variant's perl-* branch)
 #   --src-dir DIR        snapshot a working tree instead of a ref (uncommitted changes are recorded)
 #   --upstream-src DIR   snapshot an upstream FBPIC working tree for numba instead of UPSTREAM_FBPIC_SHA
@@ -41,6 +45,7 @@ steps=""
 repeats=1
 window=""
 case_name=""
+tests="test_fused_particle_operations.py"
 rng="shared"
 constraint="gpu"
 layout="sequential"
@@ -59,6 +64,7 @@ while [[ $# -gt 0 ]]; do
         --repeats) repeats="$2"; shift 2 ;;
         --profile-window) window="$2"; shift 2 ;;
         --case) case_name="$2"; shift 2 ;;
+        --tests) tests="$2"; shift 2 ;;
         --rng) rng="$2"; shift 2 ;;
         --constraint) constraint="$2"; shift 2 ;;
         --layout) layout="$2"; shift 2 ;;
@@ -66,13 +72,19 @@ while [[ $# -gt 0 ]]; do
         --time) time_limit="$2"; shift 2 ;;
         --gpu) gpu="$2"; shift 2 ;;
         --submit | --here | --local | --stage-only) action="${1#--}"; shift ;;
-        -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
+        -h | --help) sed -n '2,30p' "$0"; exit 0 ;;
         *) die "unknown argument $1" ;;
     esac
 done
 [[ -n "$mode" ]] || die "--mode is required"
 [[ -n "$action" ]] || die "choose one of --submit, --here, --local, --stage-only"
-[[ ${#variants[@]} -gt 0 ]] || variants=(numba warp-fp64 warp-fp32)
+if [[ ${#variants[@]} -eq 0 ]]; then
+    if [[ "$mode" == tests ]]; then
+        variants=(warp-fp64)
+    else
+        variants=(numba warp-fp64 warp-fp32)
+    fi
+fi
 [[ -n "$steps" ]] || steps="$(mode_steps "$mode")"
 [[ "$steps" =~ ^([0-9]+|1/[1-9][0-9]*)$ ]] || die "--steps must be N or 1/K"
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || die "--repeats must be a positive integer"
@@ -95,7 +107,19 @@ fi
 if [[ "$action" == here ]]; then
     [[ -n "${SLURM_JOB_ID:-}" ]] || die "--here needs an salloc allocation"
 fi
-for variant in "${variants[@]}"; do variant_solver "$variant" >/dev/null; done
+for variant in "${variants[@]}"; do
+    # A plain assignment keeps the exit status of variant_solver, so an unknown name stops here.
+    solver="$(variant_solver "$variant")" || exit 1
+    if [[ "$mode" == tests && "$solver" != lpa/FBPIC_Warp ]]; then
+        die "mode tests runs lpa/FBPIC_Warp/tests; $variant is not a Warp variant"
+    fi
+done
+if [[ "$mode" == tests ]]; then
+    [[ -z "$window" ]] || die "mode tests takes no --profile-window"
+    for name in $tests; do
+        [[ "$name" =~ ^test_[A-Za-z0-9_]+\.py$ ]] || die "--tests takes test_*.py file names, got $name"
+    done
+fi
 
 # Two launches in the same second must not share a batch: mkdir fails if it exists.
 mkdir -p "$FBPIC_RUNS"
@@ -199,8 +223,9 @@ stage_run() {
         source_dirty=0
         tree="$(snapshot_ref "$source_sha")"
     fi
-    local solver
-    if [[ "$(variant_solver "$variant")" == upstream-fbpic ]]; then
+    local solver solver_kind
+    solver_kind="$(variant_solver "$variant")" || exit 1
+    if [[ "$solver_kind" == upstream-fbpic ]]; then
         solver="$(snapshot_upstream)"
     else
         solver="$tree/lpa/FBPIC_Warp"
@@ -223,6 +248,7 @@ stage_run() {
         printf 'SOURCE_SHA=%q\n' "$source_sha"
         printf 'SOURCE_DIRTY=%q\n' "$source_dirty"
         printf 'UPSTREAM_FBPIC_SHA=%q\n' "${upstream_src:+worktree:$upstream_src@}$UPSTREAM_FBPIC_SHA"
+        printf 'TEST_FILES=%q\n' "$tests"
     } >"$run/meta/task.env"
     echo "$run"
 }
