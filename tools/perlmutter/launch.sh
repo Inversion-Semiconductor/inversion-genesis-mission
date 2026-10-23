@@ -5,7 +5,8 @@
 #   launch.sh --mode {smoke,kernels,window,full} [options] {--submit|--here|--local|--stage-only}
 #
 # Options:
-#   --variant V          numba, warp-fp64, or warp-fp32; repeat for several (default: all three)
+#   --variant V          numba, warp-fp64, warp-fp32, or warp-fp64-tpb16; repeat for several
+#                        (default: numba, warp-fp64, warp-fp32)
 #   --ref REF            git ref for every variant (default: the variant's perl-* branch)
 #   --src-dir DIR        snapshot a working tree instead of a ref (uncommitted changes are recorded)
 #   --upstream-src DIR   snapshot an upstream FBPIC working tree for numba instead of UPSTREAM_FBPIC_SHA

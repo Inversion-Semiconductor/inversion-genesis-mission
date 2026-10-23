@@ -56,6 +56,18 @@ VARIANTS = {
             hankel_dtype="float32",
             deposit_tpb=32,
         ),
+        # Control for the deposition launch configuration: warp-fp64 at the
+        # upstream A100 block size, to compare 16 and 32 threads per block.
+        Variant(
+            "warp-fp64-tpb16",
+            "warp",
+            {
+                "use_cuda_graphs": False,
+                "fuse_particle_kernels": True,
+                "hankel_precision": "float64",
+            },
+            deposit_tpb=16,
+        ),
     )
 }
 
