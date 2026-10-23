@@ -243,6 +243,133 @@ def test_deposition_fusion_parity(
         )
 
 
+# Lane cases: empty and sparse cells, cells with fewer particles than lanes,
+# dense cells (2000 particles, about 20 per cell) where every lane loops several
+# times, a last current group of one mode (5 and 11 modes), and effective weights.
+LANE_CASES = [
+    (5, 0, False),
+    (5, 17, False),
+    (5, 257, True),
+    (5, 2000, False),
+    (1, 17, False),
+    (2, 2000, True),
+    (11, 257, True),
+]
+
+
+@pytest.mark.parametrize("lanes", [2, 4, 8, 32])
+@pytest.mark.parametrize("fieldtype", ["rho", "J"])
+@pytest.mark.parametrize("n_modes,count,effective_weights", LANE_CASES)
+def test_lane_deposition_parity(
+    runtime, launches, lanes, fieldtype, n_modes, count, effective_weights
+):
+    import cupy as cp
+
+    data = _particle_data(count)
+    charge = e if effective_weights else -e
+    cpu = _species(data, "linear", False, charge, effective_weights)
+    cpu_fields = _fields(n_modes, False)
+    cpu.deposit(cpu_fields, fieldtype)
+    cpu_fields.sum_reduce_deposition_array(fieldtype)
+    components = ("rho",) if fieldtype == "rho" else ("Jr", "Jt", "Jz")
+    results = []
+    for lane_count in (1, lanes):
+        gpu = _species(data, "linear", True, charge, effective_weights)
+        gpu.deposit_lanes = {fieldtype: lane_count}
+        gpu_fields = _fields(n_modes, True)
+        gpu.sort_particles(gpu_fields)
+        gpu.sorted = True
+        before = runtime.launch_count
+        launches.clear()
+        gpu.deposit(gpu_fields, fieldtype)
+        # Lanes change the threads per launch, not the number of launches.
+        assert runtime.launch_count - before == _expected_deposit_launches(
+            n_modes, "linear", fieldtype, True
+        )
+        # One lane uses make_kernel; more lanes use make_lane_kernel.
+        suffix = f"_lanes{lane_count}"
+        assert all(key.endswith(suffix) == (lane_count > 1) for key, _ in launches)
+        runtime.synchronize()
+        observed = []
+        for gpu_grid, cpu_grid in zip(gpu_fields.interp, cpu_fields.interp):
+            for name in components:
+                value = cp.asnumpy(getattr(gpu_grid, name))
+                _assert_scaled_close(value, getattr(cpu_grid, name))
+                observed.append(value)
+        results.append(observed)
+    for one_lane, many_lanes in zip(*results):
+        _assert_scaled_close(many_lanes, one_lane)
+
+
+@pytest.fixture
+def launches(monkeypatch):
+    """Record (kernel key, threads per block) of every fused deposition launch."""
+    from fbpic.particles.deposition import cuda_methods_fused
+
+    recorded = []
+    launch = cuda_methods_fused.launch_kernel
+
+    def record(kernel, dimensions, args, block_dim):
+        recorded.append((kernel.key, block_dim))
+        launch(kernel, dimensions, args, block_dim)
+
+    monkeypatch.setattr(cuda_methods_fused, "launch_kernel", record)
+    return recorded
+
+
+# Five current modes end with the one-mode group (4); six charge modes end with
+# the one-mode group (5). Only those groups take the separate block size.
+SINGLE_MODE_CASES = [
+    ("J", 5, ["m0_n2", "m2_n2", "m4_n1"]),
+    ("rho", 6, ["m0_n5", "m5_n1"]),
+]
+
+
+@pytest.mark.parametrize("lanes", [1, 4])
+@pytest.mark.parametrize("fieldtype,n_modes,groups", SINGLE_MODE_CASES)
+def test_single_mode_block_size(runtime, launches, lanes, fieldtype, n_modes, groups):
+    import cupy as cp
+
+    data = _particle_data(257)
+    cpu = _species(data, "linear", False)
+    cpu_fields = _fields(n_modes, False)
+    cpu.deposit(cpu_fields, fieldtype)
+    cpu_fields.sum_reduce_deposition_array(fieldtype)
+    components = ("rho",) if fieldtype == "rho" else ("Jr", "Jt", "Jz")
+    suffix = "" if lanes == 1 else f"_lanes{lanes}"
+    for single_mode_tpb in (None, 16):
+        gpu = _species(data, "linear", True)
+        gpu.deposit_lanes = {fieldtype: lanes}
+        gpu.deposit_tpb_single_mode = single_mode_tpb
+        gpu_fields = _fields(n_modes, True)
+        gpu.sort_particles(gpu_fields)
+        gpu.sorted = True
+        launches.clear()
+        gpu.deposit(gpu_fields, fieldtype)
+        runtime.synchronize()
+        expected = [
+            (
+                f"fused_linear_{fieldtype}_{group}{suffix}",
+                16 if single_mode_tpb and group.endswith("_n1") else 32,
+            )
+            for group in groups
+        ]
+        assert launches == expected
+        for gpu_grid, cpu_grid in zip(gpu_fields.interp, cpu_fields.interp):
+            for name in components:
+                _assert_scaled_close(
+                    cp.asnumpy(getattr(gpu_grid, name)), getattr(cpu_grid, name)
+                )
+
+
+@pytest.mark.parametrize("lanes", [0, 1, 3, 64])
+def test_lane_kernel_rejects_unsupported_lanes(lanes):
+    from fbpic.particles.deposition.cuda_methods_fused import make_lane_kernel
+
+    with pytest.raises(ValueError, match="lanes"):
+        make_lane_kernel(True, 0, 2, lanes)
+
+
 # The last column scales rmax_gather; 0.5 cuts the gather inside the grid.
 GATHER_CASES = [
     (5, "linear", 0, 1.0),

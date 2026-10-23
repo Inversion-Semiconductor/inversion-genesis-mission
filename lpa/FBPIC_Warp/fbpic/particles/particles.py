@@ -342,6 +342,11 @@ class Particles(object):
             else:
                 self.deposit_tpb = 16 if cuda_gpu_model == "V100" else 32
                 self.gather_tpb = 128
+            # Experimental launch settings for fused linear deposition (see
+            # deposit_fused). The defaults keep one lane per cell and the same
+            # block size for every mode group.
+            self.deposit_lanes = {"rho": 1, "J": 1}
+            self.deposit_tpb_single_mode = None
 
     def send_particles_to_gpu(self):
         """
