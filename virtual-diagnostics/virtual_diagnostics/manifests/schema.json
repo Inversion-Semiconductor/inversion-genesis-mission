@@ -1,0 +1,517 @@
+{
+  "names": [
+    "UC_Amp2_IR_input 2ndmomW0x45",
+    "UC_Amp2_IR_input 2ndmomW0y45",
+    "UC_Amp2_IR_input centroidx",
+    "UC_Amp2_IR_input centroidy",
+    "UC_Amp2_IR_input FWHMx",
+    "UC_Amp2_IR_input FWHMy",
+    "UC_Amp2_IR_input MaxCounts",
+    "UC_Amp2_IR_input MeanCounts",
+    "UC_Amp3_IR_input 2ndmomW0x45",
+    "UC_Amp3_IR_input 2ndmomW0y45",
+    "UC_Amp3_IR_input centroidx",
+    "UC_Amp3_IR_input centroidy",
+    "UC_Amp3_IR_input MaxCounts",
+    "UC_Amp3_IR_input MeanCounts",
+    "UC_Amp4_IR_input 2ndmomW0x45",
+    "UC_Amp4_IR_input 2ndmomW0y45",
+    "UC_Amp4_IR_input centroidx",
+    "UC_Amp4_IR_input centroidy",
+    "UC_Amp4_IR_input MaxCounts",
+    "UC_Amp4_IR_input MeanCounts",
+    "UC_ExpanderIn1_Pulsed 2ndmomW0x",
+    "UC_ExpanderIn1_Pulsed 2ndmomW0x45",
+    "UC_ExpanderIn1_Pulsed 2ndmomW0y",
+    "UC_ExpanderIn1_Pulsed 2ndmomW0y45",
+    "UC_ExpanderIn1_Pulsed centroidx",
+    "UC_ExpanderIn1_Pulsed centroidy",
+    "UC_ExpanderIn1_Pulsed MaxCounts",
+    "UC_ExpanderIn1_Pulsed MeanCounts",
+    "UC_GhostFocus 2ndmomW0x",
+    "UC_GhostFocus 2ndmomW0x45",
+    "UC_GhostFocus 2ndmomW0y",
+    "UC_GhostFocus 2ndmomW0y45",
+    "UC_GhostFocus centroidx",
+    "UC_GhostFocus centroidy",
+    "UC_GhostFocus FWHMx",
+    "UC_GhostFocus FWHMy",
+    "UC_GhostFocus MaxCounts",
+    "UC_GhostFocus MeanCounts",
+    "UC_Amp3Depletion_South centroidx",
+    "UC_Amp3Depletion_South centroidy",
+    "UC_Amp4Depletion_South centroidx",
+    "UC_Amp4Depletion_South centroidy",
+    "gaia.z0",
+    "gaia.z1",
+    "gaia.z2",
+    "gaia.z3",
+    "gaia.z4",
+    "gaia.z5",
+    "gaia.z6",
+    "gaia.z7",
+    "gaia.z8",
+    "gaia.z9",
+    "gaia.z10",
+    "gaia.z11",
+    "gaia.z12",
+    "gaia.z13",
+    "frog.pc1",
+    "frog.pc2",
+    "frog.pc3",
+    "frog.pc4",
+    "frog.pc5",
+    "frog.pc6",
+    "frog.pc7",
+    "frog.pc8",
+    "oap.pc1",
+    "oap.pc2",
+    "oap.pc3",
+    "oap.pc4",
+    "oap.pc5",
+    "oap.pc6",
+    "oap.pc7",
+    "oap.pc8",
+    "topview.z1",
+    "topview.z2",
+    "topview.z3",
+    "topview.z4",
+    "topview.z5",
+    "topview.z6",
+    "topview.z7",
+    "topview.z8",
+    "topview.z9",
+    "topview.z10",
+    "topview.z11",
+    "topview.z12",
+    "topview.z13",
+    "topview.z14",
+    "topview.z15",
+    "topview.z16"
+  ],
+  "blocks": [
+    {
+      "name": "scalars",
+      "start": 0,
+      "stop": 42
+    },
+    {
+      "name": "Gaia",
+      "start": 42,
+      "stop": 56
+    },
+    {
+      "name": "FROG",
+      "start": 56,
+      "stop": 64
+    },
+    {
+      "name": "OAP",
+      "start": 64,
+      "stop": 72
+    },
+    {
+      "name": "TopView",
+      "start": 72,
+      "stop": 88
+    }
+  ],
+  "target_names": [
+    "camera1.z1",
+    "camera1.z2",
+    "camera1.z3",
+    "camera1.z4",
+    "camera1.z5",
+    "camera1.z6",
+    "camera1.z7",
+    "camera1.z8",
+    "camera1.z9",
+    "camera1.z10",
+    "camera1.z11",
+    "camera1.z12",
+    "camera1.z13",
+    "camera1.z14",
+    "camera1.z15",
+    "camera1.z16",
+    "camera1.z17",
+    "camera1.z18",
+    "camera1.z19",
+    "camera1.z20",
+    "ICT charge (pC)"
+  ],
+  "context_shape": [
+    2152,
+    88
+  ],
+  "target_shape": [
+    2152,
+    21
+  ],
+  "query_shape": [
+    88
+  ],
+  "image_shape": [
+    189,
+    285
+  ],
+  "prepared_features_required": true,
+  "scalar_definitions": [
+    {
+      "name": "UC_Amp2_IR_input 2ndmomW0x45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp2_IR_input 2ndmomW0y45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp2_IR_input centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp2_IR_input centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp2_IR_input FWHMx",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp2_IR_input FWHMy",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp2_IR_input MaxCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp2_IR_input MeanCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp3_IR_input 2ndmomW0x45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp3_IR_input 2ndmomW0y45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp3_IR_input centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp3_IR_input centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp3_IR_input MaxCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp3_IR_input MeanCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp4_IR_input 2ndmomW0x45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp4_IR_input 2ndmomW0y45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp4_IR_input centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp4_IR_input centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Intensity centroid after background subtraction inside the fixed training-derived ROI, relative to full image center.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp4_IR_input MaxCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp4_IR_input MeanCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed 2ndmomW0x",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed 2ndmomW0x45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed 2ndmomW0y",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed 2ndmomW0y45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed centroidx",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed centroidy",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed MaxCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_ExpanderIn1_Pulsed MeanCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus 2ndmomW0x",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus 2ndmomW0x45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus 2ndmomW0y",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus 2ndmomW0y45",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Existing threshold-based geometric centroid with frozen processing.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_GhostFocus centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Existing threshold-based geometric centroid with frozen processing.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_GhostFocus FWHMx",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus FWHMy",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus MaxCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_GhostFocus MeanCounts",
+      "source": "recorded_scalar",
+      "definition": "Recorded camera scalar from the timestamp-associated acquisition row.",
+      "unit": null,
+      "unit_status": "instrument-native unit requires acquisition-metadata verification"
+    },
+    {
+      "name": "UC_Amp3Depletion_South centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Extracted depletion shadow center relative to the fixed crop center; not an intensity centroid.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp3Depletion_South centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Extracted depletion shadow center relative to the fixed crop center; not an intensity centroid.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp4Depletion_South centroidx",
+      "source": "existing_computed_scalar",
+      "definition": "Extracted depletion shadow center relative to the fixed crop center; not an intensity centroid.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    },
+    {
+      "name": "UC_Amp4Depletion_South centroidy",
+      "source": "existing_computed_scalar",
+      "definition": "Extracted depletion shadow center relative to the fixed crop center; not an intensity centroid.",
+      "unit": "pixel",
+      "unit_status": "computed pixel coordinate"
+    }
+  ],
+  "arrays": {
+    "train_x": {
+      "shape": [
+        2152,
+        88
+      ],
+      "dtype": "float32",
+      "columns": "names"
+    },
+    "train_y": {
+      "shape": [
+        2152,
+        21
+      ],
+      "dtype": "float32",
+      "columns": "target_names",
+      "units": [
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "encoder coordinate",
+        "pC"
+      ]
+    },
+    "train_indices": {
+      "shape": [
+        2152
+      ],
+      "dtype": "int64",
+      "meaning": "Original 0-based row positions in the 3077-row aligned source dataset"
+    },
+    "example_features": {
+      "shape": [
+        88
+      ],
+      "dtype": "float32",
+      "partition": "validation"
+    },
+    "energy_axis": {
+      "shape": [
+        285
+      ],
+      "dtype": "float64",
+      "unit": null,
+      "unit_status": "source-export energy axis; unit must be verified before publication"
+    }
+  }
+}
