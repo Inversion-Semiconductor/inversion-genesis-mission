@@ -75,7 +75,7 @@ fi
 command=(python -u -m bench.run_case --run-dir "$run" --variant "$VARIANT" --steps "$STEPS"
     --case "$CASE" --rng "$RNG")
 if [[ -n "$PROFILE_WINDOW" ]]; then
-    command+=(--profile-window "$PROFILE_WINDOW")
+    command+=("--profile-window=$PROFILE_WINDOW")
     if [[ -z "${NSYS:-}" ]]; then
         # nsys comes from the cudatoolkit module; keep that module out of the run env.
         NSYS="$(command -v nsys || { module load cudatoolkit >/dev/null 2>&1 && command -v nsys; } || true)"
