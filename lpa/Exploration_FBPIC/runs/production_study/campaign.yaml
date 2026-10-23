@@ -105,8 +105,8 @@ execution:
     n_order: 32
     p_zmin: 0.0
     r_boundary: reflective
-    diagnostic_select: {uz: [10.0, None]}
-    analysis_select: {uz: [10.0, None]}
+    diagnostic_select: {uz: [10.0, null]}
+    analysis_select: {uz: [10.0, null]}
     analysis_central_fraction: 0.95
     dump_fields: false
     plot_movies: false
