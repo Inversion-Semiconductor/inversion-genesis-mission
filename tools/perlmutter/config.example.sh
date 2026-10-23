@@ -25,9 +25,11 @@ export UPSTREAM_FBPIC_SHA="dc1cc32ca36ab1ee813d82ea5e9f6b180be0e2a9"
 
 # Shared dependency environment (created by setup_env.sh). It holds no fbpic package.
 export FBPIC_ENV="/global/common/software/$NERSC_PROJECT/$USER/fbpic-deps"
-# MPI flavor: "external" uses cray-mpich through cray-mpich-abi (required for multi-node).
-# "conda" uses conda-forge mpich with srun --mpi=none (one rank per job step only).
-export FBPIC_MPI="external"
+# MPI flavor for setup_env.sh: "conda" uses conda-forge mpich with srun --mpi=none
+# (one rank per job step, enough for these single-GPU runs). "external" tries cray-mpich
+# through cray-mpich-abi (needed for multi-node) and falls back to "conda" when conda-forge
+# has no fitting build. Jobs use the flavor that the env records in $FBPIC_ENV.mpi.
+export FBPIC_MPI="conda"
 # Extra modules for every job step. numba-cuda-580-patch fixes numba<0.63 on the 580 driver.
 export FBPIC_MODULES="numba-cuda-580-patch"
 

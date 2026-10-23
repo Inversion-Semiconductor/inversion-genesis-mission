@@ -15,6 +15,10 @@ source "$batch/batch.env"
 source "$run/meta/task.env"
 log "run $run ($VARIANT, $MODE, steps=$STEPS)"
 
+# The env records the MPI flavor it was built with; it overrides the config.
+if [[ -f "$FBPIC_ENV.mpi" ]]; then
+    FBPIC_MPI="$(<"$FBPIC_ENV.mpi")"
+fi
 if [[ "$ACTION" != local ]]; then
     module load conda
     if [[ "${FBPIC_MPI:-external}" == external ]]; then

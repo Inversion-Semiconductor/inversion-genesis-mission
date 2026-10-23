@@ -54,15 +54,20 @@ conda env create --yes --prefix "$prefix" --file "$PERLMUTTER_TOOLS/env/fbpic-de
 
 if [[ "$mpi" == external ]]; then
     # NERSC: conda-forge external MPICH plus cray-mpich-abi at run time.
-    conda install --yes --prefix "$prefix" -c conda-forge mpi4py "mpich=*=external_*"
-else
+    # conda-forge does not always have an external build that fits the other pins.
+    if ! conda install --yes --prefix "$prefix" -c conda-forge mpi4py "mpich=*=external_*"; then
+        log "warning: no external MPICH build fits this env; using conda MPICH (one rank per job step)"
+        mpi=conda
+    fi
+fi
+if [[ "$mpi" == conda ]]; then
     conda install --yes --prefix "$prefix" -c conda-forge mpi4py mpich
 fi
 conda clean --all --yes >/dev/null
 
 conda list --explicit --prefix "$prefix" >"$prefix.lock.txt"
 echo "$mpi" >"$prefix.mpi"
-log "lock file: $prefix.lock.txt"
+log "lock file: $prefix.lock.txt; MPI flavor: $mpi"
 du -sh "$prefix" >&2 || true
 
 # conda activation hooks (cuda-nvcc) read unset variables; relax nounset for them.
