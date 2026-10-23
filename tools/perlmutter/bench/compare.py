@@ -33,6 +33,118 @@ def load_runs(batches: list[Path]) -> list[dict]:
     return runs
 
 
+def case_of(run: dict) -> str:
+    return (run.get("case") or {}).get("name", "reduced")
+
+
+def peak_gpu_memory_gib(run_dir: Path) -> float | None:
+    """Return the peak nvidia-smi memory.used of the run's GPU, in GiB."""
+    path = run_dir / "resources.jsonl"
+    if not path.exists():
+        return None
+    peak = None
+    for line in path.read_text().splitlines():
+        values = json.loads(line).get("values")
+        try:
+            used = float(values[4]) / 1024
+        except (TypeError, IndexError, ValueError):
+            continue
+        peak = used if peak is None else max(peak, used)
+    return peak
+
+
+CASE_KEYS = (
+    ("nz", "nz"),
+    ("nr", "nr"),
+    ("Nm", "n_azimuthal_modes"),
+    ("gamma_boost", "gamma_boost"),
+    ("zmin (m)", "zmin"),
+    ("rmax (m)", "rmax"),
+    ("p_rmax (m)", "p_rmax"),
+    ("ppc shared", ("p_nz", "p_nr", "p_nt")),
+    ("ppc He", "helium_ppc"),
+    ("ppc N", "nitrogen_ppc"),
+    ("lab dumps", "number_dumps_lab"),
+)
+PHYSICS_KEYS = (
+    ("peak density (cm^-3)", "peak_neutral_density_cm3"),
+    ("N dopant fraction", "nitrogen_dopant_fraction"),
+    ("density center (m)", "density_center_location_m"),
+    ("laser focus (m)", "laser_focal_position_m"),
+    ("laser energy (J)", "laser_energy_J"),
+)
+
+
+def case_table(runs: list[dict]) -> tuple[list[str], list[list]]:
+    """Describe each case once, so reduced and production differences are explicit."""
+    first: dict[str, dict] = {}
+    for run in runs:
+        if run.get("status") == "success":
+            first.setdefault(case_of(run), run)
+    names = sorted(first)
+    cases = {name: first[name]["case"] for name in names}
+    reference = next(
+        (
+            r.get("production_reference")
+            for r in first.values()
+            if r.get("production_reference", {}).get("hyperparameters")
+        ),
+        None,
+    )
+    if reference and "production" not in cases:
+        names.append("production (reference, not run)")
+        cases[names[-1]] = reference
+    rows = []
+    for label, key in CASE_KEYS:
+        row = [label]
+        for name in names:
+            hyper = cases[name]["hyperparameters"]
+            if isinstance(key, tuple):
+                value = "/".join(str(hyper.get(k)) for k in key)
+            else:
+                value = hyper.get(key)
+            row.append("-" if value is None else str(value))
+        rows.append(row)
+    for label, key in PHYSICS_KEYS:
+        rows.append(
+            [label] + [str(cases[n]["physical_parameters"].get(key)) for n in names]
+        )
+    rows.append(
+        ["full steps"]
+        + [first[n].get("full_steps") if n in first else "-" for n in names]
+    )
+    rows.append(
+        ["dt (s)"]
+        + [f"{first[n].get('dt_s', 0):.3e}" if n in first else "-" for n in names]
+    )
+    peak = {}
+    particles = {}
+    for run in runs:
+        if run.get("status") != "success":
+            continue
+        name = case_of(run)
+        mem = peak_gpu_memory_gib(run["_run"])
+        if mem is not None:
+            peak[name] = max(peak.get(name, 0.0), mem)
+        total = sum(p["count"] for p in run.get("final_particles", []))
+        key = (name, run.get("steps"))
+        particles[key] = max(particles.get(key, 0), total)
+    rows.append(["peak GPU memory (GiB)"] + [peak.get(n) for n in names])
+    rows.append(
+        ["macroparticles at end (steps)"]
+        + [
+            "; ".join(
+                f"{particles[k]:,} ({k[1]})"
+                for k in sorted(particles, key=lambda k: k[1] or 0)
+                if k[0] == n
+            )
+            for n in names
+        ]
+    )
+    rows.append(["source"] + [cases[n].get("source", "-") for n in names])
+    return ["parameter"] + names, rows
+
+
 def mean(values: list[float]) -> float | None:
     return statistics.fmean(values) if values else None
 
@@ -58,11 +170,11 @@ def ratio(baseline: float | None, value: float | None) -> float | None:
 
 
 def summarize(runs: list[dict]) -> dict[tuple, dict]:
-    """Aggregate successful runs per (steps, variant)."""
+    """Aggregate successful runs per (case, steps, variant)."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for run in runs:
         if run.get("status") == "success":
-            groups[(run.get("steps"), run["variant"])].append(run)
+            groups[(case_of(run), run.get("steps"), run["variant"])].append(run)
     summary = {}
     for key, members in groups.items():
         ms = [
@@ -91,14 +203,16 @@ def correctness(runs: list[dict]) -> list[list]:
     baseline = {}
     for run in runs:
         if run.get("status") == "success" and run["variant"] == BASELINE:
-            baseline.setdefault(run.get("steps"), run)
+            baseline.setdefault((case_of(run), run.get("steps")), run)
     rows = []
     for run in runs:
         if run.get("status") != "success" or run["variant"] == BASELINE:
             continue
-        reference = baseline.get(run.get("steps"))
+        reference = baseline.get((case_of(run), run.get("steps")))
         if reference is None:
             continue
+        mine_ions = {e["index"]: e for e in run.get("final_ion_states", [])}
+        ref_ions = {e["index"]: e for e in reference.get("final_ion_states", [])}
         for mine, ref in zip(run["final_particles"], reference["final_particles"]):
             count_diff = (
                 (mine["count"] - ref["count"]) / ref["count"] if ref["count"] else None
@@ -115,6 +229,7 @@ def correctness(runs: list[dict]) -> list[list]:
             rows.append(
                 [
                     run["_run"].name,
+                    case_of(run),
                     run.get("steps"),
                     mine["index"],
                     f"{mine['charge_e']:+.0f}e/{mine['mass_me']:.0f}me",
@@ -122,9 +237,21 @@ def correctness(runs: list[dict]) -> list[list]:
                     mine["count"],
                     count_diff,
                     hist_diff,
+                    _same(mine_ions, ref_ions, mine["index"], "ids_sha256"),
+                    _same(mine_ions, ref_ions, mine["index"], "levels_sha256"),
                 ]
             )
     return rows
+
+
+def _same(mine: dict, ref: dict, index: int, key: str) -> str:
+    """Report whether a per-species hash matches the baseline bit for bit."""
+    if index not in mine or index not in ref:
+        return "-"
+    a, b = mine[index].get(key), ref[index].get(key)
+    if a is None or b is None:
+        return "-"
+    return "identical" if a == b else "differs"
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -135,6 +262,66 @@ def write_csv(path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def kernel_section(case: str, runs: list[dict], out: Path) -> list[str]:
+    """Build the per-family kernel table of one case from nsys summaries."""
+    profiled: dict[str, list[dict]] = defaultdict(list)
+    for r in runs:
+        if r.get("_kernels"):
+            profiled[r["variant"]].append(r["_kernels"])
+    per_variant: dict[str, dict[str, float]] = {}
+    for name, items in profiled.items():
+        totals: dict[str, list[float]] = defaultdict(list)
+        for item in items:
+            for row in item["families"]:
+                totals[row["family"]].append(row["ms_per_step"])
+        per_variant[name] = {family: mean(values) for family, values in totals.items()}
+    names = [n for n in VARIANTS if n in per_variant]
+    families = sorted(
+        {f for values in per_variant.values() for f in values},
+        key=lambda f: -per_variant.get(BASELINE, {}).get(f, 0.0),
+    )
+    rows, family_rows = [], []
+    for family in families:
+        base = per_variant.get(BASELINE, {}).get(family)
+        row = [family]
+        for name in names:
+            value = per_variant[name].get(family)
+            row.append(value)
+            family_rows.append(
+                {"case": case, "family": family, "variant": name, "ms_per_step": value}
+            )
+        row += [ratio(base, per_variant[n].get(family)) for n in names if n != BASELINE]
+        rows.append(row)
+    totals = ["GPU total"] + [sum(per_variant[n].values()) for n in names]
+    base_total = totals[1 + names.index(BASELINE)] if BASELINE in names else None
+    totals += [
+        ratio(base_total, totals[1 + i]) for i, n in enumerate(names) if n != BASELINE
+    ]
+    rows.append(totals)
+    headers = (
+        ["family"]
+        + [f"{n} ms/step" for n in names]
+        + [f"{n} speedup" for n in names if n != BASELINE]
+    )
+    windows = sorted(
+        {
+            f"{item['profiled_steps']} steps"
+            for items in profiled.values()
+            for item in items
+        }
+    )
+    write_csv(out / f"families_{case}.csv", family_rows)
+    return [
+        f"## {case} case: GPU time per step by kernel family (nsys)",
+        "",
+        "Family time is the summed kernel and memory-operation time in the capture window,"
+        f" divided by its steps (window: {', '.join(windows)}).",
+        "",
+        table(headers, rows),
+        "",
+    ]
 
 
 def main() -> int:
@@ -150,14 +337,22 @@ def main() -> int:
         raise SystemExit("no result.json files found")
     order = {name: i for i, name in enumerate(VARIANTS)}
     runs.sort(
-        key=lambda r: (r.get("steps") or 0, order.get(r["variant"], 99), str(r["_run"]))
+        key=lambda r: (
+            case_of(r),
+            r.get("steps") or 0,
+            order.get(r["variant"], 99),
+            str(r["_run"]),
+        )
     )
 
     run_rows = [
         {
             "batch": r["_batch"],
             "run": r["_run"].name,
+            "case": case_of(r),
             "variant": r["variant"],
+            "rng": r.get("rng"),
+            "deposit_tpb": r.get("deposit_tpb_override"),
             "status": r.get("status"),
             "steps": r.get("steps"),
             "full_run": r.get("full_run"),
@@ -173,7 +368,12 @@ def main() -> int:
     write_csv(
         out / "segments.csv",
         [
-            {"run": r["_run"].name, "variant": r["variant"], **segment}
+            {
+                "run": r["_run"].name,
+                "case": case_of(r),
+                "variant": r["variant"],
+                **segment,
+            }
             for r in runs
             for segment in r.get("segments", [])
         ],
@@ -184,14 +384,28 @@ def main() -> int:
     sections = ["# FBPIC numba vs Warp benchmark", ""]
     sections.append("Batches: " + ", ".join(f"`{b.name}`" for b in batches))
     sections.append("")
-    for steps in sorted({k[0] for k in summary}, key=lambda s: s or 0):
-        base = summary.get((steps, BASELINE), {})
+    headers, rows = case_table(runs)
+    sections += [
+        "## Cases",
+        "",
+        "Runs use the cases in the run columns. A production column marked 'reference, not run' lists"
+        " the production campaign inputs, to show how the measured case differs from production.",
+        "",
+        table(headers, rows),
+        "",
+    ]
+    for case, steps in sorted(
+        {k[:2] for k in summary}, key=lambda k: (k[0], k[1] or 0)
+    ):
+        base = summary.get((case, steps, BASELINE), {})
         rows = []
         for name in VARIANTS:
-            entry = summary.get((steps, name))
+            entry = summary.get((case, steps, name))
             if entry is None:
                 continue
-            summary_rows.append({"steps": steps, "variant": name, **entry})
+            summary_rows.append(
+                {"case": case, "steps": steps, "variant": name, **entry}
+            )
             rows.append(
                 [
                     name,
@@ -211,14 +425,14 @@ def main() -> int:
         kind = (
             "full run"
             if any(
-                summary[(steps, v)]["full_run"]
+                summary[(case, steps, v)]["full_run"]
                 for v in VARIANTS
-                if (steps, v) in summary
+                if (case, steps, v) in summary
             )
             else "fixed window"
         )
         sections += [
-            f"## {steps} steps ({kind})",
+            f"## {case} case, {steps} steps ({kind})",
             "",
             "ms/step excludes the first 200 steps (JIT and module load).",
             "Speedup is numba time divided by variant time.",
@@ -242,63 +456,8 @@ def main() -> int:
         ]
     write_csv(out / "summary.csv", summary_rows)
 
-    profiled: dict[str, list[dict]] = defaultdict(list)
-    for r in runs:
-        if r.get("_kernels"):
-            profiled[r["variant"]].append(r["_kernels"])
-    if profiled:
-        per_variant: dict[str, dict[str, float]] = {}
-        for name, items in profiled.items():
-            totals: dict[str, list[float]] = defaultdict(list)
-            for item in items:
-                for row in item["families"]:
-                    totals[row["family"]].append(row["ms_per_step"])
-            per_variant[name] = {
-                family: mean(values) for family, values in totals.items()
-            }
-        names = [n for n in VARIANTS if n in per_variant]
-        families = sorted(
-            {f for values in per_variant.values() for f in values},
-            key=lambda f: -per_variant.get(BASELINE, {}).get(f, 0.0),
-        )
-        rows, family_rows = [], []
-        for family in families:
-            base = per_variant.get(BASELINE, {}).get(family)
-            row = [family]
-            for name in names:
-                value = per_variant[name].get(family)
-                row.append(value)
-                family_rows.append(
-                    {"family": family, "variant": name, "ms_per_step": value}
-                )
-            row += [
-                ratio(base, per_variant[n].get(family)) for n in names if n != BASELINE
-            ]
-            rows.append(row)
-        totals = ["GPU total"] + [sum(per_variant[n].values()) for n in names]
-        totals += [
-            ratio(
-                totals[1 + names.index(BASELINE)] if BASELINE in names else None,
-                totals[1 + i],
-            )
-            for i, n in enumerate(names)
-            if n != BASELINE
-        ]
-        rows.append(totals)
-        headers = (
-            ["family"]
-            + [f"{n} ms/step" for n in names]
-            + [f"{n} speedup" for n in names if n != BASELINE]
-        )
-        sections += [
-            "## GPU time per step by kernel family (nsys)",
-            "",
-            "Family time is the summed kernel and memory-operation time in the capture window, divided by its steps.",
-            "",
-            table(headers, rows),
-            "",
-        ]
-        write_csv(out / "families.csv", family_rows)
+    for case in sorted({case_of(r) for r in runs if r.get("_kernels")}):
+        sections += kernel_section(case, [r for r in runs if case_of(r) == case], out)
 
     check = correctness(runs)
     if check:
@@ -310,6 +469,7 @@ def main() -> int:
             table(
                 [
                     "run",
+                    "case",
                     "steps",
                     "species",
                     "q/m",
@@ -317,6 +477,8 @@ def main() -> int:
                     "count",
                     "rel. count diff",
                     "level hist. L1 diff",
+                    "ion IDs",
+                    "ion levels",
                 ],
                 check,
             ),

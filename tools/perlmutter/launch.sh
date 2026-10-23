@@ -8,12 +8,18 @@
 #   --variant V          numba, warp-fp64, or warp-fp32; repeat for several (default: all three)
 #   --ref REF            git ref for every variant (default: the variant's perl-* branch)
 #   --src-dir DIR        snapshot a working tree instead of a ref (uncommitted changes are recorded)
+#   --upstream-src DIR   snapshot an upstream FBPIC working tree for numba instead of UPSTREAM_FBPIC_SHA
 #   --steps N|1/K        steps per run; 0 is the full interaction, 1/K a fraction of it
 #                        (default: smoke 100, kernels and window 1/10, full 0)
 #   --repeats K          repeats per variant; sequential order rotates per repeat (default: 1)
-#   --profile-window A:B nsys capture iterations; B may be 'end' (default: 200:end for kernels)
+#   --case C             reduced (runscript_00; default, fits one A100-40GB) or production
+#                        (campaign nominal + resolution profile; needs more GPU memory)
+#   --rng R              shared (ID-based draws, identical in both solvers; default) or original
+#   --profile-window A:B nsys capture steps; B may be 'end'; negative A counts from the end
+#                        (default for kernels: -300:end, the last 300 steps)
 #   --layout L           sequential (default) or concurrent (one GPU per run, up to 4)
 #   --qos Q --time T     Slurm QOS and time limit for --submit (default: from the config)
+#   --constraint C       Slurm constraint (default: gpu; use 'gpu&hbm80g' for 80 GB A100s)
 #   --gpu N              CUDA device for --local (default: 0)
 #
 # Execution:
@@ -29,9 +35,13 @@ mode=""
 variants=()
 ref=""
 src_dir=""
+upstream_src=""
 steps=""
 repeats=1
 window=""
+case_name=""
+rng="shared"
+constraint="gpu"
 layout="sequential"
 qos="${FBPIC_QOS:-regular}"
 time_limit="${FBPIC_TIME:-01:00:00}"
@@ -43,9 +53,13 @@ while [[ $# -gt 0 ]]; do
         --variant) variants+=("$2"); shift 2 ;;
         --ref) ref="$2"; shift 2 ;;
         --src-dir) src_dir="$(cd "$2" && pwd)"; shift 2 ;;
+        --upstream-src) upstream_src="$(cd "$2" && pwd)"; shift 2 ;;
         --steps) steps="$2"; shift 2 ;;
         --repeats) repeats="$2"; shift 2 ;;
         --profile-window) window="$2"; shift 2 ;;
+        --case) case_name="$2"; shift 2 ;;
+        --rng) rng="$2"; shift 2 ;;
+        --constraint) constraint="$2"; shift 2 ;;
         --layout) layout="$2"; shift 2 ;;
         --qos) qos="$2"; shift 2 ;;
         --time) time_limit="$2"; shift 2 ;;
@@ -63,11 +77,14 @@ done
 [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || die "--repeats must be a positive integer"
 [[ "$layout" == sequential || "$layout" == concurrent ]] || die "--layout must be sequential or concurrent"
 [[ -z "$ref" || -z "$src_dir" ]] || die "use --ref or --src-dir, not both"
+[[ -n "$case_name" ]] || case_name=reduced
+[[ "$case_name" == production || "$case_name" == reduced ]] || die "--case must be production or reduced"
+[[ "$rng" == shared || "$rng" == original ]] || die "--rng must be shared or original"
 if [[ "$mode" == kernels && -z "$window" ]]; then
-    window="200:end"
+    window="-300:end"
 fi
 if [[ -n "$window" ]]; then
-    [[ "$window" =~ ^([0-9]+):([0-9]+|end)$ ]] || die "--profile-window must be A:B or A:end"
+    [[ "$window" =~ ^(-?[0-9]+):([0-9]+|end)$ ]] || die "--profile-window must be A:B or A:end"
     [[ "${BASH_REMATCH[2]}" == end || "${BASH_REMATCH[1]}" -lt "${BASH_REMATCH[2]}" ]] ||
         die "--profile-window needs A < B"
 fi
@@ -79,7 +96,7 @@ if [[ "$action" == here ]]; then
 fi
 for variant in "${variants[@]}"; do variant_solver "$variant" >/dev/null; done
 
-batch="$FBPIC_RUNS/$(utc_stamp)_${mode}"
+batch="$FBPIC_RUNS/$(utc_stamp)_${mode}_${case_name}"
 mkdir -p "$batch"/{src,meta}
 log "batch $batch"
 
@@ -100,7 +117,7 @@ snapshot_ref() {
     local dest="$batch/src/${sha:0:12}"
     if [[ ! -d "$dest" ]]; then
         mkdir -p "$dest.tmp"
-        local paths=(lpa/Simulation_FBPIC)
+        local paths=(lpa/Simulation_FBPIC lpa/Exploration_FBPIC)
         if git -C "$REPO_GIT" cat-file -e "$sha:lpa/FBPIC_Warp/fbpic/__init__.py" 2>/dev/null; then
             paths+=(lpa/FBPIC_Warp)
         fi
@@ -114,7 +131,7 @@ snapshot_worktree() {
     local dest="$batch/src/worktree"
     if [[ ! -d "$dest" ]]; then
         mkdir -p "$dest.tmp"
-        local paths=(lpa/Simulation_FBPIC)
+        local paths=(lpa/Simulation_FBPIC lpa/Exploration_FBPIC)
         if [[ -f "$src_dir/lpa/FBPIC_Warp/fbpic/__init__.py" ]]; then
             paths+=(lpa/FBPIC_Warp)
         fi
@@ -128,11 +145,25 @@ snapshot_worktree() {
 }
 
 snapshot_upstream() {
-    local dest="$batch/src/upstream-fbpic-${UPSTREAM_FBPIC_SHA:0:12}"
-    if [[ ! -d "$dest" ]]; then
-        mkdir -p "$dest.tmp"
-        git -C "$UPSTREAM_GIT" archive "$UPSTREAM_FBPIC_SHA" -- fbpic | tar -xf - -C "$dest.tmp"
-        mv "$dest.tmp" "$dest"
+    local dest
+    if [[ -n "$upstream_src" ]]; then
+        dest="$batch/src/upstream-fbpic-worktree"
+        if [[ ! -d "$dest" ]]; then
+            mkdir -p "$dest.tmp"
+            (cd "$upstream_src" && git ls-files -z -co --exclude-standard -- fbpic |
+                tar --null -T - -cf -) | tar -xf - -C "$dest.tmp"
+            git -C "$upstream_src" rev-parse HEAD >"$batch/meta/upstream_worktree_head.txt"
+            git -C "$upstream_src" status --short -- fbpic >"$batch/meta/upstream_worktree_status.txt"
+            git -C "$upstream_src" diff HEAD -- fbpic >"$batch/meta/upstream_worktree.diff"
+            mv "$dest.tmp" "$dest"
+        fi
+    else
+        dest="$batch/src/upstream-fbpic-${UPSTREAM_FBPIC_SHA:0:12}"
+        if [[ ! -d "$dest" ]]; then
+            mkdir -p "$dest.tmp"
+            git -C "$UPSTREAM_GIT" archive "$UPSTREAM_FBPIC_SHA" -- fbpic | tar -xf - -C "$dest.tmp"
+            mv "$dest.tmp" "$dest"
+        fi
     fi
     echo "$dest"
 }
@@ -176,10 +207,13 @@ stage_run() {
         printf 'PROFILE_WINDOW=%q\n' "$window"
         printf 'SOLVER_DIR=%q\n' "$solver"
         printf 'PRODUCER_DIR=%q\n' "$tree/lpa/Simulation_FBPIC"
+        printf 'EXPLORATION_DIR=%q\n' "$tree/lpa/Exploration_FBPIC"
+        printf 'CASE=%q\n' "$case_name"
+        printf 'RNG=%q\n' "$rng"
         printf 'SOURCE_REF=%q\n' "$source_ref"
         printf 'SOURCE_SHA=%q\n' "$source_sha"
         printf 'SOURCE_DIRTY=%q\n' "$source_dirty"
-        printf 'UPSTREAM_FBPIC_SHA=%q\n' "$UPSTREAM_FBPIC_SHA"
+        printf 'UPSTREAM_FBPIC_SHA=%q\n' "${upstream_src:+worktree:$upstream_src@}$UPSTREAM_FBPIC_SHA"
     } >"$run/meta/task.env"
     echo "$run"
 }
@@ -226,7 +260,7 @@ case "$action" in
 #!/bin/bash
 #SBATCH -J fbpic-$mode
 #SBATCH -A $NERSC_ACCOUNT
-#SBATCH -C gpu
+#SBATCH -C $constraint
 #SBATCH -q $qos
 #SBATCH -t $time_limit
 $resources

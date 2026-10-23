@@ -50,7 +50,7 @@ export OPENPMD_VERIFY_HOMOGENEOUS_EXTENTS=0
 export WARP_CACHE_PATH="$run/cache/warp" NUMBA_CACHE_DIR="$run/cache/numba"
 export CUPY_CACHE_DIR="$run/cache/cupy" CUDA_CACHE_PATH="$run/cache/cuda"
 producer_case="$PRODUCER_DIR/runs/initial_sample"
-export PYTHONPATH="$SOLVER_DIR:$PRODUCER_DIR:$producer_case:$batch/tools${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="$SOLVER_DIR:$PRODUCER_DIR:$producer_case:$EXPLORATION_DIR:$batch/tools${PYTHONPATH:+:$PYTHONPATH}"
 
 launcher=()
 if [[ "$ACTION" == local ]]; then
@@ -72,7 +72,8 @@ if ! "${launcher[@]}" python -m bench.check_node --out "$run/meta/node_check.jso
     die "node check failed for $run"
 fi
 
-command=(python -u -m bench.run_case --run-dir "$run" --variant "$VARIANT" --steps "$STEPS")
+command=(python -u -m bench.run_case --run-dir "$run" --variant "$VARIANT" --steps "$STEPS"
+    --case "$CASE" --rng "$RNG")
 if [[ -n "$PROFILE_WINDOW" ]]; then
     command+=(--profile-window "$PROFILE_WINDOW")
     if [[ -z "${NSYS:-}" ]]; then

@@ -12,9 +12,17 @@ They record per-kernel GPU time with Nsight Systems and the end-to-end time of t
 | `warp-fp32` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | graphs off, fused particle kernels, FP32 Hankel |
 
 The variant table is in `bench/variants.py`.
-The case is `lpa/Simulation_FBPIC/runs/initial_sample/ionization_injection_runscript_00.py`.
-It uses Nz=1500, Nr=300, Nm=5, and gamma_boost=1.5.
-The producer computes the full step count at run time. At commit `39e0722` it is 11,974 steps.
+Two cases are available (`--case`):
+
+- `production`: the nominal point of `lpa/Exploration_FBPIC/runs/production_study/campaign.yaml` with its resolution profile (`minimum`: 2592 x 1080, Nm=5, gamma_boost=3). Kernel timing uses this case by default.
+- `reduced`: `lpa/Simulation_FBPIC/runs/initial_sample/ionization_injection_runscript_00.py`. Other modes use this case by default.
+
+The report starts with a table that compares the grid, particles per cell, physics, step count, particles, and GPU memory of each case.
+
+All variants use ID-based ionization draws by default (`--rng shared`). Each draw is a Philox value of (seed 0, species stream, ion ID, iteration, level), so numba and Warp draw the same numbers for the same ion.
+The numba variant uses upstream FBPIC `dc1cc32` plus this feature: `nv-snidhan/fbpic` branch `snidhan/ionization-rng`, commit `0b39054` (`UPSTREAM_FBPIC_URL` and `UPSTREAM_FBPIC_SHA` in the config). The report checks that ion IDs and ionization levels match numba bit for bit.
+The Warp variants set linear deposition to 32 threads per block. Upstream FBPIC uses 16 on A100.
+The reduced case uses Nz=1500, Nr=300, Nm=5, and gamma_boost=1.5. The producer computes the full step count at run time; for the reduced case it is 11,974 steps.
 
 ## How a run works
 
@@ -135,6 +143,10 @@ Then use `--here` instead of `--submit`.
 - `--steps N|1/K`: change the step count. `0` runs the full interaction. `1/K` runs that fraction of it.
 - `--profile-window A:B`: capture iterations A to B with nsys. `B` can be `end`.
 - `--qos shared`: use one GPU of a shared node. Use `--layout sequential` with it.
+- `--case production|reduced`: select the case. The default is `production` for `kernels` and `reduced` for other modes.
+- `--rng shared|original`: select the ionization draws. The default is `shared`.
+- `--constraint 'gpu&hbm80g'`: request 80 GB A100 nodes. Use it for the production case and for full runs. The reduced case uses about 32 GiB at 1,197 steps.
+- `--upstream-src DIR`: use an upstream FBPIC working tree for numba, for example to test an uncommitted patch.
 - `--stage-only`: create the batch and stop.
 
 ## Troubleshooting
