@@ -6,6 +6,9 @@ One thread traverses one sorted cell in reverse particle order. Charge fuses
 groups of up to five modes. Current uses two-mode groups to limit register
 pressure. Arrays remain caller-owned. No device-to-host transfer occurs in
 dispatch.
+
+An opt-in variant (``make_lane_kernel``) splits each cell over several adjacent
+lanes, so that the particle loads of one warp use whole sectors.
 """
 
 from functools import cache
@@ -257,6 +260,156 @@ def make_kernel(current: bool, first_mode: int, mode_count: int):
     return deposit
 
 
+# Lanes per cell for make_lane_kernel. The kernel is correct for any count, but
+# only divisors of the 32-thread warp keep each group of lanes in one warp.
+LANE_COUNTS = (2, 4, 8, 16, 32)
+
+
+@cache
+def make_lane_kernel(current: bool, first_mode: int, mode_count: int, lanes: int):
+    """Return a fused kernel in which several adjacent lanes share one cell.
+
+    The body matches ``make_kernel``. Only the work split differs: lane ``g`` of
+    a cell takes the particles at offsets ``g``, ``g + lanes``, and so on. The
+    lanes of one cell therefore read adjacent particles, so one warp load uses
+    whole sectors instead of one double per sector. Each lane adds its own
+    partial sums with atomics, so a cell gets up to ``lanes`` times the atomics
+    of ``make_kernel``.
+
+    Args:
+        current: Select Jr, Jt, and Jz instead of rho.
+        first_mode: First global mode index in this group.
+        mode_count: Number of adjacent modes, between one and five.
+        lanes: Lanes per cell; one of ``LANE_COUNTS``.
+
+    Returns:
+        A kernel for ``cells * lanes`` threads that adds cell sums into
+        complex128 output arrays.
+
+    Raises:
+        ValueError: The mode group or the lane count is not supported.
+    """
+    if first_mode < 0 or not 1 <= mode_count <= CHARGE_GROUP_MODES:
+        raise ValueError("A mode group needs a non-negative start and 1-5 modes.")
+    if lanes not in LANE_COUNTS:
+        raise ValueError(f"lanes must be one of {LANE_COUNTS}, got {lanes!r}")
+    field_count = 3 if current else 1
+    component_count = mode_count * field_count
+    cell_values_type = wp.types.matrix(shape=(4 * component_count, 2), dtype=wp.float64)
+
+    @wp.kernel(enable_backward=False, module="unique")
+    def deposit(
+        x: wp.array(dtype=wp.float64),
+        y: wp.array(dtype=wp.float64),
+        z: wp.array(dtype=wp.float64),
+        w: wp.array(dtype=wp.float64),
+        q: wp.float64,
+        ux: wp.array(dtype=wp.float64),
+        uy: wp.array(dtype=wp.float64),
+        uz: wp.array(dtype=wp.float64),
+        inv_gamma: wp.array(dtype=wp.float64),
+        invdz: wp.float64,
+        zmin: wp.float64,
+        nz: int,
+        invdr: wp.float64,
+        rmin: wp.float64,
+        nr: int,
+        outputs: OutputBuffers,
+        prefix: wp.array(dtype=wp.int32),
+        betas: ModeBetas,
+    ):
+        thread = wp.tid()
+        # Thread indices are non-negative, so floor and truncation agree here.
+        cell = thread // wp.static(lanes)
+        lane = thread - cell * wp.static(lanes)
+        if cell < prefix.shape[0]:
+            end = prefix[cell]
+            start = 0
+            if cell > 0:
+                start = prefix[cell - 1]
+            values = cell_values_type()
+            for offset in range(lane, end - start, wp.static(lanes)):
+                particle = end - 1 - offset
+                particle_x = x[particle]
+                particle_y = y[particle]
+                radius = wp.sqrt(particle_x * particle_x + particle_y * particle_y)
+                cosine = wp.float64(1.0)
+                sine = wp.float64(0.0)
+                if radius != wp.float64(0.0):
+                    inverse_radius = wp.float64(1.0) / radius
+                    cosine = particle_x * inverse_radius
+                    sine = particle_y * inverse_radius
+                radial_position = invdr * (radius - rmin) - wp.float64(0.5)
+                axial_position = invdz * (z[particle] - zmin) - wp.float64(0.5)
+                beta_index = min(int(wp.ceil(radial_position)), nr)
+                weight = q * w[particle]
+                axial0 = Sz_linear(axial_position, 0)
+                axial1 = Sz_linear(axial_position, 1)
+                velocity_r = wp.float64(0.0)
+                velocity_t = wp.float64(0.0)
+                velocity_z = wp.float64(0.0)
+                current_weight = wp.float64(0.0)
+                if wp.static(current):
+                    velocity_r = cosine * ux[particle] + sine * uy[particle]
+                    velocity_t = cosine * uy[particle] - sine * ux[particle]
+                    velocity_z = uz[particle]
+                    current_weight = weight * LIGHT_SPEED * inv_gamma[particle]
+                phase_step = wp.vec2d(cosine, sine)
+                phase = wp.vec2d(wp.float64(1.0), wp.float64(0.0))
+                for _ in range(wp.static(first_mode)):
+                    phase = cmul(phase, phase_step)
+                for local_mode in range(wp.static(mode_count)):
+                    selected_mode = wp.static(first_mode) + local_mode
+                    coefficient = beta_value(betas, local_mode, beta_index)
+                    parity = wp.float64(1 - 2 * (selected_mode % 2))
+                    for field in range(wp.static(field_count)):
+                        flip = parity
+                        scale = weight * phase
+                        if wp.static(current):
+                            velocity = velocity_z
+                            if field == 0:
+                                velocity = velocity_r
+                            elif field == 1:
+                                velocity = velocity_t
+                            if field < 2:
+                                flip = -flip
+                            scale = current_weight * velocity * phase
+                        radial0 = Sr_linear(radial_position, 0, flip, coefficient)
+                        radial1 = Sr_linear(radial_position, 1, flip, coefficient)
+                        component = field * wp.static(mode_count) + local_mode
+                        values[4 * component] += radial0 * axial0 * scale
+                        values[4 * component + 1] += radial1 * axial0 * scale
+                        values[4 * component + 2] += radial0 * axial1 * scale
+                        values[4 * component + 3] += radial1 * axial1 * scale
+                    phase = cmul(phase, phase_step)
+            # A lane without particles has nothing to add.
+            if lane < end - start:
+                upper_z = cell // (nr + 1)
+                upper_r = cell % (nr + 1)
+                for component in range(wp.static(component_count)):
+                    for dz in range(2):
+                        physical_z = upper_z - 1 + dz
+                        if physical_z < 0:
+                            physical_z += nz
+                        for dr in range(2):
+                            physical_r = min(upper_r - 1 + dr, nr - 1)
+                            if physical_r < 0:
+                                physical_r = -(1 + physical_r)
+                            atomic_output(
+                                outputs,
+                                component,
+                                physical_z,
+                                physical_r,
+                                values[4 * component + 2 * dz + dr],
+                            )
+
+    deposit.key = (
+        f"fused_linear_{'J' if current else 'rho'}_m{first_mode}_n{mode_count}"
+        f"_lanes{lanes}"
+    )
+    return deposit
+
+
 def deposit_fused(particles, grids, fieldtype: str, weight) -> None:
     """Add sorted particles to caller-owned complex128 mode grids.
 
@@ -269,6 +422,17 @@ def deposit_fused(particles, grids, fieldtype: str, weight) -> None:
     Charge launches one kernel per group of five modes. Current launches one
     kernel per group of two modes, for example (0, 1), (2, 3), and (4) for five
     modes. This function borrows GPU arrays and performs no host transfers.
+
+    Two optional species attributes select experimental launch settings. They
+    are absent on species built without ``Particles.__init__``, which then use
+    the defaults.
+
+    - ``deposit_lanes``: lanes per cell for each field type, for example
+      ``{"rho": 1, "J": 4}``. One lane uses ``make_kernel``; more lanes use
+      ``make_lane_kernel``.
+    - ``deposit_tpb_single_mode``: threads per block for a group of one mode,
+      for example the last current group (4) for five modes. None uses
+      ``deposit_tpb``.
     """
     grid0 = grids[0]
     arguments = [
@@ -294,13 +458,23 @@ def deposit_fused(particles, grids, fieldtype: str, weight) -> None:
     current = fieldtype == "J"
     group_size = CURRENT_GROUP_MODES if current else CHARGE_GROUP_MODES
     fields = ("Jr", "Jt", "Jz") if current else ("rho",)
+    lanes = getattr(particles, "deposit_lanes", {}).get(fieldtype, 1)
+    single_mode_tpb = getattr(particles, "deposit_tpb_single_mode", None)
     for first_mode in range(0, len(grids), group_size):
         selected_grids = grids[first_mode : first_mode + group_size]
+        mode_count = len(selected_grids)
         outputs = [getattr(grid, field) for field in fields for grid in selected_grids]
         betas = [grid.d_ruyten_linear_coef for grid in selected_grids]
+        if lanes == 1:
+            kernel = make_kernel(current, first_mode, mode_count)
+        else:
+            kernel = make_lane_kernel(current, first_mode, mode_count, lanes)
+        tpb = particles.deposit_tpb
+        if mode_count == 1 and single_mode_tpb is not None:
+            tpb = single_mode_tpb
         launch_kernel(
-            make_kernel(current, first_mode, len(selected_grids)),
-            (particles.prefix_sum.shape[0],),
+            kernel,
+            (particles.prefix_sum.shape[0] * lanes,),
             arguments + [output_buffers(outputs), prefix, mode_betas(betas)],
-            particles.deposit_tpb,
+            tpb,
         )
