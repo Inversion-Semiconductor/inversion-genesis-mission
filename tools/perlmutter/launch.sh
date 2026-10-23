@@ -96,7 +96,15 @@ if [[ "$action" == here ]]; then
 fi
 for variant in "${variants[@]}"; do variant_solver "$variant" >/dev/null; done
 
+# Two launches in the same second must not share a batch: mkdir fails if it exists.
+mkdir -p "$FBPIC_RUNS"
 batch="$FBPIC_RUNS/$(utc_stamp)_${mode}_${case_name}"
+suffix=1
+until mkdir "$batch" 2>/dev/null; do
+    batch="$FBPIC_RUNS/$(utc_stamp)_${mode}_${case_name}_$suffix"
+    suffix=$((suffix + 1))
+    [[ $suffix -le 100 ]] || die "cannot create a unique batch directory under $FBPIC_RUNS"
+done
 mkdir -p "$batch"/{src,meta}
 log "batch $batch"
 
