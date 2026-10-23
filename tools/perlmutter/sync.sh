@@ -56,7 +56,8 @@ if [[ ! -d "$UPSTREAM_GIT" ]]; then
     mkdir -p "$(dirname "$UPSTREAM_GIT")"
     git clone --bare "$UPSTREAM_FBPIC_URL" "$UPSTREAM_GIT"
 fi
-git -C "$UPSTREAM_GIT" fetch --quiet origin '+refs/heads/*:refs/heads/*'
+git -C "$UPSTREAM_GIT" remote set-url origin "$UPSTREAM_FBPIC_URL"
+git -C "$UPSTREAM_GIT" fetch --quiet --prune origin '+refs/heads/*:refs/heads/*'
 git -C "$UPSTREAM_GIT" cat-file -e "$UPSTREAM_FBPIC_SHA^{commit}" ||
     die "upstream commit $UPSTREAM_FBPIC_SHA is missing from $UPSTREAM_FBPIC_URL"
 printf '%-24s %s  %s\n' "upstream fbpic" "${UPSTREAM_FBPIC_SHA:0:12}" "$UPSTREAM_GIT"

@@ -17,11 +17,13 @@ export FBPIC_WORKTREES="$HOME/fbpic/inversion-genesis-mission-worktrees"
 export FBPIC_REPO_URL="git@github.com:Inversion-Semiconductor/inversion-genesis-mission.git"
 # Branches that sync.sh keeps as worktrees.
 export FBPIC_WORKTREE_BRANCHES="snidhan/perl-main-run snidhan/perl-warp-run main snidhan/dev-main"
-# Bare mirror of upstream FBPIC. launch.sh only archives UPSTREAM_FBPIC_SHA from it.
+# Bare mirror of the numba solver source. launch.sh only archives UPSTREAM_FBPIC_SHA from it.
 export UPSTREAM_FBPIC_GIT="$HOME/fbpic/fbpic.git"
-export UPSTREAM_FBPIC_URL="https://github.com/fbpic/fbpic.git"
-# The upstream commit that FBPIC-Warp forked from (FBPIC 0.27.1).
-export UPSTREAM_FBPIC_SHA="dc1cc32ca36ab1ee813d82ea5e9f6b180be0e2a9"
+export UPSTREAM_FBPIC_URL="git@github.com:nv-snidhan/fbpic.git"
+# Upstream FBPIC dc1cc32 (the commit FBPIC-Warp forked from) plus ID-based ionization
+# draws (branch snidhan/ionization-rng). Use dc1cc32ca36ab1ee813d82ea5e9f6b180be0e2a9
+# with --rng original for pure upstream.
+export UPSTREAM_FBPIC_SHA="0b39054d962dddc47c3426dcffacb420063280d8"
 
 # Shared dependency environment (created by setup_env.sh). It holds no fbpic package.
 export FBPIC_ENV="/global/common/software/$NERSC_PROJECT/$USER/fbpic-deps"
