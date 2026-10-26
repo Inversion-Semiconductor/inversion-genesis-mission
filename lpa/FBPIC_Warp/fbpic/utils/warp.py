@@ -7,6 +7,7 @@ import gc
 import inspect
 import math
 import os
+import time
 from typing import Any, Callable, TYPE_CHECKING
 
 import numpy as np
@@ -80,16 +81,28 @@ _runtimes: dict[int, CudaRuntime] = {}
 # frees on the shared stream, without a device synchronization.
 
 _GIB = 1 << 30
-# Trim the mempool when it keeps more unused memory than
-# max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total device memory),
-# or when less than _TRIM_FREE_FRACTION of the device memory is free.
+# The slack is the reserved but unused memory of the mempool. Trim it when it
+# exceeds the cap max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total
+# device memory), and keep half of the cap for the next exchanges. Also trim
+# when less than _TRIM_FREE_FRACTION of the device memory is free and at least
+# _TRIM_MIN_RELEASE_BYTES of slack can be released.
 _TRIM_MIN_SLACK_BYTES = 2 * _GIB
 _TRIM_SLACK_FRACTION = 0.1
 _TRIM_FREE_FRACTION = 0.1
+_TRIM_MIN_RELEASE_BYTES = 256 << 20
 _CUDA_ERROR_MEMORY_ALLOCATION = 2  # cudaErrorMemoryAllocation
 _RELEASE_NEVER = 2**64 - 1
 
-_allocator_state = {"mode": None, "trims": 0, "oom_retries": 0, "history": []}
+_allocator_state = {
+    "mode": None,
+    "releases": 0,
+    "trims": 0,
+    "oom_retries": 0,
+    # Slack that the last trim could not release (partly used chunks).
+    "trim_residual": 0,
+    "history": [],
+    "trim_log": [],
+}
 
 
 def _select_allocator_mode(ordinal):
@@ -183,15 +196,18 @@ def _mempool_attribute(name):
     )
 
 
-def _trim_device_memory():
-    """Return unused cached memory of the current device to CUDA."""
+def _trim_device_memory(keep_bytes=0):
+    """Return unused cached memory of the current device to CUDA.
+
+    The mempool keeps at least ``keep_bytes`` reserved.
+    """
     import cupy
 
     runtime = cupy.cuda.runtime
     # Pending cudaFreeAsync calls release memory only once they execute.
     runtime.deviceSynchronize()
     cupy.get_default_memory_pool().free_all_blocks()
-    runtime.memPoolTrimTo(runtime.deviceGetMemPool(runtime.getDevice()), 0)
+    runtime.memPoolTrimTo(runtime.deviceGetMemPool(runtime.getDevice()), keep_bytes)
     _allocator_state["trims"] += 1
 
 
@@ -212,15 +228,24 @@ def release_unused_device_memory() -> bool:
 
     With the legacy pool, always free all unused CuPy blocks; this calls
     cudaFree and synchronizes the device. With the CUDA mempool, read the
-    pool counters (no synchronization) and trim only when the unused reserved
-    memory exceeds max(2 GiB, 10% of the device), or when less than 10% of the
-    device memory is free. A trim synchronizes the device first.
+    pool counters (no synchronization) and trim in two cases:
+
+    - The slack (reserved minus used memory) grew by more than the cap
+      max(2 GiB, 10% of the device) since the last trim. The trim keeps
+      used memory plus half of the cap reserved.
+    - Less than 10% of the device memory is free, and at least 256 MiB of
+      slack can be released. The trim keeps only used memory.
+
+    Slack that a trim cannot release (partly used chunks) does not count
+    towards the next trim, so fragmentation cannot cause a trim at each call.
+    A trim synchronizes the device first.
 
     Returns:
         True if cached memory was released.
     """
     import cupy
 
+    _allocator_state["releases"] += 1
     if _allocator_state["mode"] != "async":
         cupy.get_default_memory_pool().free_all_blocks()
         return True
@@ -228,10 +253,25 @@ def release_unused_device_memory() -> bool:
     used = _mempool_attribute("UsedMemCurrent")
     free, total = cupy.cuda.runtime.memGetInfo()
     _allocator_state["history"].append((reserved, used, free))
-    slack_cap = max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total)
-    if reserved - used <= slack_cap and free >= _TRIM_FREE_FRACTION * total:
+    slack_cap = int(max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total))
+    releasable = reserved - used - _allocator_state["trim_residual"]
+    if free < _TRIM_FREE_FRACTION * total:
+        if releasable < _TRIM_MIN_RELEASE_BYTES:
+            return False
+        keep_slack = 0
+    elif releasable > slack_cap:
+        keep_slack = slack_cap // 2
+    else:
         return False
-    _trim_device_memory()
+    start = time.perf_counter()
+    _trim_device_memory(used + keep_slack)
+    seconds = time.perf_counter() - start
+    reserved_after = _mempool_attribute("ReservedMemCurrent")
+    used_after = _mempool_attribute("UsedMemCurrent")
+    _allocator_state["trim_residual"] = max(0, reserved_after - used_after - keep_slack)
+    _allocator_state["trim_log"].append(
+        (len(_allocator_state["history"]) - 1, reserved, reserved_after, seconds)
+    )
     return True
 
 
@@ -239,13 +279,20 @@ def device_memory_stats() -> dict:
     """Report the allocator mode and the memory counters of the current device.
 
     Returns:
-        A dict with ``mode``, ``trims`` and ``oom_retries``. ``history`` lists
-        ``(reserved, used, free)`` bytes at each call of
-        ``release_unused_device_memory``. In async mode, the dict also has the
-        current and peak reserved and used bytes of the CUDA mempool.
+        A dict with ``mode``, ``releases`` (calls of
+        ``release_unused_device_memory``), ``trims`` and ``oom_retries``.
+        ``history`` lists ``(reserved, used, free)`` bytes at each release
+        call in async mode. ``trim_log`` lists ``(history index, reserved
+        before, reserved after, host seconds)`` for each trim at a release
+        call. In async mode, the dict also has the current and peak reserved
+        and used bytes of the CUDA mempool.
     """
-    stats = {key: _allocator_state[key] for key in ("mode", "trims", "oom_retries")}
+    stats = {
+        key: _allocator_state[key]
+        for key in ("mode", "releases", "trims", "oom_retries")
+    }
     stats["history"] = [list(entry) for entry in _allocator_state["history"]]
+    stats["trim_log"] = [list(entry) for entry in _allocator_state["trim_log"]]
     if _allocator_state["mode"] == "async":
         for name in (
             "ReservedMemCurrent",
