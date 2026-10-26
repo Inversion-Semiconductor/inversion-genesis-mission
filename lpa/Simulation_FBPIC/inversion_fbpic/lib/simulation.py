@@ -30,6 +30,7 @@ from fbpic.openpmd_diag import (
     restart_from_checkpoint,
     set_periodic_checkpoint,
 )
+from fbpic.fields.smoothing import BinomialSmoother
 
 try:
     from mpi4py import MPI
@@ -804,8 +805,6 @@ class Simulation(SerializableConfig):
             set_random_seed(self.hyparams.random_seed)
 
         # Initialize the simulation object
-        from fbpic.fields.smoothing import BinomialSmoother
-
         smoother = BinomialSmoother(
             n_passes={
                 "z": self.hyparams.smoother_passes,
