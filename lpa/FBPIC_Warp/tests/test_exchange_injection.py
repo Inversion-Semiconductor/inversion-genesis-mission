@@ -237,11 +237,18 @@ def _moving_window_simulation():
     )
     electrons.track(sim.comm)
     ions.track(sim.comm)
+    # Random spins: the injection draws them from np.random
+    electrons.activate_spin_tracking(sz_m=0.3, spin_distr="rand")
     ions.make_ionizable(
         "N", target_species=electrons, level_start=2, rng_seed=5, rng_stream=1
     )
     sim.set_moving_window(v=c)
     return sim, (electrons, ions, beam)
+
+
+# Exchanges before the tested one. Particles leave the box through the left
+# boundary from the 7th exchange on, so the tested exchange removes particles.
+N_EXCHANGES = 8
 
 
 def _state_objects(species):
@@ -250,6 +257,7 @@ def _state_objects(species):
         "tracker": species.tracker,
         "ionizer": species.ionizer,
         "injector": species.injector,
+        "spin_tracker": species.spin_tracker,
     }
 
 
@@ -281,15 +289,20 @@ def _restore(sim, state):
 
 
 def _legacy_exchange(comm, species, fld, time):
-    """The per-species exchange before the GPU rebuild and the hoisting."""
+    """The per-species exchange before the GPU rebuild and the hoisting.
+
+    Returns the number of removed particles.
+    """
     from fbpic.boundaries.particle_buffer_handling import (
         add_buffers_to_particles,
         remove_outside_particles,
     )
 
+    Ntot = species.Ntot
     float_l, float_r, uint_l, uint_r = remove_outside_particles(
         species, fld, comm.n_guard, comm.left_proc, comm.right_proc
     )
+    n_removed = Ntot - species.Ntot
     n_float, n_int = float_l.shape[0], uint_l.shape[0]
     float_recv_l = np.zeros((n_float, 0), dtype=np.float64)
     float_recv_r = np.zeros((n_float, 0), dtype=np.float64)
@@ -302,6 +315,7 @@ def _legacy_exchange(comm, species, fld, time):
     add_buffers_to_particles(
         species, float_recv_l, float_recv_r, uint_recv_l, uint_recv_r
     )
+    return n_removed
 
 
 def _exchange_result(sim):
@@ -318,6 +332,9 @@ def _exchange_result(sim):
         if species.ionizer is not None:
             result[i, "level"] = species.ionizer.ionization_level.get()
             result[i, "w_times_level"] = species.ionizer.w_times_level.get()
+        if species.spin_tracker is not None:
+            for name in ("sx", "sy", "sz"):
+                result[i, name] = getattr(species.spin_tracker, name).get()
         result[i, "prefix_sum"] = species.prefix_sum.get()
         for name in ("Ex", "cell_idx", "sorted_idx", "sorting_buffer"):
             assert getattr(species, name).shape == (species.Ntot,)
@@ -349,14 +366,15 @@ def _assert_bitwise_equal(legacy, new):
 
 
 @gpu
-def test_open_boundary_rebuild_matches_legacy_sequence():
+def test_open_boundary_rebuild_matches_legacy_sequence(monkeypatch):
+    import fbpic.boundaries.boundary_communicator as communicator
     from fbpic.utils.cuda import send_data_to_gpu
 
     sim, (electrons, ions, beam) = _moving_window_simulation()
     period = sim.comm.exchange_period
     # Stop just before an exchange iteration. The last sort (for rho_next)
     # happened before the window moved, so prefix_sum_shift is not zero.
-    sim.step(3 * period, show_progress=False)
+    sim.step(N_EXCHANGES * period, show_progress=False)
     assert sim.iteration % period == 0
     # `step` copies the data back to the CPU at the end: copy it to the GPU
     # again, as at the beginning of `step`
@@ -372,21 +390,123 @@ def test_open_boundary_rebuild_matches_legacy_sequence():
     counts = [species.Ntot for species in sim.ptcl]
 
     # Previous sequence: per species, remove, then generate, then add
-    for species in sim.ptcl:
-        _legacy_exchange(sim.comm, species, sim.fld, sim.time)
+    n_removed = [
+        _legacy_exchange(sim.comm, species, sim.fld, sim.time) for species in sim.ptcl
+    ]
     legacy = _exchange_result(sim)
+    # The electrons and ions lose particles at the left boundary and gain
+    # injected particles at the right boundary
+    assert n_removed[0] > 0 and n_removed[1] > 0
     # The beam has neither removal nor injection
     assert beam.Ntot == counts[2]
     assert electrons.Ntot != counts[0] and ions.Ntot != counts[1]
 
-    # New path, from the same state
+    # New path, from the same state. Record the calls of the GPU rebuild,
+    # so that a fallback to the previous path cannot pass unnoticed.
     _restore(sim, state)
+    rebuilt = []
+    rebuild = communicator.rebuild_open_boundary_gpu
+
+    def spy(species, *args, **kwargs):
+        rebuilt.append(species)
+        return rebuild(species, *args, **kwargs)
+
+    monkeypatch.setattr(communicator, "rebuild_open_boundary_gpu", spy)
     sim.comm.exchange_all_particles(sim.ptcl, sim.fld, sim.time)
     new = _exchange_result(sim)
 
+    assert rebuilt == list(sim.ptcl)
+    assert electrons.injection_staging is not None
+    assert ions.injection_staging is not None
+    assert beam.injection_staging is None
     _assert_bitwise_equal(legacy, new)
     assert np.unique(new[1, "level"]).size == 2
+    assert (0, "sx") in new
     assert np.abs(new["rho", 0]).max() > 0
+
+
+def _float_quantities(species):
+    """Return the float quantities of all particles of `species` on the host,
+    in the order of the rows of the particle buffers."""
+    rows = [
+        getattr(species, name).get()
+        for name in ("x", "y", "z", "ux", "uy", "uz", "inv_gamma", "w")
+    ]
+    if species.ionizer is not None:
+        rows.append(species.ionizer.w_times_level.get())
+    if species.spin_tracker is not None:
+        rows += [getattr(species.spin_tracker, n).get() for n in ("sx", "sy", "sz")]
+    return np.array(rows)
+
+
+def _injected_uints(species, n):
+    """Return the integer buffer of `n` injected particles, as
+    `generate_continuously_injected_particles` makes it."""
+    rows = []
+    if species.tracker is not None:
+        rows.append(species.tracker.generate_new_ids(n))
+    if species.ionizer is not None:
+        rows.append(np.full(n, species.ionizer.level_start, dtype=np.uint64))
+    return np.array(rows, dtype=np.uint64).reshape(-1, n)
+
+
+@gpu
+def test_open_boundary_rebuild_keeps_count():
+    """Inject as many particles as are removed: Ntot does not change, so the
+    rebuild replaces the particle arrays but keeps the auxiliary arrays."""
+    from fbpic.boundaries.particle_buffer_handling import (
+        add_buffers_to_particles,
+        rebuild_open_boundary_gpu,
+        remove_outside_particles,
+    )
+    from fbpic.utils.cuda import PinnedStagingBuffer, send_data_to_gpu
+
+    sim, (electrons, ions, beam) = _moving_window_simulation()
+    period = sim.comm.exchange_period
+    sim.step(N_EXCHANGES * period, show_progress=False)
+    send_data_to_gpu(sim)
+    comm = sim.comm
+    state = _snapshot(sim)
+    counts = [species.Ntot for species in sim.ptcl]
+    # Inject copies of the last particles, which are inside the box
+    floats = [_float_quantities(species) for species in (electrons, ions)]
+
+    # Previous sequence, with the injection of the removed number of particles
+    n_removed = []
+    for species in (electrons, ions):
+        Ntot = species.Ntot
+        float_l, _, uint_l, _ = remove_outside_particles(
+            species, sim.fld, comm.n_guard, comm.left_proc, comm.right_proc
+        )
+        n_removed.append(Ntot - species.Ntot)
+        add_buffers_to_particles(
+            species,
+            np.zeros((float_l.shape[0], 0)),
+            floats[len(n_removed) - 1][:, -n_removed[-1] :],
+            np.zeros((uint_l.shape[0], 0), dtype=np.uint64),
+            _injected_uints(species, n_removed[-1]),
+        )
+    legacy = _exchange_result(sim)
+    assert min(n_removed) > 0
+    assert [species.Ntot for species in sim.ptcl] == counts
+
+    # GPU rebuild, from the same state
+    _restore(sim, state)
+    for i, species in enumerate((electrons, ions)):
+        auxiliary = species.Ex, species.cell_idx, species.sorting_buffer
+        old_x = species.x
+        float_r = floats[i][:, -n_removed[i] :]
+        species.injection_staging = PinnedStagingBuffer()
+        staged = species.injection_staging.array(float_r.shape)
+        staged[:] = float_r
+        rebuild_open_boundary_gpu(species, sim.fld, comm.n_guard, staged)
+        assert species.Ntot == counts[i]
+        assert species.x is not old_x
+        kept = (species.Ex, species.cell_idx, species.sorting_buffer)
+        assert all(a is b for a, b in zip(kept, auxiliary))
+    new = _exchange_result(sim)
+
+    _assert_bitwise_equal(legacy, new)
 
 
 @gpu
@@ -407,10 +527,20 @@ def test_pinned_staging_buffer_grows_and_waits():
     staging = PinnedStagingBuffer()
     small = staging.array((3, 10))
     small[:] = np.arange(30).reshape(3, 10)
+    # Queue long work before the copy, on the same stream, so that the copy
+    # is still pending when the host writes into the buffer again
+    stream = cupy.cuda.get_current_stream()
+    a = cupy.ones((4000, 4000))
+    for _ in range(3):
+        a = a @ a / 4000.0
     d_small = staging.to_device(small)
+    assert not staging._event.done, "the queued work is too short"
     capacity = staging._capacity
     assert capacity == int(30 * 8 * 1.25)
+    # `array` must wait for the copy before it returns the same memory
     large = staging.array((3, 12))
+    assert staging._event is None
+    assert stream.done
     assert staging._capacity == capacity
     large[:] = 1.0
     d_large = staging.to_device(large)
