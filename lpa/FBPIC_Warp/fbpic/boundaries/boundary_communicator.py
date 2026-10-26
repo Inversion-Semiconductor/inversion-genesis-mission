@@ -17,6 +17,7 @@ from .pml_damping import PMLDamper
 from .particle_buffer_handling import (
     remove_outside_particles,
     add_buffers_to_particles,
+    rebuild_open_boundary_gpu,
     shift_particles_periodic_subdomain,
 )
 
@@ -776,7 +777,69 @@ class BoundaryCommunicator(object):
             req_rr.Wait()
             req_sr.Wait()
 
-    def exchange_particles(self, species, fld, time):
+    def exchange_all_particles(self, species_list, fld, time):
+        """
+        Exchange the particles of all species (see `exchange_particles`).
+
+        With a moving window, the last rank first generates the injected
+        particles of all species, in the order of `species_list`, and then
+        exchanges the particles. The generation runs on the CPU, so that it
+        overlaps with the GPU work that is still queued: the first
+        exchange waits for this work. The order of the calls to
+        `np.random` does not change.
+
+        Parameters:
+        ------------
+        species_list: list of Particle objects
+            The species, in the order of the simulation
+
+        fld: a Fields object
+            Contains information about the dimension of the grid,
+            and the prefix sum (when using the GPU).
+            The object itself is not modified by this routine.
+
+        time: float (seconds)
+            The global time of the simulation
+        """
+        injected = [
+            self._generate_injected_particles(species, time) for species in species_list
+        ]
+        for species, injected_buffers in zip(species_list, injected):
+            self.exchange_particles(species, fld, time, injected=injected_buffers)
+
+    def _injects_particles(self, species):
+        """Return whether this rank injects particles of `species` at exchanges."""
+        return (
+            (self.n_guard != 0)
+            and (self.moving_win is not None)
+            and (self.rank == self.size - 1)
+            and species.continuous_injection
+        )
+
+    def _uses_open_rebuild(self, species):
+        """Return whether the particles of `species` use the GPU rebuild at
+        open boundaries (`rebuild_open_boundary_gpu`)."""
+        return (
+            species.use_cuda
+            and (self.n_guard != 0)
+            and (self.left_proc is None)
+            and (self.right_proc is None)
+        )
+
+    def _generate_injected_particles(self, species, time):
+        """
+        Generate the continuously injected particles of `species`, in the
+        format of the exchange path that the species uses.
+
+        Returns None when this rank does not inject particles of `species`.
+        """
+        if not self._injects_particles(species):
+            return None
+        return species.generate_continuously_injected_particles(
+            time, gpu_rebuild=self._uses_open_rebuild(species)
+        )
+
+    def exchange_particles(self, species, fld, time, injected=None):
         """
         Look for particles that are located outside of the physical boundaries
         and:
@@ -805,6 +868,11 @@ class BoundaryCommunicator(object):
             (Needed in the case of a flowing plasma which is generate
             from a density profile: in the case the time is used in
             order to infer how much the plasma has moved)
+
+        injected: tuple of arrays, or None
+            The continuously injected particles, from
+            `_generate_injected_particles`. If None, this routine
+            generates them when needed.
         """
         # For single-proc periodic simulation (periodic boundaries)
         # simply shift the particle positions by an integer number
@@ -815,9 +883,11 @@ class BoundaryCommunicator(object):
         # Otherwise, remove particles that are outside of the local physical
         # subdomain and send them to neighboring processors
         else:
-            self.exchange_particles_aperiodic_subdomain(species, fld, time)
+            self.exchange_particles_aperiodic_subdomain(
+                species, fld, time, injected=injected
+            )
 
-    def exchange_particles_aperiodic_subdomain(self, species, fld, time):
+    def exchange_particles_aperiodic_subdomain(self, species, fld, time, injected=None):
         """
         Look for particles that are located outside of the physical boundaries
         of the local subdomain and exchange them with the corresponding
@@ -841,7 +911,21 @@ class BoundaryCommunicator(object):
             (Needed in the case of a flowing plasma which is generate
             from a density profile: in the case the time is used in
             order to infer how much the plasma has moved)
+
+        injected: tuple of arrays, or None
+            The continuously injected particles, from
+            `_generate_injected_particles`. If None, this routine
+            generates them when needed.
         """
+        # When both boundaries are open on the GPU, no particle is sent:
+        # rebuild the particle arrays on the GPU in one pass
+        if self._uses_open_rebuild(species):
+            if injected is None:
+                injected = self._generate_injected_particles(species, time)
+            float_injected = None if injected is None else injected[0]
+            rebuild_open_boundary_gpu(species, fld, self.n_guard, float_injected)
+            return
+
         # Remove out-of-domain particles from particle arrays (either on
         # CPU or GPU) and store them in sending buffers on the CPU
         float_send_left, float_send_right, uint_send_left, uint_send_right = (
@@ -877,14 +961,10 @@ class BoundaryCommunicator(object):
         # When using a moving window, create new particles in recv_right
         # (Overlap this with the exchange of domains, since recv_right
         # will not be affected by the exchange at this open boundary)
-        if (
-            (self.moving_win is not None)
-            and (self.rank == self.size - 1)
-            and species.continuous_injection
-        ):
-            float_recv_right, uint_recv_right = (
-                species.generate_continuously_injected_particles(time)
-            )
+        if self._injects_particles(species):
+            if injected is None:
+                injected = self._generate_injected_particles(species, time)
+            float_recv_right, uint_recv_right = injected
 
         # Periodic boundary conditions for exchanging particles
         # Particles received at the right (resp. left) end of the simulation
