@@ -13,10 +13,15 @@ It checks that the batched GPU path of BackTransformedParticleDiagnostic
 - Two separate simulations, one with only legacy diagnostics and one with
   only batched diagnostics, must end with identical particle arrays
   (i.e. the batched path does not change when the particles are sorted).
+- Unit tests call `CrossingStaging` directly on crafted particles:
+  the device must keep every particle that the host tests keep, also for
+  particles within a few ulp of the selection boundaries (where the device
+  and the host round differently), and for more than BT_MAX_RANGES ranges.
 """
 
 import math
 import os
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -31,9 +36,11 @@ from fbpic.openpmd_diag import BackTransformedParticleDiagnostic
 
 pytestmark = pytest.mark.skipif(not cuda_installed, reason="requires a GPU")
 
-# Selection rules on the lab-frame quantities. The cold plasma has a lab-frame
-# uz of about +-1e-16 (rounding), so the bounds at 0 test the device prefilter
-# close to the selection boundary.
+# Selection rules on the lab-frame quantities. (The cold plasma has a lab-frame
+# uz of about +-1e-16, but on Ada the device computes the same lab-frame uz and
+# previous z as the host for these particles: these cases pass even without
+# the prefilter tolerances. `test_prefilter_keeps_boundary_particles` tests
+# the tolerances.)
 SELECT_CASES = {
     "none": None,
     "lower": {"uz": [0.0, None]},
@@ -294,3 +301,273 @@ def test_batched_does_not_change_simulation(tmp_path):
             str(tmp_path / ("True_" + case)),
             rounding_noise=("momentum/y",),
         )
+
+
+# -----------------------------------------------------------------------------
+# Unit tests of CrossingStaging (device prefilter and compaction)
+# -----------------------------------------------------------------------------
+FLOAT_QUANTITIES = ("x", "y", "z", "ux", "uy", "uz", "w", "inv_gamma")
+BETA_BOOST = math.sqrt(1.0 - 1.0 / GAMMA_BOOST**2)
+# Step such that c*dt = 1e-7 m
+DT = 1.0e-7 / c
+
+
+def make_fake_species(arrays, tracked=False):
+    """
+    Return an object with the attributes of a GPU Particles object that
+    `CrossingStaging.enqueue` reads, from a dict of host arrays.
+    """
+    from fbpic.utils.cuda import cupy
+
+    species = SimpleNamespace(
+        **{q: cupy.asarray(arrays[q]) for q in FLOAT_QUANTITIES},
+        tracker=None,
+        ionizer=None,
+    )
+    if tracked:
+        species.tracker = SimpleNamespace(id=cupy.asarray(arrays["id"]))
+        species.ionizer = SimpleNamespace(
+            ionization_level=cupy.asarray(arrays["level"]),
+            w_times_level=cupy.asarray(arrays["w_times_level"]),
+        )
+    return species
+
+
+def host_keep(arrays, start, n, zb, zb_prev, uz_bounds, widen=0.0):
+    """
+    Return the mask of the particles of a range that the host keeps
+    (the tests of `get_particle_slice` and, for "uz", of
+    `interpolate_particles_to_lab_frame` and `apply_selection`).
+    With `widen` > 0, widen the tests by `widen` times the device
+    tolerances (with `tol_z` = 0), which gives a superset of the device set.
+    """
+    block = slice(start, start + n)
+    z = arrays["z"][block]
+    uz = arrays["uz"][block]
+    inv_gamma = arrays["inv_gamma"][block]
+    shift = uz * inv_gamma * c * DT
+    previous_z = z - shift
+    tol = widen * 1.0e-12 * (np.abs(z) + np.abs(shift))
+    keep = ((z >= zb) & (previous_z <= zb_prev + tol)) | (
+        (z <= zb) & (previous_z >= zb_prev - tol)
+    )
+    u_boost = GAMMA_BOOST * uz
+    u_frame = (1.0 / inv_gamma) * (BETA_BOOST * GAMMA_BOOST)
+    uz_lab = u_boost + u_frame
+    tol_u = widen * 1.0e-9 * (np.abs(u_boost) + np.abs(u_frame))
+    lower, upper = uz_bounds
+    if lower is not None:
+        keep &= uz_lab > lower - tol_u
+    if upper is not None:
+        keep &= uz_lab < upper + tol_u
+    return keep
+
+
+def run_staging(arrays, ranges, zb, zb_prev, uz_bounds, tracked=False, floor=256):
+    """Run `CrossingStaging.enqueue` and `collect` on host arrays."""
+    from fbpic.openpmd_diag.cuda_methods import CrossingStaging
+
+    staging = CrossingStaging(copy_floor=floor, adaptive_copy=False)
+    staging.enqueue(
+        make_fake_species(arrays, tracked),
+        ranges,
+        zb,
+        zb_prev,
+        DT,
+        0.0,
+        uz_bounds,
+        GAMMA_BOOST,
+        BETA_BOOST * GAMMA_BOOST,
+    )
+    return staging.collect(), staging
+
+
+def check_staged(result, arrays, ranges, zb, zb_prev, uz_bounds, tracked=False):
+    """
+    Check the output of `CrossingStaging.collect`: rows in particle order,
+    copied values, and kept set between the host set and a widened host set.
+
+    Returns
+    -------
+    The number of particles kept by the host tests
+    """
+    from fbpic.openpmd_diag.cuda_methods import BT_KEY_SCALE
+
+    rows, int_rows, entry = result
+    keys = rows[:, -1].astype(np.int64)
+    p = keys % BT_KEY_SCALE
+    # Sorted by entry, then particle index (unique keys)
+    assert np.all(np.diff(keys) > 0)
+    assert np.array_equal(entry, keys // BT_KEY_SCALE)
+    # Each row holds the data of its particle
+    for column, quantity in enumerate(FLOAT_QUANTITIES):
+        source = arrays["w_times_level" if (tracked and quantity == "w") else quantity]
+        assert np.array_equal(rows[:, column], source[p]), quantity
+    if tracked:
+        assert np.array_equal(int_rows[:, 0], arrays["id"][p])
+        assert np.array_equal(int_rows[:, 1], arrays["level"][p])
+    else:
+        assert int_rows is None
+    n_host = 0
+    for k, start, n in ranges:
+        kept = p[entry == k]
+        index = np.arange(start, start + n)
+        exact = index[host_keep(arrays, start, n, zb[k], zb_prev[k], uz_bounds)]
+        wide = index[
+            host_keep(arrays, start, n, zb[k], zb_prev[k], uz_bounds, widen=2.0)
+        ]
+        missing = np.setdiff1d(exact, kept)
+        assert missing.size == 0, (k, missing.size, exact.size)
+        assert np.setdiff1d(kept, wide).size == 0, k
+        n_host += exact.size
+    return n_host
+
+
+def boundary_particles(rng, n_groups, n_per_group):
+    """
+    Build groups of particles whose previous z (host formula) lies within a
+    few ulp of the previous output plane of their group, with
+    |z| ~ |uz * inv_gamma * c * dt| so that the device (FMA) and the host
+    round the previous z differently for many of them.
+
+    Returns
+    -------
+    arrays, ranges, zb, zb_prev
+    """
+    n = n_groups * n_per_group
+    uz = rng.normal(0.0, 3.0, n)
+    inv_gamma = 1.0 / np.sqrt(1.0 + uz**2)
+    shift = uz * inv_gamma * c * DT
+    z = np.empty(n)
+    ranges, zb, zb_prev = [], [], []
+    for k in range(n_groups):
+        block = slice(k * n_per_group, (k + 1) * n_per_group)
+        plane = rng.uniform(-1.0e-7, 1.0e-7)
+        z[block] = plane + shift[block]
+        ranges.append((k, k * n_per_group, n_per_group))
+        zb_prev.append(plane)
+        # Alternate forward (z >= zb) and backward (z <= zb) crossings
+        if k % 2 == 0:
+            zb.append(float(z[block].min()) - 1.0e-9)
+        else:
+            zb.append(float(z[block].max()) + 1.0e-9)
+    arrays = dict(
+        x=rng.normal(size=n),
+        y=rng.normal(size=n),
+        z=z,
+        ux=rng.normal(size=n),
+        uy=rng.normal(size=n),
+        uz=uz,
+        w=rng.uniform(1.0, 2.0, n),
+        inv_gamma=inv_gamma,
+    )
+    return arrays, ranges, zb, zb_prev
+
+
+def uz_bound_particles(rng, bounds, n_per_bound):
+    """
+    Build particles that cross their output plane, with a lab-frame uz
+    (host formula) within a few ulp of each of `bounds`. Near 0 this is
+    the cold-plasma case: gamma_boost*uz and gamma*beta_boost*gamma_boost
+    cancel.
+
+    Returns
+    -------
+    arrays, ranges, zb, zb_prev
+    """
+    n = len(bounds) * n_per_bound
+    gamma = rng.uniform(1.0, 3.0, n)
+    target = np.repeat(np.asarray(bounds, dtype=np.float64), n_per_bound)
+    uz = (target - gamma * (BETA_BOOST * GAMMA_BOOST)) / GAMMA_BOOST
+    # Spread the lab-frame uz over a few ulp on both sides of the bounds
+    uz = uz + rng.integers(-4, 5, n) * np.spacing(uz)
+    arrays = dict(
+        x=rng.normal(size=n),
+        y=rng.normal(size=n),
+        z=rng.uniform(-1.0e-7, 1.0e-7, n),
+        ux=rng.normal(size=n),
+        uy=rng.normal(size=n),
+        uz=uz,
+        w=rng.uniform(1.0, 2.0, n),
+        inv_gamma=1.0 / gamma,
+    )
+    # All particles cross: z >= zb and previous z <= zb_prev
+    ranges = [(0, 0, n)]
+    return arrays, ranges, [-1.0], [1.0]
+
+
+def test_prefilter_keeps_boundary_particles():
+    """
+    The device keeps every particle that the host keeps, for particles
+    within a few ulp of the output plane or of the "uz" bounds.
+
+    On Ada, the device contracts the previous z to an FMA: without the
+    tolerance on the previous z in `catch_crossing_particles`, the crossing
+    part fails (about 18% of the host-kept particles of a cluster are lost).
+    The device computes the same lab-frame uz as the host on Ada, so the
+    "uz" part passes there even without its tolerance; it protects other
+    architectures and code generators.
+    """
+    rng = np.random.default_rng(1)
+    # 70 groups: 3 launches of at most BT_MAX_RANGES ranges
+    arrays, ranges, zb, zb_prev = boundary_particles(rng, 70, 2048)
+    result, _ = run_staging(arrays, ranges, zb, zb_prev, (None, None))
+    n_host = check_staged(result, arrays, ranges, zb, zb_prev, (None, None))
+    # Some particles of the clusters lie on the rejected side of the plane
+    assert 0 < n_host < len(arrays["z"])
+
+    bounds = [0.0, 0.3, -0.3]
+    arrays, ranges, zb, zb_prev = uz_bound_particles(rng, bounds, 4096)
+    for uz_bounds in [(0.0, None), (None, 0.0), (0.3, None), (-0.3, 0.3)]:
+        result, _ = run_staging(arrays, ranges, zb, zb_prev, uz_bounds)
+        n_host = check_staged(result, arrays, ranges, zb, zb_prev, uz_bounds)
+        assert 0 < n_host < len(arrays["z"]), uz_bounds
+
+
+def test_staging_many_ranges():
+    """
+    More than BT_MAX_RANGES ranges (several launches sharing one counter),
+    overlapping ranges, tracked and ionizable particles, and the blocking
+    copy of the rows that the asynchronous copy did not bring back.
+    """
+    from fbpic.openpmd_diag.cuda_methods import BT_MAX_RANGES
+
+    rng = np.random.default_rng(2)
+    n = 20000
+    uz = rng.normal(0.0, 3.0, n)
+    level = rng.integers(0, 6, n).astype(np.uint64)
+    w = rng.uniform(1.0, 2.0, n)
+    arrays = dict(
+        x=rng.normal(size=n),
+        y=rng.normal(size=n),
+        z=np.sort(rng.uniform(-1.0e-6, 1.0e-6, n)),
+        ux=rng.normal(size=n),
+        uy=rng.normal(size=n),
+        uz=uz,
+        w=w,
+        inv_gamma=1.0 / np.sqrt(1.0 + uz**2),
+        id=rng.permutation(n).astype(np.uint64) + 1,
+        level=level,
+        w_times_level=w * level,
+    )
+    n_ranges = 2 * BT_MAX_RANGES + 7
+    ranges, zb, zb_prev = [], [], []
+    for k in range(n_ranges):
+        # Random, overlapping ranges, with a plane inside each range
+        start = int(rng.integers(0, n - 2000))
+        length = int(rng.integers(1, 2000))
+        ranges.append((k, start, length))
+        plane = arrays["z"][start + length // 2]
+        zb.append(float(plane))
+        zb_prev.append(float(plane + rng.uniform(-1.0e-7, 1.0e-7)))
+    for uz_bounds in [(None, None), (0.0, None)]:
+        for floor in (256, 1):
+            result, staging = run_staging(
+                arrays, ranges, zb, zb_prev, uz_bounds, tracked=True, floor=floor
+            )
+            n_host = check_staged(
+                result, arrays, ranges, zb, zb_prev, uz_bounds, tracked=True
+            )
+            assert n_host > 0
+            if floor == 1:
+                assert staging.fallbacks == 1
