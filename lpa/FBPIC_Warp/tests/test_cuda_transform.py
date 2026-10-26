@@ -74,3 +74,68 @@ def test_cuda_transform(Nz, Nr, m):
     _assert_transform_equal(d_back_field_r.get(), back_field_r)
     _assert_transform_equal(d_back_field_t.get(), back_field_t)
     assert runtime.launch_count > initial_launch_count
+
+
+@pytest.mark.parametrize(
+    "Nz, Nr, sliced",
+    [
+        (1, 1, False),
+        (33, 17, False),
+        # 64 tiles fill 8 blocks exactly, so no padding threads run.
+        (64, 32, False),
+        (1821, 301, False),
+        (33, 17, True),
+    ],
+)
+def test_cuda_copy_1d_2d_bitwise(Nz, Nr, sliced):
+    """Check that the z-r transposing copies are exact and invert each other."""
+    import cupy
+    from fbpic.fields.spectral_transform.cuda_methods import (
+        cuda_copy_1d_2d_launch,
+        cuda_copy_1d_to_2d,
+        cuda_copy_2d_to_1d,
+    )
+    from fbpic.utils.warp import get_runtime
+
+    get_runtime().use()
+    rng = np.random.default_rng(1)
+    shape = (2 * Nz + 3, 3 * Nr + 2) if sliced else (Nz, Nr)
+    parent = cupy.asarray(rng.random(shape) + 1.0j * rng.random(shape))
+    # A sliced view has row and column strides that differ from (Nr*16, 16).
+    array_2d = parent[1 : 2 * Nz + 1 : 2, 2 : 3 * Nr + 2 : 3] if sliced else parent
+    assert array_2d.shape == (Nz, Nr)
+    assert array_2d.flags.c_contiguous != sliced
+    launch = cuda_copy_1d_2d_launch(Nz, Nr)
+
+    # Fill the outputs with NaN so that a skipped element cannot pass.
+    array_1d = cupy.full(Nz * Nr, np.nan, dtype=np.complex128)
+    cuda_copy_2d_to_1d[launch](array_2d, array_1d)
+    assert cupy.array_equal(array_1d, cupy.ascontiguousarray(array_2d.T).ravel())
+
+    back_parent = cupy.full_like(parent, np.nan)
+    back_2d = (
+        back_parent[1 : 2 * Nz + 1 : 2, 2 : 3 * Nr + 2 : 3] if sliced else back_parent
+    )
+    cuda_copy_1d_to_2d[launch](array_1d, back_2d)
+    assert cupy.array_equal(back_2d, array_2d)
+    if sliced:
+        # The inverse copy must not write outside the strided view.
+        untouched = cupy.ones(shape, dtype=bool)
+        untouched[1 : 2 * Nz + 1 : 2, 2 : 3 * Nr + 2 : 3] = False
+        assert bool(cupy.isnan(back_parent[untouched]).all())
+
+
+@pytest.mark.parametrize(
+    "Nz, Nr", [(1, 1), (8, 4), (9, 4), (8, 5), (33, 17), (64, 32), (1821, 301)]
+)
+def test_cuda_copy_1d_2d_launch(Nz, Nr):
+    """Check that the copy launch covers every micro-tile with whole warps."""
+    from fbpic.fields.spectral_transform.cuda_methods import cuda_copy_1d_2d_launch
+
+    blocks, threads = cuda_copy_1d_2d_launch(Nz, Nr)
+    n_tiles = -(-Nz // 8) * -(-Nr // 4)
+    # The shim launches blocks*threads threads. Fewer than 32*n_tiles threads
+    # drop a tile; a partial warp drops lanes of a tile. The bitwise test
+    # detects a short launch only in the shapes that it runs.
+    assert threads % 32 == 0
+    assert 32 * n_tiles <= blocks * threads < 32 * n_tiles + threads
