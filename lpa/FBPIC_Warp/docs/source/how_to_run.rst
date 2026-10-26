@@ -133,6 +133,26 @@ processes (e.g. 4) by running
 
     export FBPIC_ENABLE_GPUDIRECT=1
 
+.. note::
+
+  On GPU, FBPIC-Warp allocates CuPy memory from the stream-ordered CUDA
+  memory pool (``cudaMallocAsync``). This allocator reuses the memory of
+  freed particle arrays without a device synchronization. When the pool
+  keeps a large amount of unused memory, or when free device memory is low,
+  FBPIC returns the unused memory to CUDA at a particle exchange.
+
+  To select the legacy CuPy memory pool, set the following environment
+  variable:
+
+  ::
+
+    export FBPIC_GPU_ALLOCATOR=pool
+
+  FBPIC also uses the legacy pool when ``FBPIC_ENABLE_GPUDIRECT=1`` is set,
+  or when the GPU does not support CUDA memory pools. With the CUDA memory
+  pool, ``cupy.get_default_memory_pool()`` does not count FBPIC arrays.
+  Use ``fbpic.utils.warp.device_memory_stats()`` to read the pool counters.
+
 
 Visualizing the simulation results
 ----------------------------------
