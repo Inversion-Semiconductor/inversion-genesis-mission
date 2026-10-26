@@ -13,9 +13,12 @@ import numba
 from fbpic.utils.cuda import cuda_installed
 
 if cuda_installed:
-    from fbpic.utils.cuda import cuda_tpb_bpg_2d, cuda_gpu_model
     from fbpic.utils.warp import get_runtime
-    from .cuda_methods import cuda_copy_2d_to_1d, cuda_copy_1d_to_2d
+    from .cuda_methods import (
+        cuda_copy_2d_to_1d,
+        cuda_copy_1d_to_2d,
+        cuda_copy_1d_2d_launch,
+    )
     import cupy
     from cupy.cuda import cufft
 
@@ -71,11 +74,9 @@ class FFT(object):
         # Initialize the object for calculation on the GPU
         if self.use_cuda:
             get_runtime().use()
-            # Set optimal number of CUDA threads per block
-            # for copy 1d/2d kernels (determined empirically)
-            copy_tpb = (8, 32) if cuda_gpu_model == "V100" else (2, 16)
-            # Initialize the dimension of the grid and blocks
-            self.dim_grid, self.dim_block = cuda_tpb_bpg_2d(Nz, Nr, *copy_tpb)
+            # 1D launch of the copy 1d/2d kernels, with one warp per
+            # z-r micro-tile (coalesced on both sides on every GPU model)
+            self.copy_launch = cuda_copy_1d_2d_launch(Nz, Nr)
             # Initialize 1d buffer for cufft
             self.buffer1d_in = cupy.empty((Nz * Nr,), dtype=np.complex128)
             self.buffer1d_out = cupy.empty((Nz * Nr,), dtype=np.complex128)
@@ -129,15 +130,11 @@ class FFT(object):
         """
         if self.use_cuda:
             # Copy 2D arrays to 1D array for optimized 1D batch FFT
-            cuda_copy_2d_to_1d[self.dim_grid, self.dim_block](
-                array_in, self.buffer1d_in
-            )
+            cuda_copy_2d_to_1d[self.copy_launch](array_in, self.buffer1d_in)
             # Perform forward FFT
             self.fft.fft(self.buffer1d_in, self.buffer1d_out, cufft.CUFFT_FORWARD)
             # Copy 1D arrays back to 2D array
-            cuda_copy_1d_to_2d[self.dim_grid, self.dim_block](
-                self.buffer1d_out, array_out
-            )
+            cuda_copy_1d_to_2d[self.copy_launch](self.buffer1d_out, array_out)
         elif self.use_mkl:
             # Perform the FFT on the CPU using MKL
             self.mklfft.transform(array_in, array_out)
@@ -160,17 +157,13 @@ class FFT(object):
         """
         if self.use_cuda:
             # Copy 2D arrays to 1D array for optimized 1D batch FFT
-            cuda_copy_2d_to_1d[self.dim_grid, self.dim_block](
-                array_in, self.buffer1d_in
-            )
+            cuda_copy_2d_to_1d[self.copy_launch](array_in, self.buffer1d_in)
             # Perform forward FFT
             self.fft.fft(self.buffer1d_in, self.buffer1d_out, cufft.CUFFT_INVERSE)
             # Normalize inverse FFT
             cupy.multiply(self.buffer1d_out, self.inv_Nz, out=self.buffer1d_out)
             # Copy 1D arrays back to 2D array
-            cuda_copy_1d_to_2d[self.dim_grid, self.dim_block](
-                self.buffer1d_out, array_out
-            )
+            cuda_copy_1d_to_2d[self.copy_launch](self.buffer1d_out, array_out)
         elif self.use_mkl:
             # Perform the inverse FFT on the CPU using MKL
             self.mklfft.inverse_transform(array_in, array_out)

@@ -13,6 +13,42 @@ from fbpic.utils.warp import warp_kernel, mul_i
 # Copying functions
 # ------------------
 
+# Micro-tile of the z <-> r transposing copies: one warp of 32 threads
+# copies TILE_Z consecutive z by TILE_R consecutive r. With complex128,
+# the 1d side then moves TILE_Z*16 = 128 B per r column and the 2d side
+# moves TILE_R*16 = 64 B per z row, so both sides use full 32 B sectors.
+# (This is the warp shape of the upstream numba kernels on V100/A100.)
+TILE_Z = wp.constant(8)
+TILE_R = wp.constant(4)
+COPY_TPB = 256
+
+
+def cuda_copy_1d_2d_launch(Nz, Nr):
+    """Return the launch shape of `cuda_copy_2d_to_1d` and `cuda_copy_1d_to_2d`.
+
+    Args:
+        Nz: Number of grid points along z (axis 0 of the 2d array).
+        Nr: Number of grid points along r (axis 1 of the 2d array).
+
+    Returns:
+        A ``(blocks, threads_per_block)`` pair for a 1D launch with one
+        warp per micro-tile. The thread count is a multiple of the
+        warp size; the kernels mask the threads beyond the last tile.
+    """
+    n_tiles = ((Nz + TILE_Z - 1) // TILE_Z) * ((Nr + TILE_R - 1) // TILE_R)
+    return (32 * n_tiles + COPY_TPB - 1) // COPY_TPB, COPY_TPB
+
+
+@wp.func
+def _tile_indices(t: int, Nr: int):
+    """Map the linear thread index `t` to (iz, ir) in its warp micro-tile."""
+    n_tile_r = (Nr + TILE_R - 1) // TILE_R
+    warp = t // 32
+    lane = t - warp * 32
+    iz = (warp // n_tile_r) * TILE_Z + lane % TILE_Z
+    ir = (warp % n_tile_r) * TILE_R + lane // TILE_Z
+    return iz, ir
+
 
 @warp_kernel
 def cuda_copy_2dC_to_2dR(
@@ -90,10 +126,12 @@ def cuda_copy_2d_to_1d(
 
     array_1d : 1d array of complexs
         Array of shape (Nz*Nr,)
+
+    Launch with the 1D shape from `cuda_copy_1d_2d_launch`.
     """
 
-    # Set up cuda grid
-    iz, ir = wp.tid()
+    # Set up cuda grid: one warp per TILE_Z x TILE_R micro-tile
+    iz, ir = _tile_indices(wp.tid(), array_2d.shape[1])
 
     # Copy from array_2d to array_1d
     if (iz < array_2d.shape[0]) and (ir < array_2d.shape[1]):
@@ -120,10 +158,12 @@ def cuda_copy_1d_to_2d(
 
     array_1d : 1d array of complexs
         Array of shape (Nz*Nr,)
+
+    Launch with the 1D shape from `cuda_copy_1d_2d_launch`.
     """
 
-    # Set up cuda grid
-    iz, ir = wp.tid()
+    # Set up cuda grid: one warp per TILE_Z x TILE_R micro-tile
+    iz, ir = _tile_indices(wp.tid(), array_2d.shape[1])
 
     # Copy from array_1d to array_2d
     if (iz < array_2d.shape[0]) and (ir < array_2d.shape[1]):
