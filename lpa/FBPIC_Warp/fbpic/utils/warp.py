@@ -81,11 +81,14 @@ _runtimes: dict[int, CudaRuntime] = {}
 # frees on the shared stream, without a device synchronization.
 
 _GIB = 1 << 30
-# The slack is the reserved but unused memory of the mempool. Trim it when it
-# exceeds the cap max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total
-# device memory), and keep half of the cap for the next exchanges. Also trim
-# when less than _TRIM_FREE_FRACTION of the device memory is free and at least
-# _TRIM_MIN_RELEASE_BYTES of slack can be released.
+# The slack is the reserved but unused memory of the mempool. At an exchange,
+# most of it is the particle arrays that the exchange replaced, and the next
+# exchange reuses it (up to 0.35 x used memory in the reduced LPA case).
+# Trim the slack when it exceeds both the used memory and the cap
+# max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total device memory), and
+# keep half of that threshold. Also trim when less than _TRIM_FREE_FRACTION
+# of the device memory is free and at least _TRIM_MIN_RELEASE_BYTES of slack
+# can be released.
 _TRIM_MIN_SLACK_BYTES = 2 * _GIB
 _TRIM_SLACK_FRACTION = 0.1
 _TRIM_FREE_FRACTION = 0.1
@@ -230,9 +233,10 @@ def release_unused_device_memory() -> bool:
     cudaFree and synchronizes the device. With the CUDA mempool, read the
     pool counters (no synchronization) and trim in two cases:
 
-    - The slack (reserved minus used memory) grew by more than the cap
-      max(2 GiB, 10% of the device) since the last trim. The trim keeps
-      used memory plus half of the cap reserved.
+    - The slack (reserved minus used memory) exceeds both the used memory
+      and the cap max(2 GiB, 10% of the device). The next exchanges reuse a
+      smaller slack, so it is not trimmed. The trim keeps used memory plus
+      half of the threshold reserved.
     - Less than 10% of the device memory is free, and at least 256 MiB of
       slack can be released. The trim keeps only used memory.
 
@@ -253,14 +257,14 @@ def release_unused_device_memory() -> bool:
     used = _mempool_attribute("UsedMemCurrent")
     free, total = cupy.cuda.runtime.memGetInfo()
     _allocator_state["history"].append((reserved, used, free))
-    slack_cap = int(max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total))
+    threshold = int(max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total, used))
     releasable = reserved - used - _allocator_state["trim_residual"]
     if free < _TRIM_FREE_FRACTION * total:
         if releasable < _TRIM_MIN_RELEASE_BYTES:
             return False
         keep_slack = 0
-    elif releasable > slack_cap:
-        keep_slack = slack_cap // 2
+    elif releasable > threshold:
+        keep_slack = threshold // 2
     else:
         return False
     start = time.perf_counter()

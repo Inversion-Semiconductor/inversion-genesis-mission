@@ -197,6 +197,14 @@ def _counter(warp_utils, name):
     return warp_utils._mempool_attribute(name)
 
 
+def _empty_mempool(warp_utils):
+    """Release earlier slack; skip if live arrays would change the threshold."""
+    gc.collect()
+    warp_utils._trim_device_memory()
+    if _counter(warp_utils, "UsedMemCurrent") > 64 * MIB:
+        pytest.skip("Other live arrays would hide the used-memory threshold.")
+
+
 def test_large_and_small_allocations_use_device_mempool(async_runtime):
     import cupy
 
@@ -278,18 +286,38 @@ def test_release_trims_when_unused_memory_exceeds_cap(async_runtime, monkeypatch
 
     monkeypatch.setattr(async_runtime, "_TRIM_MIN_SLACK_BYTES", 32 * MIB)
     monkeypatch.setattr(async_runtime, "_TRIM_SLACK_FRACTION", 0.0)
+    _empty_mempool(async_runtime)
     cupy.empty(256 * MIB, dtype=cupy.uint8)
     cupy.cuda.runtime.deviceSynchronize()
     reserved = _counter(async_runtime, "ReservedMemCurrent")
     used = _counter(async_runtime, "UsedMemCurrent")
     assert reserved - used >= 256 * MIB
     assert async_runtime.release_unused_device_memory() is True
-    # The trim keeps at least half of the cap (16 MiB), rounded up to whole
-    # pool chunks (32 MiB on an RTX 6000 Ada).
+    # The trim keeps at least half of the threshold (at most 32 MiB here),
+    # rounded up to whole pool chunks (32 MiB on an RTX 6000 Ada).
     reserved_after = _counter(async_runtime, "ReservedMemCurrent")
     assert reserved_after < reserved
-    assert reserved_after - _counter(async_runtime, "UsedMemCurrent") <= 32 * MIB
+    assert reserved_after - _counter(async_runtime, "UsedMemCurrent") <= 64 * MIB
     assert async_runtime.release_unused_device_memory() is False
+
+
+def test_release_keeps_slack_below_used_memory(async_runtime, monkeypatch):
+    import cupy
+
+    monkeypatch.setattr(async_runtime, "_TRIM_MIN_SLACK_BYTES", 32 * MIB)
+    monkeypatch.setattr(async_runtime, "_TRIM_SLACK_FRACTION", 0.0)
+    _empty_mempool(async_runtime)
+    live = cupy.empty(512 * MIB, dtype=cupy.uint8)
+    cupy.empty(256 * MIB, dtype=cupy.uint8)
+    cupy.cuda.runtime.deviceSynchronize()
+    trims = async_runtime._allocator_state["trims"]
+    # Like the particle arrays replaced at an exchange, this slack is
+    # smaller than the live data, so it is kept for reuse.
+    assert async_runtime.release_unused_device_memory() is False
+    del live
+    cupy.cuda.runtime.deviceSynchronize()
+    assert async_runtime.release_unused_device_memory() is True
+    assert async_runtime._allocator_state["trims"] == trims + 1
 
 
 def test_release_trims_when_free_memory_is_low(async_runtime, monkeypatch):
@@ -317,7 +345,7 @@ def test_release_keeps_half_cap_and_ignores_unreleasable_slack(
     cap = 256 * MIB
     monkeypatch.setattr(async_runtime, "_TRIM_MIN_SLACK_BYTES", cap)
     monkeypatch.setattr(async_runtime, "_TRIM_SLACK_FRACTION", 0.0)
-    async_runtime._trim_device_memory()
+    _empty_mempool(async_runtime)
     cupy.empty(1024 * MIB, dtype=cupy.uint8)
     cupy.cuda.runtime.deviceSynchronize()
     log = async_runtime._allocator_state["trim_log"]
