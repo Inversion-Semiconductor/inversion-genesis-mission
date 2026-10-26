@@ -571,3 +571,37 @@ def test_staging_many_ranges():
             assert n_host > 0
             if floor == 1:
                 assert staging.fallbacks == 1
+
+
+def test_column_end_copy_requests():
+    """
+    The sort listener copies the column ends only while a diagnostic
+    requests them; otherwise `read` makes the copy itself.
+    """
+    from fbpic.utils.cuda import cupy
+    from fbpic.openpmd_diag.cuda_methods import ColumnEndCopy
+
+    Nz, Nr = 7, 3
+    prefix_sum = np.cumsum(np.arange(1, Nz * (Nr + 1) + 1)).astype(np.int32)
+    species = SimpleNamespace(prefix_sum=cupy.asarray(prefix_sum), grid_shape=(Nz, Nr))
+    expected = prefix_sum[Nr :: Nr + 1]
+    listener = ColumnEndCopy()
+    owner = object()
+
+    # Without a request, a sort launches nothing
+    listener(species)
+    assert not listener.valid and listener.device is None
+    assert np.array_equal(listener.read(species), expected)
+
+    listener.request(owner, True)
+    species.prefix_sum *= 2
+    listener(species)
+    assert listener.valid
+    assert np.array_equal(listener.read(species), 2 * expected)
+
+    # The request ends: the next sort makes no copy, the read makes one
+    listener.request(owner, False)
+    species.prefix_sum *= 2
+    listener(species)
+    assert not listener.valid
+    assert np.array_equal(listener.read(species), 4 * expected)
