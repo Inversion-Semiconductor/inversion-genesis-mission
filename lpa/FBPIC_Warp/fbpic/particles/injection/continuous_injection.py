@@ -274,43 +274,20 @@ def generate_evenly_spaced(
         dtheta = 2 * np.pi / Nptheta
         theta_reg = dtheta * np.arange(Nptheta)
 
-        # Get the corresponding particles positions
-        # (copy=True is important here, since it allows to
-        # change the angles individually)
-        zp, rp, thetap = np.meshgrid(z_reg, r_reg, theta_reg, copy=True, indexing="ij")
-        # Prevent the particles from being aligned along any direction
-        unalign_angles(thetap, Npz, Npr, method="random")
-        # Flatten them (This performs a memory copy)
-        r = rp.flatten()
-        x = r * np.cos(thetap.flatten())
-        y = r * np.sin(thetap.flatten())
-        z = zp.flatten()
-        # Get the weights (i.e. charge of each macroparticle), which
-        # are equal to the density times the volume r d\theta dr dz
-        w = n * r * dtheta * dr * dz
-        # Modulate it by the density profile
-        if dens_func is not None:
-            args = _check_dens_func_arguments(dens_func)
-            if args == ["x", "y", "z"]:
-                w *= dens_func(x=x, y=y, z=z)
-            elif args == ["z", "r"]:
-                w *= dens_func(z=z, r=r)
-
-        # Select the particles that have a non-zero weight
-        selected = w > 0
-        if np.any(w < 0):
-            warnings.warn(
-                "The specified particle density returned negative densities.\n"
-                "No particles were generated in areas of negative density.\n"
-                "Please check the validity of the `dens_func`."
+        # Get the particle positions and weights. A density function of
+        # (z, r) is evaluated once per (z, r) position, since the Nptheta
+        # particles at this position have the same weight.
+        if (dens_func is not None) and (
+            _check_dens_func_arguments(dens_func) == ["x", "y", "z"]
+        ):
+            x, y, z, w = _evenly_spaced_xyz(
+                z_reg, r_reg, theta_reg, Npz, Npr, n, dtheta, dr, dz, dens_func
             )
-
-        # Infer the number of particles and select them
-        Ntot = int(selected.sum())
-        x = x[selected]
-        y = y[selected]
-        z = z[selected]
-        w = w[selected]
+        else:
+            x, y, z, w = _evenly_spaced_zr(
+                z_reg, r_reg, theta_reg, Npz, Npr, n, dtheta, dr, dz, dens_func
+            )
+        Ntot = x.size
         # Initialize the corresponding momenta
         uz = uz_m * np.ones(Ntot) + uz_th * np.random.normal(size=Ntot)
         ux = ux_m * np.ones(Ntot) + ux_th * np.random.normal(size=Ntot)
@@ -331,6 +308,81 @@ def generate_evenly_spaced(
             np.empty(0),
             np.empty(0),
             np.empty(0),
+        )
+
+
+def _evenly_spaced_xyz(z_reg, r_reg, theta_reg, Npz, Npr, n, dtheta, dr, dz, dens_func):
+    """
+    Return the positions and weights (x, y, z, w) of the particles with a
+    non-zero weight, for a density function of (x, y, z).
+    The particles are ordered by z, then r, then theta.
+    """
+    # Get the corresponding particles positions
+    # (copy=True is important here, since it allows to
+    # change the angles individually)
+    zp, rp, thetap = np.meshgrid(z_reg, r_reg, theta_reg, copy=True, indexing="ij")
+    # Prevent the particles from being aligned along any direction
+    unalign_angles(thetap, Npz, Npr, method="random")
+    # Flatten them (This performs a memory copy)
+    r = rp.flatten()
+    x = r * np.cos(thetap.flatten())
+    y = r * np.sin(thetap.flatten())
+    z = zp.flatten()
+    # Get the weights (i.e. charge of each macroparticle), which
+    # are equal to the density times the volume r d\theta dr dz
+    w = n * r * dtheta * dr * dz
+    # Modulate it by the density profile
+    w *= dens_func(x=x, y=y, z=z)
+
+    # Select the particles that have a non-zero weight
+    selected = w > 0
+    _warn_if_negative(w)
+    return x[selected], y[selected], z[selected], w[selected]
+
+
+def _evenly_spaced_zr(z_reg, r_reg, theta_reg, Npz, Npr, n, dtheta, dr, dz, dens_func):
+    """
+    Return the positions and weights (x, y, z, w) of the particles with a
+    non-zero weight, for a density function of (z, r) or no density function.
+
+    The result and the use of `np.random` are bitwise identical to those of
+    `_evenly_spaced_xyz` with the equivalent (x, y, z) function, provided
+    that `dens_func` is elementwise. The weights are computed once per
+    (z, r) position, and cos/sin only for the selected particles.
+    """
+    # Same random draw as `unalign_angles(..., method="random")`
+    angle_shift = 2 * np.pi * np.random.rand(Npz, Npr)
+    # Positions of the (z, r) nodes, in the C order of (iz, ir)
+    z_node = np.repeat(z_reg, Npr)
+    r_node = np.tile(r_reg, Npz)
+    # Weights, with the same operation order as in `_evenly_spaced_xyz`
+    w_node = n * r_node * dtheta * dr * dz
+    if dens_func is not None:
+        w_node *= dens_func(z=z_node, r=r_node)
+
+    # Select the nodes that have a non-zero weight
+    selected = np.flatnonzero(w_node > 0)
+    _warn_if_negative(w_node)
+    # Expand the selected nodes over theta (theta varies fastest)
+    Nptheta = theta_reg.size
+    r = np.repeat(r_node[selected], Nptheta)
+    z = np.repeat(z_node[selected], Nptheta)
+    w = np.repeat(w_node[selected], Nptheta)
+    theta = (
+        theta_reg[np.newaxis, :] + angle_shift.ravel()[selected][:, np.newaxis]
+    ).ravel()
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
+    return x, y, z, w
+
+
+def _warn_if_negative(w):
+    """Warn if the density function returned negative densities."""
+    if np.any(w < 0):
+        warnings.warn(
+            "The specified particle density returned negative densities.\n"
+            "No particles were generated in areas of negative density.\n"
+            "Please check the validity of the `dens_func`."
         )
 
 
