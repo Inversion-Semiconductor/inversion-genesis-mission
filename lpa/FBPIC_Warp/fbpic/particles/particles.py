@@ -1960,5 +1960,5 @@ class Particles(object):
         # Return the sort block to the CuPy pool (see allocate_sort_scratch)
         release_sort_scratch(self)
         # Notify the listeners that `prefix_sum` changed
-        for listener in self.sort_listeners:
+        for listener in getattr(self, "sort_listeners", ()):
             listener(self)

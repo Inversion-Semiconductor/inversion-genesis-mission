@@ -265,6 +265,8 @@ def column_end_copy(species):
     Return the `ColumnEndCopy` listener of `species`, and register
     a new one if needed.
     """
+    if not hasattr(species, "sort_listeners"):
+        species.sort_listeners = []
     for listener in species.sort_listeners:
         if isinstance(listener, ColumnEndCopy):
             return listener
