@@ -214,6 +214,13 @@ class ColumnEndCopy:
     The diagnostics then read the prefix sum at the end of any z column
     without a blocking device-to-host transfer at diagnostic time.
     (``prefix_sum`` is only written in ``Particles.sort_particles``.)
+
+    This is a deliberate exception to the rule that device-to-host copies
+    stay out of the PIC step: the copy is asynchronous, about 4*Nz bytes,
+    and it runs only while a diagnostic requests it (see `request`), i.e.
+    while at least one of its snapshots is active. When no diagnostic
+    requests it, sorts launch nothing, and the next `read` makes one
+    blocking copy instead.
     """
 
     def __init__(self):
@@ -222,8 +229,28 @@ class ColumnEndCopy:
         self.event = None
         # True when the host copy corresponds to the current prefix sum
         self.valid = False
+        # Diagnostics that need the copies after the next sorts
+        self.requested_by = set()
+
+    def request(self, owner, needed):
+        """
+        Record whether `owner` (a diagnostic) needs the column ends after
+        the next sorts. The sorts copy them while at least one owner does.
+        """
+        if needed:
+            self.requested_by.add(owner)
+        else:
+            self.requested_by.discard(owner)
 
     def __call__(self, species):
+        if not self.requested_by:
+            # Nobody reads the next column ends: skip the copy
+            self.valid = False
+            return
+        self._copy(species)
+
+    def _copy(self, species):
+        """Launch the extraction and the asynchronous copy of the column ends."""
         runtime = get_runtime()
         if runtime.recorded_launches is not None:
             # A CUDA graph section would defer the kernel, but not the copy
@@ -252,10 +279,14 @@ class ColumnEndCopy:
         """
         Return the column ends of the current prefix sum of `species`
         (a host array of shape (Nz,), valid until the next sort).
-        Waits for the copy of the last sort, which normally finished long ago.
+
+        Waits for the copy of the last sort. The host usually runs ahead of
+        the GPU, so this wait can be long, but the GPU still has queued work
+        (the work enqueued after that sort) and does not become idle.
+        If the last sort made no copy, makes a copy and waits for it.
         """
         if not self.valid:
-            self(species)
+            self._copy(species)
         self.event.synchronize()
         return self.host
 

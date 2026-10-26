@@ -42,12 +42,16 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
     back-transformation to the Lab frame, interpolation in space is applied,
     but no interpolation for the particle velocities is applied.
 
-    By default (``gpu_batched=True``), the GPU path does not wait for the GPU
-    at each time step. One kernel per species keeps only the particles that
+    By default (``gpu_batched=True``), the GPU path makes no blocking copy
+    per snapshot. One kernel per species keeps only the particles that
     may cross an output plane (and pass a "uz" selection), and copies them
     to the host asynchronously. The host runs the unchanged per-particle
     selection and Lorentz transformation at the next call of `write` or
     `flush_to_disk`. The written data are identical to the legacy path.
+    The host still waits for the GPU in two places: at each step, for the
+    copy of the column ends of the last sort (the GPU keeps the work that
+    was enqueued after that sort, so it does not become idle), and at each
+    flush, for the particles of the current step.
     """
 
     def __init__(
@@ -305,6 +309,11 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
             & (z_lab >= self._zmin_lab)
             & (z_lab < self._zmax_lab)
         )
+        # The sorts copy the column ends only while snapshots are active
+        # (an active snapshot is usually active at the next step too)
+        for species_name in self.species_names_list:
+            listener = column_end_copy(self.species_dict[species_name])
+            listener.request(self, active.size > 0)
         if active.size == 0:
             return
         entries = [(int(i), float(z_boost[i]), float(prev_z_boost[i])) for i in active]
@@ -489,10 +498,11 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
                 # The first proc writes this array to disk
                 # (if this snapshot has new slices)
                 # (The batched path skips empty data: the datasets exist
-                # already, so the file content does not change.)
+                # already, so the file content does not change. The legacy
+                # path keeps its empty writes.)
                 if self.rank == 0:
                     if not (
-                        self.gpu_batched
+                        self._use_batched_path()
                         and all(len(particle_dict[q]) == 0 for q in quantities_in_file)
                     ):
                         self.write_slices(particle_dict, species_name, snapshot)

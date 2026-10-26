@@ -1960,5 +1960,10 @@ class Particles(object):
         # Return the sort block to the CuPy pool (see allocate_sort_scratch)
         release_sort_scratch(self)
         # Notify the listeners that `prefix_sum` changed
+        # (The ColumnEndCopy listener of the back-transformed particle
+        # diagnostics launches an asynchronous device-to-host copy of
+        # about 4*Nz bytes here, inside the PIC step, but only while one
+        # of their snapshots is active. This is a documented exception to
+        # the rule that device-to-host copies stay in the diagnostics.)
         for listener in getattr(self, "sort_listeners", ()):
             listener(self)
