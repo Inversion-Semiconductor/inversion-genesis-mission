@@ -1,10 +1,13 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from inversion_fbpic.utils.make_movie import make_movie
+import pytest
 
 
+@pytest.mark.ffmpeg
 def test_make_movie_writes_to_requested_movie_dir(tmp_path: Path) -> None:
+    from inversion_fbpic.utils.make_movie import make_movie
+
     images_dir = tmp_path / "stills"
     images_dir.mkdir()
     (images_dir / "frame_0001.png").touch()
@@ -23,7 +26,10 @@ def test_make_movie_writes_to_requested_movie_dir(tmp_path: Path) -> None:
     assert run.call_args.args[0][-1] == str(movie_file)
 
 
+@pytest.mark.ffmpeg
 def test_make_movie_optimas_writes_to_requested_movie_dir(tmp_path: Path) -> None:
+    from inversion_fbpic.utils.make_movie import make_movie
+
     images_dir = tmp_path / "stills"
     images_dir.mkdir()
     (images_dir / "frame_0001.png").touch()
