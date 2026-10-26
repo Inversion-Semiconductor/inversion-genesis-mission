@@ -14,6 +14,7 @@ They record per-kernel GPU time with Nsight Systems and the end-to-end time of t
 | `warp-fp64-m1tpb16` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 16 threads per block for the one-mode current group only |
 | `warp-fp64-jg2`, `-jg4`, `-jg8` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 2, 4, or 8 lanes per cell for current deposition |
 | `warp-fp64-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 4 lanes per cell for charge deposition |
+| `warp-fp64-jg4-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 4 lanes per cell for current and charge deposition |
 
 The variant table is in `bench/variants.py`.
 Two cases are available (`--case`):
@@ -180,6 +181,30 @@ Do these steps after `sync.sh`:
 
 `bench.kernel_table` reads `profile/rank0.sqlite`. It shows registers, spill bytes, threads per block, launches per step, microseconds per launch, and milliseconds per step.
 Use `--match REGEX` to select other kernels.
+
+## Kernel limits with Nsight Compute
+
+Mode `ncu` profiles every kernel of one step (the second-to-last step) with Nsight Compute.
+It shows how close each kernel runs to the DRAM, L2, L1, FP64, and instruction-issue limits.
+Nsight Compute replays each kernel to read the hardware counters. The run is therefore slower than a `kernels` run.
+Hardware counters conflict with DCGM, so `run_task.sh` pauses DCGM on the node and resumes it afterwards (NERSC instructions).
+Use an exclusive node (`--qos debug`), so that the pause does not affect other users of a shared node.
+
+1. Submit one job with the variants to compare (about 20 minutes on one node):
+
+   ```sh
+   $PM/launch.sh --mode ncu --variant numba --variant warp-fp64-jg4-rhog4 --qos debug --constraint 'gpu&hbm40g' --time 00:30:00 --submit
+   ```
+
+2. Read `<batch>/<variant>_r1/profile/ncu_table.md`. To combine runs, use `python -m bench.ncu_table <batch>` with `module load cudatoolkit`.
+
+Each kernel gets a verdict from its highest unit utilization:
+
+- `DRAM-bound`, `L2-bound`, `L1-bound`, `FP64-bound`, or `issue-bound`: one unit runs at 60 % of its peak or more. Only less traffic or less work helps.
+- `<unit> N%, headroom`: the highest unit runs at 40-60 %.
+- `latency-bound`: every unit runs below 40 %. Too few active warps or dependent loads limit the kernel. Occupancy, coalescing, or more independent work helps.
+
+`ld sector use %` is the share of each loaded 32-byte sector that the kernel uses. 100 % means fully coalesced loads.
 
 ## Options
 

@@ -96,6 +96,14 @@ VARIANTS = {
             deposit_tpb=32,
             deposit_lanes={"rho": 4},
         ),
+        # Best measured deposition settings on A100 (2026-10-23 kernel runs).
+        Variant(
+            "warp-fp64-jg4-rhog4",
+            "warp",
+            dict(WARP_FP64),
+            deposit_tpb=32,
+            deposit_lanes={"J": 4, "rho": 4},
+        ),
         Variant(
             "warp-fp64-m1tpb16",
             "warp",

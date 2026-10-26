@@ -68,9 +68,9 @@ variant_solver() {
 mode_steps() {
     case "$1" in
         smoke) echo 100 ;;
-        kernels | window) echo 1/10 ;;
+        kernels | window | ncu) echo 1/10 ;;
         full | tests) echo 0 ;;
-        *) die "unknown mode '$1' (smoke, kernels, window, full, tests)" ;;
+        *) die "unknown mode '$1' (smoke, kernels, window, ncu, full, tests)" ;;
     esac
 }
 

@@ -98,27 +98,59 @@ fi
 
 command=(python -u -m bench.run_case --run-dir "$run" --variant "$VARIANT" --steps "$STEPS"
     --case "$CASE" --rng "$RNG")
+# Profilers come from the cudatoolkit module; keep that module out of the run env.
+find_tool() {
+    command -v "$1" || { module load cudatoolkit >/dev/null 2>&1 && command -v "$1"; } || true
+}
+dcgm_paused=""
+resume_dcgm() {
+    if [[ -n "$dcgm_paused" ]]; then
+        srun --ntasks=1 --ntasks-per-node=1 dcgmi profile --resume >>"$run/meta/dcgm.log" 2>&1 ||
+            log "warning: dcgmi profile --resume failed (see meta/dcgm.log)"
+        dcgm_paused=""
+    fi
+}
+trap resume_dcgm EXIT
+
 if [[ -n "$PROFILE_WINDOW" ]]; then
     command+=("--profile-window=$PROFILE_WINDOW")
-    if [[ -z "${NSYS:-}" ]]; then
-        # nsys comes from the cudatoolkit module; keep that module out of the run env.
-        NSYS="$(command -v nsys || { module load cudatoolkit >/dev/null 2>&1 && command -v nsys; } || true)"
+    if [[ "$MODE" == ncu ]]; then
+        NCU="${NCU:-$(find_tool ncu)}"
+        [[ -x "$NCU" ]] || die "ncu not found; set NCU=/path/to/ncu"
+        export NCU
+        { echo "$NCU"; "$NCU" --version 2>&1 || true; } >"$run/meta/ncu_path.txt"
+        # NERSC: hardware counters conflict with DCGM, so pause it on the node while profiling.
+        if [[ "$ACTION" != local ]]; then
+            if srun --ntasks=1 --ntasks-per-node=1 dcgmi profile --pause >"$run/meta/dcgm.log" 2>&1; then
+                dcgm_paused=1
+            else
+                log "warning: dcgmi profile --pause failed (see meta/dcgm.log); ncu may fail"
+            fi
+        fi
+        command=(bash "$batch/tools/ncu_wrap.sh" "$run" "${command[@]}")
+    else
+        NSYS="${NSYS:-$(find_tool nsys)}"
+        [[ -x "$NSYS" ]] || die "nsys not found; set NSYS=/path/to/nsys"
+        export NSYS
+        { echo "$NSYS"; "$NSYS" --version 2>&1 || true; } >"$run/meta/nsys_path.txt"
+        command=(bash "$batch/tools/nsys_wrap.sh" "$run" "${command[@]}")
     fi
-    [[ -x "$NSYS" ]] || die "nsys not found; set NSYS=/path/to/nsys"
-    export NSYS
-    echo "$NSYS" >"$run/meta/nsys_path.txt"
-    "$NSYS" --version >>"$run/meta/nsys_path.txt" 2>&1 || true
-    command=(bash "$batch/tools/nsys_wrap.sh" "$run" "${command[@]}")
 fi
 
 set +e
 "${launcher[@]}" "${command[@]}" 2>&1 | tee "$run/run.log"
 status=${PIPESTATUS[0]}
 set -e
+resume_dcgm
 
 if [[ $status -eq 0 && -n "$PROFILE_WINDOW" ]]; then
-    python -m bench.kernels "$run" --nsys "$NSYS" >"$run/profile/kernels.log" 2>&1 ||
-        log "kernel summary failed for $run (see profile/kernels.log); rerun bench.kernels later"
+    if [[ "$MODE" == ncu ]]; then
+        python -m bench.ncu_table "$run" --ncu "$NCU" >"$run/profile/ncu_table.md" 2>"$run/profile/ncu_table.log" ||
+            log "ncu summary failed for $run (see profile/ncu_table.log); rerun bench.ncu_table later"
+    else
+        python -m bench.kernels "$run" --nsys "$NSYS" >"$run/profile/kernels.log" 2>&1 ||
+            log "kernel summary failed for $run (see profile/kernels.log); rerun bench.kernels later"
+    fi
 fi
 log "run $run exited with $status"
 exit "$status"

@@ -2,9 +2,11 @@
 # Stage and run one benchmark batch: variants x repeats for one mode.
 #
 # Usage:
-#   launch.sh --mode {smoke,kernels,window,full,tests} [options] {--submit|--here|--local|--stage-only}
+#   launch.sh --mode {smoke,kernels,window,ncu,full,tests} [options] {--submit|--here|--local|--stage-only}
 #
 # Mode tests runs FBPIC-Warp GPU test files with pytest instead of the producer case.
+# Mode ncu profiles every kernel of one step with Nsight Compute (pauses DCGM on the node;
+# use an exclusive node, for example --qos debug).
 #
 # Options:
 #   --variant V          a name from bench/variants.py; repeat for several
@@ -21,7 +23,7 @@
 #                        (campaign nominal + resolution profile; needs more GPU memory)
 #   --rng R              shared (ID-based draws, identical in both solvers; default) or original
 #   --profile-window A:B nsys capture steps; B may be 'end'; negative A counts from the end
-#                        (default for kernels: -300:end, the last 300 steps)
+#                        (default for kernels: -300:end, the last 300 steps; for ncu: -2:end, one step)
 #   --layout L           sequential (default) or concurrent (one GPU per run, up to 4)
 #   --qos Q --time T     Slurm QOS and time limit for --submit (default: from the config)
 #   --constraint C       Slurm constraint (default: gpu; use 'gpu&hbm80g' for 80 GB A100s)
@@ -96,10 +98,17 @@ fi
 if [[ "$mode" == kernels && -z "$window" ]]; then
     window="-300:end"
 fi
+if [[ "$mode" == ncu && -z "$window" ]]; then
+    window="-2:end"
+fi
 if [[ -n "$window" ]]; then
     [[ "$window" =~ ^(-?[0-9]+):([0-9]+|end)$ ]] || die "--profile-window must be A:B or A:end"
     [[ "${BASH_REMATCH[2]}" == end || "${BASH_REMATCH[1]}" -lt "${BASH_REMATCH[2]}" ]] ||
         die "--profile-window needs A < B"
+fi
+if [[ "$mode" == ncu && "$layout" == concurrent ]]; then
+    # Each run pauses and resumes DCGM on the node; concurrent runs would interfere.
+    die "mode ncu needs --layout sequential"
 fi
 if [[ "$qos" == shared && "$layout" == concurrent ]]; then
     die "the shared QOS gives one GPU; use --layout sequential"
