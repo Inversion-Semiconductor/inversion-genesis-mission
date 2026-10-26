@@ -626,6 +626,11 @@ def rebuild_open_boundary_gpu(species, fld, n_guard, float_injected=None):
     particles. Each new array is written in one pass, and the injected
     particles are copied to the GPU with one transfer.
 
+    The injected particles are on the GPU as one (n_float, N_injected) array
+    until this function returns. The previous sequence copied one quantity
+    at a time, so the peak GPU memory is higher by up to
+    8 * (n_float - 1) * N_injected bytes.
+
     Parameters
     ----------
     species: a Particles object

@@ -356,6 +356,10 @@ class PinnedStagingBuffer:
     directly with `cudaHostAlloc`, not from the CuPy pinned memory pool.
     Before `array` returns the buffer again, it waits for the previous copy
     from the buffer, because that copy is asynchronous.
+
+    The page-locked memory is kept until the object is deleted: up to
+    `headroom` times the largest requested size. For example, the injection
+    of 1e6 particles with 9 float quantities keeps about 90 MB.
     """
 
     def __init__(self, headroom: float = 1.25) -> None:
