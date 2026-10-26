@@ -192,6 +192,59 @@ def remove_particles_cpu(species, fld, n_guard, left_proc, right_proc):
     return (float_send_left, float_send_right, uint_send_left, uint_send_right)
 
 
+def get_stay_range_gpu(species, fld, n_guard):
+    """
+    Sort the particles on the GPU if needed, and return the range of
+    particle indices that are inside the physical domain.
+
+    This reads back two elements of the prefix sum, and therefore waits
+    for the work that is queued on the GPU.
+
+    Parameters
+    ----------
+    species: a Particles object
+        Contains the data of this species
+
+    fld: a Fields object
+        Contains information about the dimension of the grid
+
+    n_guard: int
+        Number of guard cells
+
+    Returns
+    -------
+    i_min, i_max: int
+        The particles with indices i_min (included) to i_max (excluded)
+        stay in the local physical domain
+    """
+    # Check if particles are sorted
+    # (The particles are usually expected to be sorted from the previous
+    # iteration at this point - except at the first iteration of `step`.)
+    if not species.sorted:
+        species.sort_particles(fld=fld)
+        species.sorted = True
+
+    # Get the particle indices between which to remove the particles
+    # (Take into account the fact that the moving window may have
+    # shifted the grid since the particles were last sorted: prefix_sum_shift)
+    prefix_sum = species.prefix_sum
+    Nz = fld.Nz
+    Nr = fld.Nr
+    # Find the z index of the first cell for which particles are kept
+    iz_min = max(n_guard + species.prefix_sum_shift, 0)
+    # Find the z index of the first cell for which particles are removed again
+    iz_max = min(Nz - n_guard + species.prefix_sum_shift + 1, Nz)
+    # Find the corresponding indices in the particle array
+    # Reminder: prefix_sum[i] is the cumulative sum of the number of particles
+    # in cells 0 to i (where cell i is included)
+    if iz_min * (Nr + 1) - 1 >= 0:
+        i_min = int(prefix_sum[iz_min * (Nr + 1) - 1])
+    else:
+        i_min = 0
+    i_max = int(prefix_sum[iz_max * (Nr + 1) - 1])
+    return i_min, i_max
+
+
 @catch_gpu_memory_error
 def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
     """
@@ -222,31 +275,8 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
         proc and right proc respectively, and where n_float and n_int
         are the number of float and integer quantities respectively
     """
-    # Check if particles are sorted
-    # (The particles are usually expected to be sorted from the previous
-    # iteration at this point - except at the first iteration of `step`.)
-    if not species.sorted:
-        species.sort_particles(fld=fld)
-        species.sorted = True
-
     # Get the particle indices between which to remove the particles
-    # (Take into account the fact that the moving window may have
-    # shifted the grid since the particles were last sorted: prefix_sum_shift)
-    prefix_sum = species.prefix_sum
-    Nz = fld.Nz
-    Nr = fld.Nr
-    # Find the z index of the first cell for which particles are kept
-    iz_min = max(n_guard + species.prefix_sum_shift, 0)
-    # Find the z index of the first cell for which particles are removed again
-    iz_max = min(Nz - n_guard + species.prefix_sum_shift + 1, Nz)
-    # Find the corresponding indices in the particle array
-    # Reminder: prefix_sum[i] is the cumulative sum of the number of particles
-    # in cells 0 to i (where cell i is included)
-    if iz_min * (Nr + 1) - 1 >= 0:
-        i_min = int(prefix_sum[iz_min * (Nr + 1) - 1])
-    else:
-        i_min = 0
-    i_max = int(prefix_sum[iz_max * (Nr + 1) - 1])
+    i_min, i_max = get_stay_range_gpu(species, fld, n_guard)
 
     # Total number of particles in each particle group
     N_send_l = i_min
@@ -584,6 +614,141 @@ def add_buffers_gpu(
     species.Ntot = new_Ntot
 
 
+@catch_gpu_memory_error
+def rebuild_open_boundary_gpu(species, fld, n_guard, float_injected=None):
+    """
+    Remove the particles that are in the guard cells of the open boundaries,
+    and append the injected particles, on the GPU.
+
+    This replaces `remove_particles_gpu` followed by `add_buffers_gpu`, when
+    both boundaries are open (no MPI exchange), with the same result:
+    the new arrays contain the particles that stay, then the injected
+    particles. Each new array is written in one pass, and the injected
+    particles are copied to the GPU with one transfer.
+
+    The injected particles are on the GPU as one (n_float, N_injected) array
+    until this function returns. The previous sequence copied one quantity
+    at a time, so the peak GPU memory is higher by up to
+    8 * (n_float - 1) * N_injected bytes.
+
+    Parameters
+    ----------
+    species: a Particles object
+        Contains the data of this species
+
+    fld: a Fields object
+        Contains information about the dimension of the grid
+
+    n_guard: int
+        Number of guard cells
+
+    float_injected: 2darray of floats, or None
+        Array of shape (n_float, N_injected), from
+        `species.generate_continuously_injected_particles(time,
+        gpu_rebuild=True)`, i.e. in `species.injection_staging`.
+        The ids and ionization levels of these particles are generated here.
+    """
+    i_min, i_max = get_stay_range_gpu(species, fld, n_guard)
+    n_stay = i_max - i_min
+    n_inj = 0 if float_injected is None else float_injected.shape[1]
+    old_Ntot = species.Ntot
+    # The particles must be sorted again before the next deposition, even
+    # when no particle is removed or added: the moving window may have
+    # shifted the grid since the last sort (see `prefix_sum_shift`).
+    species.sorted = False
+    if n_stay == old_Ntot and n_inj == 0:
+        # No particle is removed or added: keep the current arrays
+        return
+    new_Ntot = n_stay + n_inj
+
+    # Copy the injected particles to the GPU (one asynchronous transfer)
+    if n_inj > 0:
+        d_injected = species.injection_staging.to_device(float_injected)
+
+    dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(new_Ntot)
+    # Float quantities, in the order of the rows of float_injected
+    attr_list = [
+        (species, "x"),
+        (species, "y"),
+        (species, "z"),
+        (species, "ux"),
+        (species, "uy"),
+        (species, "uz"),
+        (species, "inv_gamma"),
+        (species, "w"),
+    ]
+    if species.ionizer is not None:
+        attr_list.append((species.ionizer, "w_times_level"))
+    if species.spin_tracker is not None:
+        attr_list += [
+            (species.spin_tracker, "sx"),
+            (species.spin_tracker, "sy"),
+            (species.spin_tracker, "sz"),
+        ]
+    for i_attr, (obj, name) in enumerate(attr_list):
+        old_array = getattr(obj, name)
+        new_array = cupy.empty((new_Ntot,), dtype=np.float64)
+        # Without injected particles, the kernel does not read `injected`
+        injected = d_injected[i_attr] if n_inj > 0 else old_array
+        merge_stay_and_injected[dim_grid_1d, dim_block_1d](
+            old_array, i_min, n_stay, injected, new_array
+        )
+        setattr(obj, name, new_array)
+
+    # Integer quantities: copy the particles that stay, then generate the
+    # quantities of the injected particles
+    if n_stay > 0:
+        dim_grid_stay, dim_block_stay = cuda_tpb_bpg_1d(n_stay)
+    if species.tracker is not None:
+        new_id = cupy.empty((new_Ntot,), dtype=np.uint64)
+        if n_stay > 0:
+            copy_particles[dim_grid_stay, dim_block_stay](
+                n_stay, species.tracker.id, i_min, new_id, 0
+            )
+        species.tracker.id = new_id
+        if n_inj > 0:
+            species.tracker.generate_new_ids_gpu(n_stay, new_Ntot)
+    if species.ionizer is not None:
+        new_level = cupy.empty((new_Ntot,), dtype=np.uint64)
+        if n_stay > 0:
+            copy_particles[dim_grid_stay, dim_block_stay](
+                n_stay, species.ionizer.ionization_level, i_min, new_level, 0
+            )
+        # All new particles start at the default ionization level
+        new_level[n_stay:] = species.ionizer.level_start
+        species.ionizer.ionization_level = new_level
+
+    species.Ntot = new_Ntot
+    if new_Ntot != old_Ntot:
+        reallocate_auxiliary_arrays_gpu(species)
+
+
+def reallocate_auxiliary_arrays_gpu(species):
+    """
+    Allocate the auxiliary GPU arrays of the particles for `species.Ntot`
+    particles: the fields on the particles (Ex, Ey, Ez, Bx, By, Bz) and
+    the sorting arrays. Their previous content is not kept.
+
+    Parameters
+    ----------
+    species: a Particles object
+        Contains the data of this species
+    """
+    shape = (species.Ntot,)
+    # Reallocate empty field-on-particle arrays on the GPU
+    species.Ex = cupy.empty(shape, dtype=np.float64)
+    species.Ey = cupy.empty(shape, dtype=np.float64)
+    species.Ez = cupy.empty(shape, dtype=np.float64)
+    species.Bx = cupy.empty(shape, dtype=np.float64)
+    species.By = cupy.empty(shape, dtype=np.float64)
+    species.Bz = cupy.empty(shape, dtype=np.float64)
+    # Reallocate empty auxiliary sorting arrays on the GPU
+    # (cell_idx and sorted_idx exist only during a sort)
+    species.sorting_buffer = cupy.empty(shape, dtype=np.float64)
+    if species.n_integer_quantities > 0:
+        species.int_sorting_buffer = cupy.empty(shape, dtype=np.uint64)
+
+
 def shift_particles_periodic_subdomain(species, zmin, zmax):
     """
     Assuming the local subdomain is periodic:
@@ -716,6 +881,44 @@ if cuda_installed:
         # Copy the particles into the right buffer
         if i < N_elements:
             target_array[i + target_start] = source_array[i + source_start]
+
+    @warp_kernel
+    def merge_stay_and_injected(
+        particle_array: wp.array(dtype=wp.float64),
+        i_min: int,
+        n_stay: int,
+        injected: wp.array(dtype=wp.float64),
+        new_array: wp.array(dtype=wp.float64),
+    ):
+        """
+        Fill `new_array` with the particles of `particle_array` from index
+        `i_min` to `i_min + n_stay` (excluded), followed by the particles
+        of `injected`
+
+        Parameters:
+        ------------
+        particle_array: 1d device array of floats
+            Original array of particles
+            (represents *one* of the particle quantities)
+
+        i_min, n_stay: int
+            Index of the first particle that stays, and number of
+            particles that stay
+
+        injected: 1d device array of floats
+            Injected particles; it has at least
+            `new_array.shape[0] - n_stay` elements
+
+        new_array: 1d device array of floats
+            The new particle array
+        """
+        # Get a 1D CUDA grid (the index corresponds to a particle index)
+        i = wp.tid()
+
+        if i < n_stay:
+            new_array[i] = particle_array[i + i_min]
+        elif i < new_array.shape[0]:
+            new_array[i] = injected[i - n_stay]
 
     @warp_kernel
     def shift_particles_periodic_cuda(

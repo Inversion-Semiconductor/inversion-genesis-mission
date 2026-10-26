@@ -197,6 +197,11 @@ class LaserAntenna(object):
         # the laser profile is not GPU capable
         if use_cuda:
 
+            # Host copies of vx and vy, for laser profiles that are evaluated
+            # on the CPU (see `update_v`)
+            self.h_vx = self.vx.copy()
+            self.h_vy = self.vy.copy()
+
             self.d_baseline_x = cupy.asarray(self.baseline_x)
             self.d_baseline_y = cupy.asarray(self.baseline_y)
             self.d_baseline_z = cupy.asarray(self.baseline_z)
@@ -286,15 +291,18 @@ class LaserAntenna(object):
         # i.e. half a timestep before `t` (at which v is to be computed)
         # Therefore, to compute v at the position of the antenna at `t`,
         # we compute the compute the positions advanced by half a timestep
-        if self.use_cuda:
+        if self.use_cuda and self.laser_profile.gpu_capable:
             x = self.d_baseline_x + self.vx * 0.5 * dt
             y = self.d_baseline_y + self.vy * 0.5 * dt
             z = self.d_baseline_z + self.d_vz * 0.5 * dt
-            if not (self.laser_profile.gpu_capable):
-                # Copy arrays from GPU to CPU
-                x = x.get()
-                y = y.get()
-                z = z.get()
+        elif self.use_cuda:
+            # The laser profile is evaluated on the CPU: use the host copies,
+            # which hold the same values as the GPU arrays (`push_x` and
+            # this function apply the same operations, in the same order).
+            # This avoids a copy from the GPU, which waits for the GPU.
+            x = self.baseline_x + self.h_vx * 0.5 * dt
+            y = self.baseline_y + self.h_vy * 0.5 * dt
+            z = self.baseline_z + self.vz * 0.5 * dt
         else:
             x = self.baseline_x + self.vx * 0.5 * dt
             y = self.baseline_y + self.vy * 0.5 * dt
@@ -323,8 +331,10 @@ class LaserAntenna(object):
 
         # Copy the velocities to GPU if the laser profile doesnt support GPU
         if self.use_cuda and not (self.laser_profile.gpu_capable):
-            self.vx.set(self.mobility_coef * Ex)
-            self.vy.set(self.mobility_coef * Ey)
+            self.h_vx = self.mobility_coef * Ex
+            self.h_vy = self.mobility_coef * Ey
+            self.vx.set(self.h_vx)
+            self.vy.set(self.h_vy)
         else:
             self.vx = self.mobility_coef * Ex
             self.vy = self.mobility_coef * Ey

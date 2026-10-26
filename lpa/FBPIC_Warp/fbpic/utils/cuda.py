@@ -346,3 +346,78 @@ def pinned_array(shape: int | tuple[int, ...], dtype=np.float64) -> np.ndarray:
     import cupyx
 
     return cupyx.empty_pinned(shape, dtype=dtype)
+
+
+class PinnedStagingBuffer:
+    """Reuse one page-locked host buffer for repeated host-to-device copies.
+
+    The capacity only grows, with headroom, so that repeated copies of similar
+    sizes do not allocate page-locked memory again. The buffer is allocated
+    directly with `cudaHostAlloc`, not from the CuPy pinned memory pool.
+    Before `array` returns the buffer again, it waits for the previous copy
+    from the buffer, because that copy is asynchronous.
+
+    The page-locked memory is kept until the object is deleted: up to
+    `headroom` times the largest requested size. For example, the injection
+    of 1e6 particles with 9 float quantities keeps about 90 MB.
+    """
+
+    def __init__(self, headroom: float = 1.25) -> None:
+        """Create an empty staging buffer.
+
+        Args:
+            headroom: Ratio of the allocated capacity to the requested size,
+                when the buffer grows.
+        """
+        self.headroom = headroom
+        self._memory = None
+        self._capacity = 0
+        self._event = None
+
+    def array(self, shape: tuple[int, ...], dtype=np.float64) -> np.ndarray:
+        """Return a writable, C-contiguous host array in the staging buffer.
+
+        The array shares memory with the arrays that earlier calls returned.
+        This call blocks until the previous `to_device` copy has completed.
+
+        Args:
+            shape: Array dimensions.
+            dtype: NumPy element dtype.
+
+        Returns:
+            A host array in page-locked memory, or in regular memory when the
+            array is empty.
+        """
+        if self._event is not None:
+            self._event.synchronize()
+            self._event = None
+        count = int(np.prod(shape))
+        nbytes = count * np.dtype(dtype).itemsize
+        if nbytes == 0:
+            return np.empty(shape, dtype=dtype)
+        if nbytes > self._capacity:
+            # Release the old buffer before the new one is allocated
+            self._memory = None
+            self._capacity = int(nbytes * self.headroom)
+            self._memory = cupy.cuda.PinnedMemory(self._capacity)
+        pointer = cupy.cuda.PinnedMemoryPointer(self._memory, 0)
+        return np.frombuffer(pointer, dtype=dtype, count=count).reshape(shape)
+
+    def to_device(self, host_array: np.ndarray) -> "cupy.ndarray":
+        """Copy an array from `array` to a new device array, asynchronously.
+
+        The copy runs on the current CuPy stream, which is the shared runtime
+        stream. The host must not modify `host_array` until the next call to
+        `array`, which waits for the copy.
+
+        Args:
+            host_array: An array that `array` returned.
+
+        Returns:
+            A device array with the same shape and dtype.
+        """
+        stream = cupy.cuda.get_current_stream()
+        device_array = cupy.empty(host_array.shape, dtype=host_array.dtype)
+        device_array.set(host_array, stream=stream)
+        self._event = stream.record()
+        return device_array

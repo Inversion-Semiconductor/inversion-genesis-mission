@@ -47,7 +47,7 @@ from fbpic.utils.cuda import cuda_installed
 if cuda_installed:
     # Load the CUDA methods
     import cupy
-    from fbpic.utils.cuda import cuda_tpb_bpg_1d, cuda_gpu_model
+    from fbpic.utils.cuda import cuda_tpb_bpg_1d, cuda_gpu_model, PinnedStagingBuffer
     from .push.cuda_methods import (
         push_p_gpu,
         push_p_ioniz_gpu,
@@ -314,6 +314,9 @@ class Particles(object):
             )
         else:
             self.injector = None
+        # Page-locked host buffer for the injected particles, when the GPU
+        # particle arrays are rebuilt at an open boundary (created on use)
+        self.injection_staging = None
 
         # By default, there is no particle tracking (see method track)
         self.tracker = None
@@ -467,13 +470,30 @@ class Particles(object):
             # Modify flag accordingly
             self.data_is_on_gpu = False
 
-    def generate_continuously_injected_particles(self, time):
+    def generate_continuously_injected_particles(self, time, gpu_rebuild=False):
         """
         Generate particles at the right end of the simulation boundary.
         (Typically, in the presence of a moving window.)
 
         Note that the `ContinuousInjector` object keeps track of the
         positions and number of macroparticles to be injected.
+
+        Parameters
+        ----------
+        time: float (seconds)
+            The global time of the simulation
+
+        gpu_rebuild: bool, optional
+            Whether the particles are for `rebuild_open_boundary_gpu`.
+            In this case, the float buffer is in the page-locked memory of
+            `self.injection_staging`, and the integer quantities (ids and
+            ionization levels) are generated later, on the GPU: the integer
+            buffer is None, and the tracker ids are not attributed here.
+
+        Returns
+        -------
+        float_buffer, uint_buffer: arrays of shape (n_float, Ntot) and
+            (n_int, Ntot), where Ntot is the number of new particles
         """
         # This function should only be called if continuous injection is activated
         assert self.continuous_injection
@@ -483,7 +503,13 @@ class Particles(object):
 
         # Convert them to a particle buffer
         # - Float buffer
-        float_buffer = np.empty((self.n_float_quantities, Ntot), dtype=np.float64)
+        shape = (self.n_float_quantities, Ntot)
+        if gpu_rebuild:
+            if self.injection_staging is None:
+                self.injection_staging = PinnedStagingBuffer()
+            float_buffer = self.injection_staging.array(shape, dtype=np.float64)
+        else:
+            float_buffer = np.empty(shape, dtype=np.float64)
         float_buffer[0, :] = x
         float_buffer[1, :] = y
         float_buffer[2, :] = z
@@ -496,14 +522,17 @@ class Particles(object):
             # All new particles start at the default ionization level
             float_buffer[8, :] = w * self.ionizer.level_start
         # - Integer buffer
-        uint_buffer = np.empty((self.n_integer_quantities, Ntot), dtype=np.uint64)
-        i_int = 0
-        if self.tracker is not None:
-            uint_buffer[i_int, :] = self.tracker.generate_new_ids(Ntot)
-            i_int += 1
-        if self.ionizer is not None:
-            # All new particles start at the default ionization level
-            uint_buffer[i_int, :] = self.ionizer.level_start
+        if gpu_rebuild:
+            uint_buffer = None
+        else:
+            uint_buffer = np.empty((self.n_integer_quantities, Ntot), dtype=np.uint64)
+            i_int = 0
+            if self.tracker is not None:
+                uint_buffer[i_int, :] = self.tracker.generate_new_ids(Ntot)
+                i_int += 1
+            if self.ionizer is not None:
+                # All new particles start at the default ionization level
+                uint_buffer[i_int, :] = self.ionizer.level_start
         if self.spin_tracker is not None:
             # Generate new spins for _injected_ particles
             sx, sy, sz = self.spin_tracker.generate_new_spins(Ntot)
