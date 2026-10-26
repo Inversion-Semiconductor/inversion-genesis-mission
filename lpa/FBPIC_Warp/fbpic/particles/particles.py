@@ -873,12 +873,15 @@ class Particles(object):
                 (self.spin_tracker, "sy"),
                 (self.spin_tracker, "sz"),
             ]
-        self._permute_arrays(
-            attr_list,
-            self._float_sorting_slots(_permute_width(len(attr_list))),
-            dim_grid_1d,
-            dim_block_1d,
-        )
+        float_slots = self._float_sorting_slots(_permute_width(len(attr_list)))
+        self._permute_arrays(attr_list, float_slots, dim_grid_1d, dim_block_1d)
+        # The extra float slots now hold the unsorted data: return them to
+        # the CuPy pool. They exist only for the rare sorts that keep the
+        # fields sorted (e.g. a boosted-frame diagnostic) or for neutral
+        # species, so they are not kept for the rest of the run.
+        for obj, name in float_slots:
+            if name.startswith("_sort_slot_float"):
+                delattr(obj, name)
         # Iterate over (integer) particle attributes
         attr_list = []
         if self.tracker is not None:
@@ -931,13 +934,19 @@ class Particles(object):
         Return `count` float64 buffer slots of Ntot elements for sorting.
 
         Slot 0 is sorting_buffer. When the fields on the particles are not
-        kept sorted, Ex, Ey and Ez are dead until the next field gather, which
-        writes every element: they serve as the other slots, without any
-        allocation. Otherwise, the other slots are buffers of the species,
-        which are allocated (or reallocated after a change of Ntot) here.
+        kept sorted, Ex, Ey and Ez of a charged species are dead until the
+        next field gather, which writes every element: they serve as the
+        other slots, without any allocation. After such a sort, Ex, Ey and Ez
+        hold unsorted particle data: they are defined only from the field
+        gather to the end of the elementary processes, while
+        keep_fields_sorted is True.
+        The gather skips neutral species (q == 0), so their Ex, Ey and Ez are
+        never borrowed. Otherwise, the other slots are new arrays, which
+        `rearrange_particle_arrays` releases after the permute.
         """
         slots = [(self, "sorting_buffer")]
-        borrowed = [] if self.keep_fields_sorted else ["Ex", "Ey", "Ez"]
+        borrow = not self.keep_fields_sorted and self.q != 0
+        borrowed = ["Ex", "Ey", "Ez"] if borrow else []
         for k in range(1, count):
             name = borrowed[k - 1] if k - 1 < len(borrowed) else None
             if name is None or not _is_buffer(getattr(self, name), self.Ntot):
@@ -953,7 +962,10 @@ class Particles(object):
 
         Slot 0 is int_sorting_buffer. The other slots are buffers of the
         species, which are allocated (or reallocated after a change of Ntot)
-        here.
+        here, and kept between sorts. Only a species with 2 integer arrays
+        (a tracked, ionizable species: id and ionization_level) has one: it
+        retains 8 bytes per particle. The Ntot of such ions changes only at
+        the particle exchange, so the slot is rarely reallocated.
         """
         slots = [(self, "int_sorting_buffer")]
         for k in range(1, count):

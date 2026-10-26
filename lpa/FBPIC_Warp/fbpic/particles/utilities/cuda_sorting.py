@@ -109,6 +109,11 @@ def allocate_sort_scratch(species):
     persistent sort storage, the pool of the benchmark case grew to the
     48 GB device limit (23 GB with thrust).
 
+    This is a heuristic that depends on the CuPy pool behaviour, not a bound
+    on the pool size. The root cause is the exact-size reallocation of the
+    particle arrays in `reallocate_and_copy_old`; capacity-based particle
+    arrays would remove the dependence.
+
     Args:
         species: Particles object on the GPU. The function sets
             ``species.cell_idx`` and ``species.sorted_idx`` to int32 CuPy views

@@ -22,6 +22,9 @@ The CPU path and the physics models are unchanged.
 * Fix GPU integer floor division in external-field callbacks under Warp 1.18.
 * Forward `fbpic_hankel_precision` and `fbpic_fuse_particle_kernels` through PICMI.
 * Replace floating-point powers with multiplications in the particle kernels.
+* Sort the particles with the Warp radix sort on int32 keys and values, and permute up to 4 particle arrays per launch.
+  The particle arrays `Ex`, `Ey` and `Ez` of a charged species also serve as sorting buffers.
+  Their values are defined only from the field gather to the end of the elementary processes.
 * Package with `pyproject.toml` and require Python 3.11 or later.
 
 Multi-GPU (MPI) execution and gradients are not validated in this release.
