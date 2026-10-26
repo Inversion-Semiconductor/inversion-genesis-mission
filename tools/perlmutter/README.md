@@ -206,6 +206,18 @@ Each kernel gets a verdict from its highest unit utilization:
 
 `ld sector use %` is the share of each loaded 32-byte sector that the kernel uses. 100 % means fully coalesced loads.
 
+## GPU idle time
+
+`bench.idle_gaps` finds the intervals in a `kernels` capture where the GPU has no kernel, copy, or memset.
+For each interval, it finds the host call that issued the next GPU operation.
+If the host issued it late, the tool splits the host time by CUDA call, for example `cudaFree`.
+The rest is host work without a CUDA call, such as Python and NumPy.
+
+```sh
+module load conda && conda activate "$FBPIC_ENV"
+cd <batch>/tools && python -m bench.idle_gaps <batch> [<batch>...]
+```
+
 ## Options
 
 - `--variant V`: run only some variants. Repeat the option for more than one.
