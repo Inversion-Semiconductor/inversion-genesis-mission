@@ -8,10 +8,13 @@ pressure. Arrays remain caller-owned. No device-to-host transfer occurs in
 dispatch.
 
 An opt-in variant (``make_lane_kernel``) splits each cell over several adjacent
-lanes, so that the particle loads of one warp use whole sectors.
+lanes, so that the particle loads of one warp use whole sectors. The lane count
+can differ between mode groups (``group_lanes``).
 """
 
+from collections.abc import Mapping
 from functools import cache
+from numbers import Integral
 
 import warp as wp
 from scipy.constants import c
@@ -265,6 +268,61 @@ def make_kernel(current: bool, first_mode: int, mode_count: int):
 LANE_COUNTS = (2, 4, 8, 16, 32)
 
 
+def group_lanes(setting, mode_count: int, group_size: int) -> int:
+    """Return the lanes per cell for one fused deposition mode group.
+
+    The checks run on the whole setting at every call. A bad entry therefore
+    fails at the first group, before ``deposit_fused`` launches any kernel.
+
+    Args:
+        setting: Lanes for every group as an integer, or a mapping from the
+            mode count of a group (1 to ``group_size``) to its lanes, for
+            example ``{2: 4, 1: 8}`` for current. Mapping keys and values
+            must be plain ``int``.
+        mode_count: Number of modes in the group.
+        group_size: Largest number of modes in a group for this field type.
+
+    Returns:
+        One, or one of ``LANE_COUNTS``.
+
+    Raises:
+        TypeError: The setting is a bool, or a mapping key or value is not a
+            plain int.
+        ValueError: A mapping key is outside 1 to ``group_size``, or a lane
+            count is not one and not in ``LANE_COUNTS``.
+        KeyError: The mapping has no entry for ``mode_count``.
+    """
+    if isinstance(setting, Mapping):
+        for key, lanes in setting.items():
+            # type() rejects bool and NumPy integers, which compare equal to
+            # int but would make a JSON-loaded or typo key miss silently.
+            if type(key) is not int or type(lanes) is not int:
+                raise TypeError(
+                    "deposit_lanes mapping keys and values must be int, "
+                    f"got {dict(setting)!r}"
+                )
+            if not 1 <= key <= group_size:
+                raise ValueError(
+                    f"deposit_lanes mapping keys must be mode counts 1-{group_size}, "
+                    f"got {key!r}"
+                )
+            if lanes != 1 and lanes not in LANE_COUNTS:
+                raise ValueError(
+                    f"lanes must be 1 or one of {LANE_COUNTS}, got {lanes!r}"
+                )
+        if mode_count not in setting:
+            raise KeyError(
+                f"deposit_lanes mapping {dict(setting)!r} has no entry for a group "
+                f"of {mode_count} modes"
+            )
+        return setting[mode_count]
+    if isinstance(setting, bool) or not isinstance(setting, Integral):
+        raise TypeError(f"deposit_lanes must be an int or a mapping, got {setting!r}")
+    if setting != 1 and setting not in LANE_COUNTS:
+        raise ValueError(f"lanes must be 1 or one of {LANE_COUNTS}, got {setting!r}")
+    return int(setting)
+
+
 @cache
 def make_lane_kernel(current: bool, first_mode: int, mode_count: int, lanes: int):
     """Return a fused kernel in which several adjacent lanes share one cell.
@@ -427,9 +485,11 @@ def deposit_fused(particles, grids, fieldtype: str, weight) -> None:
     are absent on species built without ``Particles.__init__``, which then use
     the defaults.
 
-    - ``deposit_lanes``: lanes per cell for each field type, for example
-      ``{"rho": 1, "J": 4}``. One lane uses ``make_kernel``; more lanes use
-      ``make_lane_kernel``.
+    - ``deposit_lanes``: lanes per cell for each field type. A value is an
+      int for every group, or a mapping from group mode count to lanes, for
+      example ``{"J": {2: 2, 1: 4}, "rho": 4}`` (see ``group_lanes``). A
+      mapping needs an entry for every group that the mode count produces.
+      One lane uses ``make_kernel``; more lanes use ``make_lane_kernel``.
     - ``deposit_tpb_single_mode``: threads per block for a group of one mode,
       for example the last current group (4) for five modes. None uses
       ``deposit_tpb``.
@@ -458,9 +518,16 @@ def deposit_fused(particles, grids, fieldtype: str, weight) -> None:
     current = fieldtype == "J"
     group_size = CURRENT_GROUP_MODES if current else CHARGE_GROUP_MODES
     fields = ("Jr", "Jt", "Jz") if current else ("rho",)
-    lanes = getattr(particles, "deposit_lanes", {}).get(fieldtype, 1)
+    lane_setting = getattr(particles, "deposit_lanes", {}).get(fieldtype, 1)
+    first_modes = range(0, len(grids), group_size)
+    # Resolve the lanes of every group before the first launch, so that a bad
+    # setting raises before any group adds to the grids.
+    group_lane_counts = [
+        group_lanes(lane_setting, min(group_size, len(grids) - first), group_size)
+        for first in first_modes
+    ]
     single_mode_tpb = getattr(particles, "deposit_tpb_single_mode", None)
-    for first_mode in range(0, len(grids), group_size):
+    for first_mode, lanes in zip(first_modes, group_lane_counts):
         selected_grids = grids[first_mode : first_mode + group_size]
         mode_count = len(selected_grids)
         outputs = [getattr(grid, field) for field in fields for grid in selected_grids]
