@@ -254,7 +254,13 @@ def apply_deposition_settings(fbpic_sim, variant) -> None:
         if variant.deposit_lanes is not None:
             if not isinstance(getattr(species, "deposit_lanes", None), dict):
                 raise RuntimeError("this FBPIC has no Particles.deposit_lanes")
-            species.deposit_lanes = {**species.deposit_lanes, **variant.deposit_lanes}
+            # Copy per-group mappings, so that no species shares a dict with
+            # the variant or with another species.
+            overrides = {
+                fieldtype: dict(lanes) if isinstance(lanes, dict) else lanes
+                for fieldtype, lanes in variant.deposit_lanes.items()
+            }
+            species.deposit_lanes = {**species.deposit_lanes, **overrides}
         if variant.deposit_tpb_single_mode is not None:
             if not hasattr(species, "deposit_tpb_single_mode"):
                 raise RuntimeError(

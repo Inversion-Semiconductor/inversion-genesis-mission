@@ -15,6 +15,8 @@ They record per-kernel GPU time with Nsight Systems and the end-to-end time of t
 | `warp-fp64-jg2`, `-jg4`, `-jg8` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 2, 4, or 8 lanes per cell for current deposition |
 | `warp-fp64-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 4 lanes per cell for charge deposition |
 | `warp-fp64-jg4-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64`, with 4 lanes per cell for current and charge deposition |
+| `warp-fp64-jg24-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64-jg4-rhog4`, with 2 lanes per cell for the two-mode current groups (A100 candidate) |
+| `warp-fp64-jg48-rhog4` | `snidhan/perl-warp-run` | `lpa/FBPIC_Warp` | as `warp-fp64-jg4-rhog4`, with 8 lanes per cell for the one-mode current group (RTX 6000 Ada candidate) |
 
 The variant table is in `bench/variants.py`.
 Two cases are available (`--case`):
@@ -165,7 +167,7 @@ Do these steps after `sync.sh`:
 3. Submit one kernel job for each variant (about 5 minutes each on one GPU):
 
    ```sh
-   for v in warp-fp64 warp-fp64-tpb16 warp-fp64-m1tpb16 warp-fp64-jg2 warp-fp64-jg4 warp-fp64-jg8 warp-fp64-rhog4; do
+   for v in warp-fp64 warp-fp64-tpb16 warp-fp64-m1tpb16 warp-fp64-jg2 warp-fp64-jg4 warp-fp64-jg8 warp-fp64-rhog4 warp-fp64-jg24-rhog4; do
        $PM/launch.sh --mode kernels --variant "$v" --qos shared --constraint 'gpu&hbm40g' --time 00:45:00 --submit
    done
    ```
