@@ -269,3 +269,75 @@ def write_sorting_buffer(
     i = wp.tid()
     if i < val.shape[0]:
         buf[i] = val[sorted_idx[i]]
+
+
+@warp_kernel
+def write_sorting_buffer2(
+    sorted_idx: wp.array(dtype=wp.int32),
+    val0: wp.array(dtype=Any),
+    val1: wp.array(dtype=Any),
+    buf0: wp.array(dtype=Any),
+    buf1: wp.array(dtype=Any),
+):
+    """
+    Writes the values of two particle arrays to two buffers,
+    while rearranging them to match the sorted cell index array.
+    Each thread reads the sorted index once for both arrays.
+
+    Parameters
+    ----------
+    sorted_idx : 1darray of integers
+        Represents the original index of the
+        particle before the sorting
+
+    val0, val1 : 1d arrays of floats or integers
+        Particle data arrays
+
+    buf0, buf1 : 1d arrays of floats or integers
+        Buffer arrays (with the dtype of val0 and val1)
+        to temporarily store the sorted particle data arrays
+    """
+    i = wp.tid()
+    if i < sorted_idx.shape[0]:
+        j = sorted_idx[i]
+        buf0[i] = val0[j]
+        buf1[i] = val1[j]
+
+
+@warp_kernel
+def write_sorting_buffer4(
+    sorted_idx: wp.array(dtype=wp.int32),
+    val0: wp.array(dtype=wp.float64),
+    val1: wp.array(dtype=wp.float64),
+    val2: wp.array(dtype=wp.float64),
+    val3: wp.array(dtype=wp.float64),
+    buf0: wp.array(dtype=wp.float64),
+    buf1: wp.array(dtype=wp.float64),
+    buf2: wp.array(dtype=wp.float64),
+    buf3: wp.array(dtype=wp.float64),
+):
+    """
+    Writes the values of four particle arrays to four buffers,
+    while rearranging them to match the sorted cell index array.
+    Each thread reads the sorted index once for the four arrays,
+    and has four independent gathers in flight.
+
+    Parameters
+    ----------
+    sorted_idx : 1darray of integers
+        Represents the original index of the
+        particle before the sorting
+
+    val0, val1, val2, val3 : 1d arrays of floats
+        Particle data arrays
+
+    buf0, buf1, buf2, buf3 : 1d arrays of floats
+        Buffer arrays to temporarily store the sorted particle data arrays
+    """
+    i = wp.tid()
+    if i < sorted_idx.shape[0]:
+        j = sorted_idx[i]
+        buf0[i] = val0[j]
+        buf1[i] = val1[j]
+        buf2[i] = val2[j]
+        buf3[i] = val3[j]

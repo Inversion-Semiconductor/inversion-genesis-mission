@@ -139,6 +139,11 @@ def _bits(array):
     return array.view(np.uint64) if array.dtype == np.float64 else array
 
 
+def _permute_launches(count):
+    # Chunks of 4 arrays, then a remainder of 3 = 2 + 1, 2, or 1.
+    return count // 4 + (0, 1, 1, 2)[count % 4]
+
+
 def _sort_and_check(runtime, species, data, keep_fields_sorted):
     import cupy as cp
 
@@ -153,9 +158,18 @@ def _sort_and_check(runtime, species, data, keep_fields_sorted):
         rearrange()
 
     species.rearrange_particle_arrays = capture
+    before = runtime.launch_count
     species.sort_particles(SimpleNamespace(interp=[_grid()]))
+    launches = runtime.launch_count - before
     runtime.synchronize()
     assert species.cell_idx is None and species.sorted_idx is None
+    if species.Ntot > 0:
+        n_float = len(PARTICLE_DATA) + ("w_times_level" in data)
+        n_float += len(PARTICLE_FIELDS) if keep_fields_sorted else 0
+        n_int = ("ionization_level" in data) + ("id" in data)
+        # Cell index, prefix-sum prefill and prefix sum, then the permutes.
+        expected = 3 + _permute_launches(n_float) + _permute_launches(n_int)
+        assert launches == expected
 
     keys = _host_cell_idx(data)
     perm = np.argsort(keys, kind="stable")
@@ -205,6 +219,9 @@ def test_sort_matches_host_reference(runtime, count, n_int, keep_fields_sorted):
     # A second sort of sorted particles is the identity permutation.
     _sort_and_check(runtime, species, data, keep_fields_sorted)
     after = _pointers(species)
+    if not keep_fields_sorted:
+        # Dead field arrays serve as the float buffers: no allocation.
+        assert getattr(species, "_sort_slot_float1", None) is None
     if count > 0:
         # The sort swaps buffers but never loses or duplicates an allocation.
         assert len(set(after)) == len(after)
