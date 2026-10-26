@@ -15,6 +15,10 @@ The CPU path and the physics models are unchanged.
 * Add an optional float32 Hankel transform (`Simulation(hankel_precision='float32')`).
 * Add reproducible ionization draws from particle IDs (`make_ionizable(rng_seed=..., rng_stream=...)`).
 * Run the float64 Hankel GEMM on the shared CUDA stream instead of the NULL stream.
+* Allocate CuPy memory from the stream-ordered CUDA memory pool. This removes the
+  `cudaFree` device synchronization at each particle exchange.
+  Set `FBPIC_GPU_ALLOCATOR=pool` to select the legacy CuPy pool; GPUDirect MPI also selects it.
+  `cupy.get_default_memory_pool()` no longer counts FBPIC arrays; use `fbpic.utils.warp.device_memory_stats()`.
 * Fix GPU integer floor division in external-field callbacks under Warp 1.18.
 * Forward `fbpic_hankel_precision` and `fbpic_fuse_particle_kernels` through PICMI.
 * Replace floating-point powers with multiplications in the particle kernels.
