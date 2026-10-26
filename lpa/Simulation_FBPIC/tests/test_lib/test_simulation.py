@@ -214,9 +214,24 @@ class TestSimulationHyperparameters:
         assert hp.smoother_passes == 1
         assert not hp.smoother_compensator
 
-    def test_smoother_passes_must_be_nonnegative(self) -> None:
+    def test_smoother_accepts_axis_tuples(self) -> None:
+        hp = _make_hyparams(smoother_passes=(2, 3), smoother_compensator=(True, False))
+        assert hp.smoother_passes == (2, 3)
+        assert hp.smoother_compensator == (True, False)
+
+        reloaded = type(hp).from_yaml(hp.to_yaml(comments=False))
+        assert reloaded.smoother_passes == (2, 3)
+        assert reloaded.smoother_compensator == (True, False)
+
+    @pytest.mark.parametrize("value", [-1, (-1, 1), (1,), (1, 2, 3)])
+    def test_smoother_passes_must_be_nonnegative_pairs(self, value) -> None:
         with pytest.raises(ValueError):
-            _make_hyparams(smoother_passes=-1)
+            _make_hyparams(smoother_passes=value)
+
+    @pytest.mark.parametrize("value", [(True,), (True, False, True)])
+    def test_smoother_compensator_requires_two_axis_values(self, value) -> None:
+        with pytest.raises(ValueError):
+            _make_hyparams(smoother_compensator=value)
 
     def test_grid_parameters_yaml(self) -> None:
         hp = _make_hyparams()
@@ -788,6 +803,24 @@ class TestAttachedAnalysis:
         smoother = simulation_module.FBPICSimulation.call_args.kwargs["smoother"]
         assert smoother.n_passes == {"z": 2, "r": 2}
         assert smoother.compensator == {"z": True, "r": True}
+
+    def test_setup_passes_axis_specific_smoother(
+        self, analysis_simulation, tmp_path
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams,
+            smoother_passes=(2, 3),
+            smoother_compensator=(True, False),
+        )
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        smoother = simulation_module.FBPICSimulation.call_args.kwargs["smoother"]
+        assert smoother.n_passes == {"z": 2, "r": 3}
+        assert smoother.compensator == {"z": True, "r": False}
 
     @pytest.mark.parametrize("logger_friendly", [False, True])
     def test_phase_order_and_hash_recording(

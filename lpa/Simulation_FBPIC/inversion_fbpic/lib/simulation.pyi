@@ -200,8 +200,8 @@ class SimulationHyperparameters(SerializableConfig):
         use_restart: (bool) |OPTIONAL| Whether to restart from a checkpoint. Defaults to False.
         track_electrons: (bool) |OPTIONAL| Whether to track and write particle ids. Defaults to False.
         n_order_mpi: (int) |OPTIONAL| Order of the stencil for z derivatives in the Maxwell solver if using MPI parallelization. Defaults to 32.
-        smoother_passes: (int) |OPTIONAL| Binomial smoothing passes of the charge and currents, along z and r; 0 means no smoothing. Defaults to 1 (fbpic's default).
-        smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Defaults to False (fbpic's default).
+        smoother_passes: (int | tuple[int, int]) |OPTIONAL| Binomial smoothing passes of the charge and currents. A single value applies to both axes; a tuple supplies `(z, r)`. Zero means no smoothing. Defaults to 1 (fbpic's default).
+        smoother_compensator: (bool | tuple[bool, bool]) |OPTIONAL| Whether the smoother is compensated. A single value applies to both axes; a tuple supplies `(z, r)`. Defaults to False (fbpic's default).
         random_seed: (int | None) |OPTIONAL| Random seed. Defaults to None (unset).
         r_boundary: (Literal["open", "reflective"]) |OPTIONAL| Boundary condition for the radial direction. Defaults to "reflective"."""
     CONFIG_TYPE: ClassVar[str]
@@ -225,8 +225,8 @@ class SimulationHyperparameters(SerializableConfig):
     use_restart: bool
     track_electrons: bool
     n_order_mpi: int
-    smoother_passes: int
-    smoother_compensator: bool
+    smoother_passes: int | tuple[int, int]
+    smoother_compensator: bool | tuple[bool, bool]
     random_seed: int | None
     r_boundary: Literal['open', 'reflective']
     def __init__(
@@ -251,8 +251,8 @@ class SimulationHyperparameters(SerializableConfig):
         use_restart: bool = False,
         track_electrons: bool = False,
         n_order_mpi: int = 32,
-        smoother_passes: int = 1,
-        smoother_compensator: bool = False,
+        smoother_passes: int | tuple[int, int] = 1,
+        smoother_compensator: bool | tuple[bool, bool] = False,
         random_seed: int | None = None,
         r_boundary: Literal['open', 'reflective'] = 'reflective',
     ) -> None:
@@ -280,8 +280,8 @@ class SimulationHyperparameters(SerializableConfig):
             use_restart: (bool) |OPTIONAL| Whether to restart from a checkpoint. Defaults to False.
             track_electrons: (bool) |OPTIONAL| Whether to track and write particle ids. Defaults to False.
             n_order_mpi: (int) |OPTIONAL| Order of the stencil for z derivatives in the Maxwell solver if using MPI parallelization. Defaults to 32.
-            smoother_passes: (int) |OPTIONAL| Binomial smoothing passes of the charge and currents, along z and r; 0 means no smoothing. Defaults to 1 (fbpic's default).
-            smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Defaults to False (fbpic's default).
+            smoother_passes: (int | tuple[int, int]) |OPTIONAL| Binomial smoothing passes of the charge and currents. A single value applies to both axes; a tuple supplies `(z, r)`. Zero means no smoothing. Defaults to 1 (fbpic's default).
+            smoother_compensator: (bool | tuple[bool, bool]) |OPTIONAL| Whether the smoother is compensated. A single value applies to both axes; a tuple supplies `(z, r)`. Defaults to False (fbpic's default).
             random_seed: (int | None) |OPTIONAL| Random seed. Defaults to None (unset).
             r_boundary: (Literal["open", "reflective"]) |OPTIONAL| Boundary condition for the radial direction. Defaults to "reflective"."""
     def grid_parameters_yaml(self, file_name: str | None=None, comments: bool=True, indent: int=2) -> str:

@@ -67,6 +67,36 @@ def _largest_prime_factor(n):
     return n
 
 
+def _convert_smoother_passes(value: Any) -> int | tuple[int, int]:
+    if isinstance(value, (tuple, list)):
+        if len(value) != 2:
+            raise ValueError("smoother_passes must contain values for z and r")
+        return tuple(int(axis_value) for axis_value in value)
+    return int(value)
+
+
+def _validate_smoother_passes(
+    _: Any, attribute: attrs.Attribute, value: int | tuple[int, int]
+) -> None:
+    values = value if isinstance(value, tuple) else (value,)
+    if any(axis_value < 0 for axis_value in values):
+        raise ValueError(f"{attribute.name} must be nonnegative")
+
+
+def _convert_smoother_compensator(value: Any) -> bool | tuple[bool, bool]:
+    if isinstance(value, (tuple, list)):
+        if len(value) != 2:
+            raise ValueError("smoother_compensator must contain values for z and r")
+        return tuple(bool(axis_value) for axis_value in value)
+    return bool(value)
+
+
+def _smoother_axis_values(value: Any) -> dict[str, Any]:
+    if isinstance(value, tuple):
+        return {"z": value[0], "r": value[1]}
+    return {"z": value, "r": value}
+
+
 @attrs.define(kw_only=True, slots=False, frozen=True)
 class _GridParameters(SerializableConfig):
     """
@@ -130,8 +160,8 @@ class SimulationHyperparameters(SerializableConfig):
         use_restart: (bool) |OPTIONAL| Whether to restart from a checkpoint. Defaults to False.
         track_electrons: (bool) |OPTIONAL| Whether to track and write particle ids. Defaults to False.
         n_order_mpi: (int) |OPTIONAL| Order of the stencil for z derivatives in the Maxwell solver if using MPI parallelization. Defaults to 32.
-        smoother_passes: (int) |OPTIONAL| Binomial smoothing passes of the charge and currents, along z and r; 0 means no smoothing. Defaults to 1 (fbpic's default).
-        smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Defaults to False (fbpic's default).
+        smoother_passes: (int | tuple[int, int]) |OPTIONAL| Binomial smoothing passes of the charge and currents. A single value applies to both axes; a tuple supplies `(z, r)`. Zero means no smoothing. Defaults to 1 (fbpic's default).
+        smoother_compensator: (bool | tuple[bool, bool]) |OPTIONAL| Whether the smoother is compensated. A single value applies to both axes; a tuple supplies `(z, r)`. Defaults to False (fbpic's default).
         random_seed: (int | None) |OPTIONAL| Random seed. Defaults to None (unset).
         r_boundary: (Literal["open", "reflective"]) |OPTIONAL| Boundary condition for the radial direction. Defaults to "reflective".
     """
@@ -186,10 +216,14 @@ class SimulationHyperparameters(SerializableConfig):
     n_order_mpi: int = attrs.field(
         default=32, converter=int, validator=attrs.validators.ge(1)
     )
-    smoother_passes: int = attrs.field(
-        default=1, converter=int, validator=attrs.validators.ge(0)
+    smoother_passes: int | tuple[int, int] = attrs.field(
+        default=1,
+        converter=_convert_smoother_passes,
+        validator=_validate_smoother_passes,
     )
-    smoother_compensator: bool = attrs.field(default=False, converter=bool)
+    smoother_compensator: bool | tuple[bool, bool] = attrs.field(
+        default=False, converter=_convert_smoother_compensator
+    )
     random_seed: int | None = attrs.field(
         default=None, converter=attrs.converters.optional(int)
     )
@@ -806,14 +840,8 @@ class Simulation(SerializableConfig):
 
         # Initialize the simulation object
         smoother = BinomialSmoother(
-            n_passes={
-                "z": self.hyparams.smoother_passes,
-                "r": self.hyparams.smoother_passes,
-            },
-            compensator={
-                "z": self.hyparams.smoother_compensator,
-                "r": self.hyparams.smoother_compensator,
-            },
+            n_passes=_smoother_axis_values(self.hyparams.smoother_passes),
+            compensator=_smoother_axis_values(self.hyparams.smoother_compensator),
         )
         self.simulation = FBPICSimulation(
             Nz=self.hyparams.nz,
