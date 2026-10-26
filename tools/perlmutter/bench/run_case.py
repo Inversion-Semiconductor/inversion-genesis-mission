@@ -313,12 +313,18 @@ def execution_settings(fbpic_sim) -> dict:
 
 
 def device_memory() -> dict | None:
-    """Read the allocator mode, trim count, and CUDA mempool peaks from FBPIC."""
+    """Read the allocator mode, trim count, and CUDA mempool peaks from FBPIC.
+
+    A diagnostic error is recorded under ``error``; it does not fail the run.
+    """
     try:
         from fbpic.utils.warp import device_memory_stats
     except ImportError:  # FBPIC before the CUDA mempool allocator
         return None
-    return device_memory_stats()
+    try:
+        return device_memory_stats()
+    except Exception as error:  # noqa: BLE001 - diagnostics only
+        return {"error": f"{type(error).__name__}: {error}"}
 
 
 def gpu_identity() -> dict:
