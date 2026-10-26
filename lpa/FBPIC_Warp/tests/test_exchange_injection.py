@@ -336,7 +336,7 @@ def _exchange_result(sim):
             for name in ("sx", "sy", "sz"):
                 result[i, name] = getattr(species.spin_tracker, name).get()
         result[i, "prefix_sum"] = species.prefix_sum.get()
-        for name in ("Ex", "cell_idx", "sorted_idx", "sorting_buffer"):
+        for name in ("Ex", "sorting_buffer"):
             assert getattr(species, name).shape == (species.Ntot,)
     for m, grid in enumerate(sim.fld.interp):
         result["rho", m] = grid.rho.get()
@@ -493,7 +493,7 @@ def test_open_boundary_rebuild_keeps_count():
     # GPU rebuild, from the same state
     _restore(sim, state)
     for i, species in enumerate((electrons, ions)):
-        auxiliary = species.Ex, species.cell_idx, species.sorting_buffer
+        auxiliary = species.Ex, species.Bz, species.sorting_buffer
         old_x = species.x
         float_r = floats[i][:, -n_removed[i] :]
         species.injection_staging = PinnedStagingBuffer()
@@ -502,7 +502,7 @@ def test_open_boundary_rebuild_keeps_count():
         rebuild_open_boundary_gpu(species, sim.fld, comm.n_guard, staged)
         assert species.Ntot == counts[i]
         assert species.x is not old_x
-        kept = (species.Ex, species.cell_idx, species.sorting_buffer)
+        kept = (species.Ex, species.Bz, species.sorting_buffer)
         assert all(a is b for a, b in zip(kept, auxiliary))
     new = _exchange_result(sim)
 
