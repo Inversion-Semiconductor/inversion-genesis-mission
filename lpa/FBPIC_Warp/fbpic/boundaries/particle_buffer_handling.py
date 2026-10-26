@@ -743,8 +743,7 @@ def reallocate_auxiliary_arrays_gpu(species):
     species.By = cupy.empty(shape, dtype=np.float64)
     species.Bz = cupy.empty(shape, dtype=np.float64)
     # Reallocate empty auxiliary sorting arrays on the GPU
-    species.cell_idx = cupy.empty(shape, dtype=np.int32)
-    species.sorted_idx = cupy.empty(shape, dtype=np.intp)
+    # (cell_idx and sorted_idx exist only during a sort)
     species.sorting_buffer = cupy.empty(shape, dtype=np.float64)
     if species.n_integer_quantities > 0:
         species.int_sorting_buffer = cupy.empty(shape, dtype=np.uint64)
