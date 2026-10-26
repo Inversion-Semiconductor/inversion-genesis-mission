@@ -363,6 +363,10 @@ class Particles(object):
             self.prefix_sum_shift = 0
             # Register boolean that records if the particles are sorted or not
             self.sorted = False
+            # Callables run after each sort, with this species as argument
+            # (e.g. the back-transformed particle diagnostics copy the
+            # column ends of `prefix_sum` asynchronously)
+            self.sort_listeners = []
             # CUDA threads per block for deposition and gathering. The values
             # are upstream FBPIC defaults, except linear deposition on GPUs
             # other than V100/A100: 32 instead of 8 threads, measured about 3x
@@ -1955,3 +1959,6 @@ class Particles(object):
         self.rearrange_particle_arrays()
         # Return the sort block to the CuPy pool (see allocate_sort_scratch)
         release_sort_scratch(self)
+        # Notify the listeners that `prefix_sum` changed
+        for listener in self.sort_listeners:
+            listener(self)

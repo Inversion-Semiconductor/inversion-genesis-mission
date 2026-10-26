@@ -20,7 +20,10 @@ from .particle_diag import ParticleDiagnostic
 from fbpic.utils.cuda import cuda_installed
 
 if cuda_installed:
-    from .cuda_methods import extract_slice_from_gpu
+    from .cuda_methods import extract_slice_from_gpu, column_end_copy, CrossingStaging
+
+# Float quantities extracted from the particle arrays
+_FLOAT_QUANTITIES = ("x", "y", "z", "ux", "uy", "uz", "w", "inv_gamma")
 
 
 class BackTransformedParticleDiagnostic(ParticleDiagnostic):
@@ -38,6 +41,13 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
     on the GPU relies on particle arrays being sorted on the GPU. For the
     back-transformation to the Lab frame, interpolation in space is applied,
     but no interpolation for the particle velocities is applied.
+
+    By default (``gpu_batched=True``), the GPU path does not wait for the GPU
+    at each time step. One kernel per species keeps only the particles that
+    may cross an output plane (and pass a "uz" selection), and copies them
+    to the host asynchronously. The host runs the unchanged per-particle
+    selection and Lorentz transformation at the next call of `write` or
+    `flush_to_disk`. The written data are identical to the legacy path.
     """
 
     def __init__(
@@ -57,6 +67,7 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
         comm=None,
         t_min_snapshots_lab=0.0,
         t_max_snapshots_lab=np.inf,
+        gpu_batched=True,
     ):
         """
         Initialize diagnostics that retrieve the data in the lab frame,
@@ -104,6 +115,11 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
             The time *in the lab frame* between which snapshots are created
             (`t_min_snapshots_lab` is inclusive,
              `t_max_snapshots_lab` is exclusive).
+
+        gpu_batched: bool, optional
+            Whether species on the GPU use the batched, asynchronous
+            extraction (see the class documentation). When False, use the
+            legacy path, which waits for the GPU for each snapshot.
         """
         # Do not leave write_dir as None, as this may conflict with
         # the default directory ('./diags') in which diagnostics in the
@@ -152,6 +168,25 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
             self.gamma_boost, self.beta_boost, self.fld
         )
 
+        # State of the batched GPU path
+        self.gpu_batched = gpu_batched
+        self._t_lab = np.array([s.t_lab for s in self.snapshots], dtype=np.float64)
+        self._zmin_lab = np.array([s.zmin_lab for s in self.snapshots])
+        self._zmax_lab = np.array([s.zmax_lab for s in self.snapshots])
+        # Steps whose particles are still on their way to the host
+        self._pending = []
+        # CrossingStaging object of each species
+        self._staging = {}
+        # Slices without particles, per (species, has id, has charge)
+        self._empty_slices = {}
+        # Settings of the asynchronous copy (see CrossingStaging)
+        self.copy_floor = 256
+        self.adaptive_copy = True
+        if gpu_batched and cuda_installed:
+            for species in self.species_dict.values():
+                if getattr(species, "use_cuda", False):
+                    column_end_copy(species)
+
     def write(self, iteration):
         """
         Redefines the method write of the parent class ParticleDiagnostic
@@ -161,6 +196,10 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
         iteration : int
             Current iteration of the boosted frame simulation
         """
+        # Register the slices of the previous step (batched GPU path)
+        if self._pending:
+            self._finish_pending()
+
         # At each timestep, store a slice of the particles in memory buffers
         self.store_snapshot_slices(iteration)
 
@@ -178,6 +217,10 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
         iteration : int
             Current iteration of the boosted frame simulation
         """
+        if self._use_batched_path():
+            self._enqueue_snapshot_slices(iteration)
+            return
+
         # Find the limits of the local subdomain at this iteration
         zmin_boost = self.fld.interp[0].zmin
         zmax_boost = self.fld.interp[0].zmax
@@ -221,11 +264,205 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
                     # Register new slice in the LabSnapshot
                     snapshot.register_slice(slice_data_dict, species_name)
 
+    def _use_batched_path(self):
+        """Whether to use the batched GPU path at this iteration."""
+        return (
+            self.gpu_batched
+            and cuda_installed
+            and all(
+                self.species_dict[name].use_cuda for name in self.species_names_list
+            )
+        )
+
+    def _enqueue_snapshot_slices(self, iteration):
+        """
+        Batched GPU version of `store_snapshot_slices`: launch the extraction
+        of the particles that may have crossed the output planes during the
+        last step, without waiting for the GPU. `_finish_pending` registers
+        the slices later.
+
+        Parameters
+        ----------
+        iteration : int
+            Current iteration of the boosted frame simulation
+        """
+        # Find the limits of the local subdomain at this iteration
+        zmin_boost = self.fld.interp[0].zmin
+        zmax_boost = self.fld.interp[0].zmax
+
+        # Positions of the output planes of all snapshots
+        # (same operations as `LabSnapshot.update_current_output_positions`)
+        time = iteration * self.dt
+        time_prev = time - self.dt
+        inv_gamma = self.inv_gamma_boost
+        inv_beta = self.inv_beta_boost
+        z_boost = (self._t_lab * inv_gamma - time) * c * inv_beta
+        prev_z_boost = (self._t_lab * inv_gamma - time_prev) * c * inv_beta
+        z_lab = (self._t_lab - time * inv_gamma) * c * inv_beta
+        active = np.flatnonzero(
+            (z_boost >= zmin_boost)
+            & (z_boost < zmax_boost)
+            & (z_lab >= self._zmin_lab)
+            & (z_lab < self._zmax_lab)
+        )
+        if active.size == 0:
+            return
+        entries = [(int(i), float(z_boost[i]), float(prev_z_boost[i])) for i in active]
+        zb_list = [zb for _, zb, _ in entries]
+        zb_prev_list = [zb_prev for _, _, zb_prev in entries]
+
+        # Shortcuts (as in `ParticleCatcher.get_particle_data`)
+        dt = self.fld.dt
+        dz = self.fld.interp[0].dz
+        zmin = self.fld.interp[0].zmin
+        uz_bounds = (None, None)
+        if self.select is not None and "uz" in self.select:
+            uz_bounds = tuple(self.select["uz"])
+
+        for species_name in self.species_names_list:
+            species = self.species_dict[species_name]
+            # Sort the particles if needed (as in the legacy path)
+            if not species.sorted:
+                species.sort_particles(fld=self.fld)
+                species.sorted = True
+            # Prefix sum at the end of each z column, from the last sort
+            column_ends = column_end_copy(species).read(species)
+            Nz, Nr = species.grid_shape
+            shift = species.prefix_sum_shift
+            Ntot = species.Ntot
+
+            def prefix_sum_at(z_cell):
+                if z_cell <= 0:
+                    return 0
+                elif z_cell > Nz:
+                    return Ntot
+                return int(column_ends[z_cell - 1])
+
+            # Particle range of each snapshot
+            # (same integer arithmetic as `ParticleCatcher.get_particle_data`)
+            ranges = []
+            for entry, zb in enumerate(zb_list):
+                zb_prev = zb_prev_list[entry]
+                iz_curr = int(math.ceil((zb - zmin - 0.5 * dz) / dz))
+                iz_prev = int(math.ceil((zb_prev - zmin - 0.5 * dz + dt * c) / dz)) + 1
+                start = prefix_sum_at(iz_curr + shift)
+                n_area = prefix_sum_at(iz_prev + shift) - start
+                if n_area > 0:
+                    ranges.append((entry, start, n_area))
+
+            staging = None
+            if ranges:
+                staging = self._staging.get(species_name)
+                if staging is None:
+                    staging = CrossingStaging(self.copy_floor, self.adaptive_copy)
+                    self._staging[species_name] = staging
+                staging.enqueue(
+                    species,
+                    ranges,
+                    zb_list,
+                    zb_prev_list,
+                    dt,
+                    1.0e-6 * dz,
+                    uz_bounds,
+                    self.gamma_boost,
+                    self.beta_boost * self.gamma_boost,
+                )
+            self._pending.append(
+                (
+                    species_name,
+                    time,
+                    entries,
+                    staging,
+                    species.tracker is not None,
+                    species.ionizer is not None,
+                )
+            )
+
+    def _finish_pending(self):
+        """
+        Register the slices of the steps launched by
+        `_enqueue_snapshot_slices`, in the order of the steps.
+        """
+        pending, self._pending = self._pending, []
+        for species_name, time, entries, staging, has_id, has_charge in pending:
+            species = self.species_dict[species_name]
+            if staging is not None:
+                rows, int_rows, row_entry = staging.collect()
+                bounds = np.searchsorted(row_entry, np.arange(len(entries) + 1))
+            for entry, (i_snapshot, zb, zb_prev) in enumerate(entries):
+                if staging is None or bounds[entry] == bounds[entry + 1]:
+                    slice_data_dict = self._empty_slice(
+                        species_name, species, has_id, has_charge, zb, zb_prev, time
+                    )
+                else:
+                    block = slice(bounds[entry], bounds[entry + 1])
+                    particle_data = self._particle_data_from_rows(
+                        rows[block],
+                        None if int_rows is None else int_rows[block],
+                        has_id,
+                        has_charge,
+                    )
+                    slice_data_dict = self._process_slice(
+                        particle_data, species, zb, zb_prev, time
+                    )
+                self.snapshots[i_snapshot].register_slice(slice_data_dict, species_name)
+
+    def _process_slice(self, particle_data, species, zb, zb_prev, time):
+        """Run the host steps of `ParticleCatcher.extract_slice`."""
+        catcher = self.particle_catcher
+        slice_data_dict = catcher.get_particle_slice(particle_data, zb, zb_prev)
+        slice_data_dict = catcher.interpolate_particles_to_lab_frame(
+            slice_data_dict, zb, time
+        )
+        if self.select is not None:
+            slice_data_dict = catcher.apply_selection(self.select, slice_data_dict)
+        return catcher.apply_opmd_standard(slice_data_dict, species)
+
+    def _empty_slice(
+        self, species_name, species, has_id, has_charge, zb, zb_prev, time
+    ):
+        """
+        Return the slice of a snapshot without particles in its area,
+        as produced by the legacy path. (The arrays are empty, so the
+        same dictionary can be registered many times.)
+        """
+        key = (species_name, has_id, has_charge)
+        if key not in self._empty_slices:
+            particle_data = {
+                var: np.empty((0,), dtype=np.float64) for var in _FLOAT_QUANTITIES
+            }
+            if has_charge:
+                particle_data["charge"] = np.empty((0,), dtype=np.uint64)
+            if has_id:
+                particle_data["id"] = np.empty((0,), dtype=np.uint64)
+            self._empty_slices[key] = self._process_slice(
+                particle_data, species, zb, zb_prev, time
+            )
+        return dict(self._empty_slices[key])
+
+    @staticmethod
+    def _particle_data_from_rows(rows, int_rows, has_id, has_charge):
+        """
+        Convert staging rows to the dictionary of `get_particle_data`
+        (contiguous host arrays; "w" is `w_times_level` for ionizable species).
+        """
+        columns = np.ascontiguousarray(rows[:, : len(_FLOAT_QUANTITIES)].T)
+        particle_data = {var: columns[i] for i, var in enumerate(_FLOAT_QUANTITIES)}
+        if has_id:
+            particle_data["id"] = np.ascontiguousarray(int_rows[:, 0])
+        if has_charge:
+            particle_data["charge"] = np.ascontiguousarray(int_rows[:, 1])
+        return particle_data
+
     def flush_to_disk(self):
         """
         Writes the buffered slices of particles to the disk. Erase the
         buffered slices of the LabSnapshot objects
         """
+        # Register the slices that are still on their way (batched GPU path)
+        if self._pending:
+            self._finish_pending()
+
         # Loop through the labsnapshots and flush the data
         for snapshot in self.snapshots:
 
@@ -251,8 +488,14 @@ class BackTransformedParticleDiagnostic(ParticleDiagnostic):
 
                 # The first proc writes this array to disk
                 # (if this snapshot has new slices)
+                # (The batched path skips empty data: the datasets exist
+                # already, so the file content does not change.)
                 if self.rank == 0:
-                    self.write_slices(particle_dict, species_name, snapshot)
+                    if not (
+                        self.gpu_batched
+                        and all(len(particle_dict[q]) == 0 for q in quantities_in_file)
+                    ):
+                        self.write_slices(particle_dict, species_name, snapshot)
 
                 # Erase the previous slices
                 snapshot.buffered_slices[species_name] = []
