@@ -76,11 +76,40 @@ if cuda_installed:
     )
     from .utilities.cuda_sorting import (
         write_sorting_buffer,
+        write_sorting_buffer2,
+        write_sorting_buffer4,
         get_cell_idx_per_particle,
+        allocate_sort_scratch,
+        release_sort_scratch,
         sort_particles_per_cell,
         prefill_prefix_sum,
         incl_prefix_sum,
     )
+
+
+def _permute_width(count):
+    """Return the widest permute kernel (4, 2 or 1) that `count` arrays use."""
+    if count >= 4:
+        return 4
+    return 2 if count >= 2 else 1
+
+
+def _is_buffer(array, Ntot, dtype=np.float64):
+    """Check that `array` can be a sorting buffer of Ntot elements."""
+    return (
+        array is not None
+        and not isinstance(array, np.ndarray)
+        and array.shape == (Ntot,)
+        and array.dtype == dtype
+    )
+
+
+if cuda_installed:
+    _permute_kernels = {
+        1: write_sorting_buffer,
+        2: write_sorting_buffer2,
+        4: write_sorting_buffer4,
+    }
 
 
 class Particles(object):
@@ -318,10 +347,9 @@ class Particles(object):
             # Register grid shape
             self.grid_shape = grid_shape
             # Allocate arrays for the particles sorting when using CUDA
-            # Most required arrays always stay on GPU
+            # Most required arrays always stay on GPU. The int32 cell_idx and
+            # sorted_idx arrays exist only during `sort_particles`.
             Nz, Nr = grid_shape
-            self.cell_idx = cupy.empty(Ntot, dtype=np.int32)
-            self.sorted_idx = cupy.empty(Ntot, dtype=np.intp)
             self.prefix_sum = cupy.empty(Nz * (Nr + 1), dtype=np.int32)
             # sorting buffers are initialized on CPU like other particle arrays
             # (because they are swapped with these arrays during sorting)
@@ -811,8 +839,9 @@ class Particles(object):
         """
         Rearranges the particle data arrays to match with the sorted
         cell index array. The sorted index array is used to resort the
-        arrays. A particle buffer is used to temporarily store
-        the rearranged data.
+        arrays. Particle buffers are used to temporarily store
+        the rearranged data: one kernel launch rearranges up to
+        4 float arrays, or up to 2 integer arrays.
         """
         # Get the threads per block and the blocks per grid
         dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(self.Ntot)
@@ -844,36 +873,107 @@ class Particles(object):
                 (self.spin_tracker, "sy"),
                 (self.spin_tracker, "sz"),
             ]
-        for attr in attr_list:
-            # Get particle GPU array
-            particle_array = getattr(attr[0], attr[1])
-            # Write particle data to particle buffer array while rearranging
-            write_sorting_buffer[dim_grid_1d, dim_block_1d](
-                self.sorted_idx, particle_array, self.sorting_buffer
-            )
-            # Assign the particle buffer to
-            # the initial particle data array
-            setattr(attr[0], attr[1], self.sorting_buffer)
-            # Assign the old particle data array to the particle buffer
-            self.sorting_buffer = particle_array
+        float_slots = self._float_sorting_slots(_permute_width(len(attr_list)))
+        self._permute_arrays(attr_list, float_slots, dim_grid_1d, dim_block_1d)
+        # The extra float slots now hold the unsorted data: return them to
+        # the CuPy pool. They exist only for the rare sorts that keep the
+        # fields sorted (e.g. a boosted-frame diagnostic) or for neutral
+        # species, so they are not kept for the rest of the run.
+        for obj, name in float_slots:
+            if name.startswith("_sort_slot_float"):
+                delattr(obj, name)
         # Iterate over (integer) particle attributes
         attr_list = []
         if self.tracker is not None:
             attr_list += [(self.tracker, "id")]
         if self.ionizer is not None:
             attr_list += [(self.ionizer, "ionization_level")]
-        for attr in attr_list:
-            # Get particle GPU array
-            particle_array = getattr(attr[0], attr[1])
-            # Write particle data to particle buffer array while rearranging
-            write_sorting_buffer[dim_grid_1d, dim_block_1d](
-                self.sorted_idx, particle_array, self.int_sorting_buffer
+        if len(attr_list) > 0:
+            self._permute_arrays(
+                attr_list,
+                self._int_sorting_slots(_permute_width(len(attr_list))),
+                dim_grid_1d,
+                dim_block_1d,
             )
-            # Assign the particle buffer to
-            # the initial particle data array
-            setattr(attr[0], attr[1], self.int_sorting_buffer)
-            # Assign the old particle data array to the particle buffer
-            self.int_sorting_buffer = particle_array
+
+    def _permute_arrays(self, attr_list, slots, dim_grid_1d, dim_block_1d):
+        """
+        Rearrange the arrays of attr_list with the sorted index array.
+
+        Launch one kernel for each chunk of up to len(slots) arrays (4, 2 or 1),
+        so that each launch reads the sorted index only once. The chunk writes
+        its arrays into the buffers of slots; then each array takes its
+        buffer, and each slot takes the old array, which the next chunk uses
+        as its buffer. All arrays of attr_list and slots have Ntot elements.
+
+        Parameters
+        ----------
+        attr_list : list of (object, attribute name)
+            The particle arrays to rearrange
+        slots : list of (object, attribute name)
+            Buffer arrays, distinct from the arrays of attr_list
+        """
+        i_attr = 0
+        while i_attr < len(attr_list):
+            width = min(len(attr_list) - i_attr, len(slots))
+            if width == 3:
+                width = 2
+            chunk = attr_list[i_attr : i_attr + width]
+            values = [getattr(obj, name) for obj, name in chunk]
+            buffers = [getattr(obj, name) for obj, name in slots[:width]]
+            kernel = _permute_kernels[width]
+            kernel[dim_grid_1d, dim_block_1d](self.sorted_idx, *values, *buffers)
+            for (obj, name), buffer in zip(chunk, buffers):
+                setattr(obj, name, buffer)
+            for (obj, name), value in zip(slots[:width], values):
+                setattr(obj, name, value)
+            i_attr += width
+
+    def _float_sorting_slots(self, count):
+        """
+        Return `count` float64 buffer slots of Ntot elements for sorting.
+
+        Slot 0 is sorting_buffer. When the fields on the particles are not
+        kept sorted, Ex, Ey and Ez of a charged species are dead until the
+        next field gather, which writes every element: they serve as the
+        other slots, without any allocation. After such a sort, Ex, Ey and Ez
+        hold unsorted particle data: they are defined only from the field
+        gather to the end of the elementary processes, while
+        keep_fields_sorted is True.
+        The gather skips neutral species (q == 0), so their Ex, Ey and Ez are
+        never borrowed. Otherwise, the other slots are new arrays, which
+        `rearrange_particle_arrays` releases after the permute.
+        """
+        slots = [(self, "sorting_buffer")]
+        borrow = not self.keep_fields_sorted and self.q != 0
+        borrowed = ["Ex", "Ey", "Ez"] if borrow else []
+        for k in range(1, count):
+            name = borrowed[k - 1] if k - 1 < len(borrowed) else None
+            if name is None or not _is_buffer(getattr(self, name), self.Ntot):
+                name = f"_sort_slot_float{k}"
+                if not _is_buffer(getattr(self, name, None), self.Ntot):
+                    setattr(self, name, cupy.empty(self.Ntot, dtype=np.float64))
+            slots.append((self, name))
+        return slots
+
+    def _int_sorting_slots(self, count):
+        """
+        Return `count` uint64 buffer slots of Ntot elements for sorting.
+
+        Slot 0 is int_sorting_buffer. The other slots are buffers of the
+        species, which are allocated (or reallocated after a change of Ntot)
+        here, and kept between sorts. Only a species with 2 integer arrays
+        (a tracked, ionizable species: id and ionization_level) has one: it
+        retains 8 bytes per particle. The Ntot of such ions changes only at
+        the particle exchange, so the slot is rarely reallocated.
+        """
+        slots = [(self, "int_sorting_buffer")]
+        for k in range(1, count):
+            name = f"_sort_slot_int{k}"
+            if not _is_buffer(getattr(self, name, None), self.Ntot, np.uint64):
+                setattr(self, name, cupy.empty(self.Ntot, dtype=np.uint64))
+            slots.append((self, name))
+        return slots
 
     def push_p(self, t):
         """
@@ -1793,6 +1893,8 @@ class Particles(object):
         # ------------------------
         # Sorting of the particles
         # ------------------------
+        # Point cell_idx and sorted_idx at a transient int32 block
+        allocate_sort_scratch(self)
         # Get the cell index of each particle
         # (defined by iz_lower and ir_lower)
         get_cell_idx_per_particle[dim_grid_1d, dim_block_1d](
@@ -1812,7 +1914,7 @@ class Particles(object):
         # accordingly. The value of the sorted_idx array corresponds
         # to the index of the sorted particle in the other particle
         # arrays.
-        sort_particles_per_cell(self.cell_idx, self.sorted_idx)
+        sort_particles_per_cell(self)
         # Reset the old prefix sum
         self.prefix_sum_shift = 0
         prefill_prefix_sum[dim_grid_2d_flat, dim_block_2d_flat](
@@ -1822,3 +1924,5 @@ class Particles(object):
         incl_prefix_sum[dim_grid_1d, dim_block_1d](self.cell_idx, self.prefix_sum)
         # Rearrange the particle arrays
         self.rearrange_particle_arrays()
+        # Return the sort block to the CuPy pool (see allocate_sort_scratch)
+        release_sort_scratch(self)
