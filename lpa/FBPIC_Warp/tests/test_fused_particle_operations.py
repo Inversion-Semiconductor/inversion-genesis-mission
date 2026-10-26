@@ -362,6 +362,173 @@ def test_single_mode_block_size(runtime, launches, lanes, fieldtype, n_modes, gr
                 )
 
 
+@pytest.fixture
+def launch_shapes(monkeypatch):
+    """Record (kernel key, dimensions, threads per block) of every fused launch."""
+    from fbpic.particles.deposition import cuda_methods_fused
+
+    recorded = []
+    launch = cuda_methods_fused.launch_kernel
+
+    def record(kernel, dimensions, args, block_dim):
+        recorded.append((kernel.key, tuple(dimensions), block_dim))
+        launch(kernel, dimensions, args, block_dim)
+
+    monkeypatch.setattr(cuda_methods_fused, "launch_kernel", record)
+    return recorded
+
+
+# Per-group lane mappings: the A100 and Ada candidates for five current modes,
+# a last one-mode group after five two-mode groups (11 modes), a mapping
+# without a one-mode entry when no such group exists (4 modes), one lane next
+# to several lanes, and charge with a last one-mode group (6 modes). Each
+# expected group is (group, lanes).
+PER_GROUP_LANE_CASES = [
+    ("J", 5, {2: 2, 1: 4}, [("m0_n2", 2), ("m2_n2", 2), ("m4_n1", 4)]),
+    ("J", 5, {2: 4, 1: 8}, [("m0_n2", 4), ("m2_n2", 4), ("m4_n1", 8)]),
+    (
+        "J",
+        11,
+        {2: 2, 1: 4},
+        [(f"m{first}_n2", 2) for first in range(0, 10, 2)] + [("m10_n1", 4)],
+    ),
+    ("J", 4, {2: 4}, [("m0_n2", 4), ("m2_n2", 4)]),
+    ("J", 5, {2: 1, 1: 4}, [("m0_n2", 1), ("m2_n2", 1), ("m4_n1", 4)]),
+    ("rho", 6, {5: 4, 1: 2}, [("m0_n5", 4), ("m5_n1", 2)]),
+]
+
+
+@pytest.mark.parametrize("count,effective_weights", [(257, True), (2000, False)])
+@pytest.mark.parametrize("fieldtype,n_modes,setting,groups", PER_GROUP_LANE_CASES)
+def test_per_group_lane_deposition(
+    runtime,
+    launch_shapes,
+    fieldtype,
+    n_modes,
+    setting,
+    groups,
+    count,
+    effective_weights,
+):
+    import cupy as cp
+
+    data = _particle_data(count)
+    charge = e if effective_weights else -e
+    cpu = _species(data, "linear", False, charge, effective_weights)
+    cpu_fields = _fields(n_modes, False)
+    cpu.deposit(cpu_fields, fieldtype)
+    cpu_fields.sum_reduce_deposition_array(fieldtype)
+    components = ("rho",) if fieldtype == "rho" else ("Jr", "Jt", "Jz")
+    results = []
+    for lane_setting in (1, setting):
+        gpu = _species(data, "linear", True, charge, effective_weights)
+        gpu.deposit_lanes = {fieldtype: lane_setting}
+        gpu_fields = _fields(n_modes, True)
+        gpu.sort_particles(gpu_fields)
+        gpu.sorted = True
+        launch_shapes.clear()
+        gpu.deposit(gpu_fields, fieldtype)
+        runtime.synchronize()
+        if lane_setting == setting:
+            # Each group selects its own kernel and launches lanes threads per
+            # cell. A grid sized for another group's lanes would still pass the
+            # parity checks, because surplus threads exit at the cell bound.
+            cells = gpu.prefix_sum.shape[0]
+            expected = [
+                (
+                    f"fused_linear_{fieldtype}_{group}"
+                    + ("" if lanes == 1 else f"_lanes{lanes}"),
+                    (cells * lanes,),
+                    32,
+                )
+                for group, lanes in groups
+            ]
+            assert launch_shapes == expected
+        observed = []
+        for gpu_grid, cpu_grid in zip(gpu_fields.interp, cpu_fields.interp):
+            for name in components:
+                value = cp.asnumpy(getattr(gpu_grid, name))
+                _assert_scaled_close(value, getattr(cpu_grid, name))
+                observed.append(value)
+        results.append(observed)
+    for one_lane, per_group in zip(*results):
+        _assert_scaled_close(per_group, one_lane)
+
+
+GROUP_LANES_ACCEPTED = [
+    (1, 2, 2, 1),
+    (4, 1, 2, 4),
+    (np.int64(8), 2, 2, 8),
+    ({2: 2, 1: 4}, 2, 2, 2),
+    ({2: 2, 1: 4}, 1, 2, 4),
+    ({5: 4, 1: 1}, 1, 5, 1),
+]
+
+
+@pytest.mark.parametrize("setting,mode_count,group_size,lanes", GROUP_LANES_ACCEPTED)
+def test_group_lanes_resolves_settings(setting, mode_count, group_size, lanes):
+    from fbpic.particles.deposition.cuda_methods_fused import group_lanes
+
+    resolved = group_lanes(setting, mode_count, group_size)
+    assert resolved == lanes
+    assert type(resolved) is int
+
+
+# Each case is (setting, mode count, group size, exception). Current groups
+# have at most two modes and charge groups at most five.
+GROUP_LANES_REJECTED = [
+    (0, 2, 2, ValueError),
+    (3, 2, 2, ValueError),
+    (64, 2, 2, ValueError),
+    (True, 2, 2, TypeError),
+    (4.0, 2, 2, TypeError),
+    ("4", 2, 2, TypeError),
+    ({2: 3, 1: 4}, 2, 2, ValueError),
+    ({2: 64}, 2, 2, ValueError),
+    ({"2": 2, 1: 4}, 1, 2, TypeError),
+    ({True: 2}, 1, 2, TypeError),
+    ({2: True}, 2, 2, TypeError),
+    ({2: np.int64(4)}, 2, 2, TypeError),
+    ({np.int64(2): 4}, 2, 2, TypeError),
+    ({3: 4, 2: 4}, 2, 2, ValueError),
+    ({0: 4, 2: 4}, 2, 2, ValueError),
+    ({2: 4}, 1, 2, KeyError),
+    ({5: 4}, 1, 5, KeyError),
+]
+
+
+@pytest.mark.parametrize(
+    "setting,mode_count,group_size,exception", GROUP_LANES_REJECTED
+)
+def test_group_lanes_rejects_bad_settings(setting, mode_count, group_size, exception):
+    from fbpic.particles.deposition.cuda_methods_fused import group_lanes
+
+    with pytest.raises(exception):
+        group_lanes(setting, mode_count, group_size)
+
+
+# A mapping without the one-mode group of five current modes, and a key that
+# no current group can have. Both must fail before the first group launches.
+@pytest.mark.parametrize(
+    "setting,exception", [({2: 4}, KeyError), ({3: 4, 2: 4, 1: 4}, ValueError)]
+)
+def test_bad_lane_setting_fails_before_launch(
+    runtime, launch_shapes, setting, exception
+):
+    data = _particle_data(257)
+    gpu = _species(data, "linear", True)
+    gpu.deposit_lanes = {"J": setting}
+    gpu_fields = _fields(5, True)
+    gpu.sort_particles(gpu_fields)
+    gpu.sorted = True
+    launch_shapes.clear()
+    before = runtime.launch_count
+    with pytest.raises(exception):
+        gpu.deposit(gpu_fields, "J")
+    assert launch_shapes == []
+    assert runtime.launch_count == before
+
+
 @pytest.mark.parametrize("lanes", [0, 1, 3, 64])
 def test_lane_kernel_rejects_unsupported_lanes(lanes):
     from fbpic.particles.deposition.cuda_methods_fused import make_lane_kernel

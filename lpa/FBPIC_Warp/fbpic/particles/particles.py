@@ -343,8 +343,10 @@ class Particles(object):
                 self.deposit_tpb = 16 if cuda_gpu_model == "V100" else 32
                 self.gather_tpb = 128
             # Experimental launch settings for fused linear deposition (see
-            # deposit_fused). The defaults keep one lane per cell and the same
-            # block size for every mode group.
+            # deposit_fused). A deposit_lanes value is an int for every mode
+            # group or a mapping from group mode count to lanes, for example
+            # {"J": {2: 4, 1: 8}}. The defaults keep one lane per cell and the
+            # same block size for every mode group.
             self.deposit_lanes = {"rho": 1, "J": 1}
             self.deposit_tpb_single_mode = None
 
