@@ -21,7 +21,8 @@ FAMILIES: tuple[tuple[str, str], ...] = (
     ("push_position", r"push_x"),
     (
         "particle_buffers",
-        r"particle_buffer|copy_particles|split_particles|add_particles|remove_particles|injection",
+        r"particle_buffer|copy_particles|split_particles|add_particles|remove_particles"
+        r"|injection|stay_and_injected",
     ),
     ("sorting", r"cell_idx|sort|prefix_sum|cub::|scan"),
     ("hankel_gemm", r"gemm|xmma|cutlass|cublas"),
