@@ -22,10 +22,11 @@ if cuda_installed:
     from .utils.cuda import send_data_to_gpu, receive_data_from_gpu, mpi_select_gpus
 
     mpi_select_gpus(MPI)
-    from .utils.warp import CudaGraphSections, get_runtime
-
-    if cupy_installed:
-        import cupy
+    from .utils.warp import (
+        CudaGraphSections,
+        get_runtime,
+        release_unused_device_memory,
+    )
 
 # Import the rest of the requirements
 import warnings
@@ -551,10 +552,11 @@ class Simulation(object):
                 # otherwise rho_prev is obtained from the previous iteration.)
                 self.deposit("rho_prev", exchange=(use_true_rho is True))
 
-                # For simulations on GPU, clear the memory pool used by cupy.
+                # For simulations on GPU, return cached device memory to CUDA
+                # (always with the legacy CuPy pool, only when the cache is
+                # large with the CUDA mempool).
                 if self.use_cuda:
-                    mempool = cupy.get_default_memory_pool()
-                    mempool.free_all_blocks()
+                    release_unused_device_memory()
 
             # For the field diagnostics of the first step: deposit J
             # (Note however that this is not the *corrected* current)

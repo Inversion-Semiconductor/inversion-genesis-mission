@@ -387,7 +387,6 @@ def add_buffers_to_particles(
         shape = (species.Ntot,)
         # Reallocate empty field-on-particle arrays on the GPU
         species.Ex = cupy.empty(shape, dtype=np.float64)
-        species.Ex = cupy.empty(shape, dtype=np.float64)
         species.Ey = cupy.empty(shape, dtype=np.float64)
         species.Ez = cupy.empty(shape, dtype=np.float64)
         species.Bx = cupy.empty(shape, dtype=np.float64)

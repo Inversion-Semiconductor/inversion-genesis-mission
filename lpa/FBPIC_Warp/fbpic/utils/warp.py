@@ -3,8 +3,10 @@
 """Share CuPy storage and one CUDA stream with Warp kernels."""
 
 import functools
+import gc
 import inspect
 import math
+import os
 from typing import Any, Callable, TYPE_CHECKING
 
 import numpy as np
@@ -49,6 +51,7 @@ class CudaRuntime:
         self.device = wp.get_device(f"cuda:{ordinal}")
         with cupy.cuda.Device(ordinal):
             self.cupy_stream = cupy.cuda.Stream(non_blocking=False)
+            _install_allocator(ordinal)
         self.stream = wp.Stream(self.device, cuda_stream=self.cupy_stream.ptr)
         self.launch_count = 0
         self.recorded_launches = None
@@ -68,6 +71,190 @@ class CudaRuntime:
 
 
 _runtimes: dict[int, CudaRuntime] = {}
+
+# Device allocator
+# ----------------
+# Particle arrays change size at every exchange, so the legacy CuPy pool
+# cannot reuse their freed blocks. It had to return them with cudaFree, which
+# drains the device. The stream-ordered CUDA mempool reuses freed ranges and
+# frees on the shared stream, without a device synchronization.
+
+_GIB = 1 << 30
+# Trim the mempool when it keeps more unused memory than
+# max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total device memory),
+# or when less than _TRIM_FREE_FRACTION of the device memory is free.
+_TRIM_MIN_SLACK_BYTES = 2 * _GIB
+_TRIM_SLACK_FRACTION = 0.1
+_TRIM_FREE_FRACTION = 0.1
+_CUDA_ERROR_MEMORY_ALLOCATION = 2  # cudaErrorMemoryAllocation
+_RELEASE_NEVER = 2**64 - 1
+
+_allocator_state = {"mode": None, "trims": 0, "oom_retries": 0, "history": []}
+
+
+def _select_allocator_mode(ordinal):
+    import cupy
+    from fbpic.utils.mpi import gpudirect_enabled
+
+    mode = os.environ.get("FBPIC_GPU_ALLOCATOR", "async")
+    if mode not in ("async", "pool"):
+        raise ValueError(
+            f"FBPIC_GPU_ALLOCATOR must be 'async' or 'pool', not {mode!r}."
+        )
+    runtime = cupy.cuda.runtime
+    # Default-mempool memory cannot be exported through CUDA IPC, which
+    # CUDA-aware MPI can use for transfers between ranks on one node.
+    if mode == "async" and (
+        gpudirect_enabled
+        or not runtime.deviceGetAttribute(
+            runtime.cudaDevAttrMemoryPoolsSupported, ordinal
+        )
+    ):
+        mode = "pool"
+    return mode
+
+
+def _install_allocator(ordinal):
+    """Select the CuPy allocator once per process; configure each device pool."""
+    import cupy
+
+    if _allocator_state["mode"] is None:
+        _allocator_state["mode"] = _select_allocator_mode(ordinal)
+        if _allocator_state["mode"] == "async":
+            # cupy.cuda.MemoryAsyncPool would create a CUDA context on every
+            # visible device (about 0.4 GiB each), so allocate directly.
+            cupy.cuda.set_allocator(_malloc_async)
+    if _allocator_state["mode"] == "async":
+        runtime = cupy.cuda.runtime
+        # Keep freed memory in the pool across synchronizations.
+        runtime.memPoolSetAttribute(
+            runtime.deviceGetMemPool(ordinal),
+            runtime.cudaMemPoolAttrReleaseThreshold,
+            _RELEASE_NEVER,
+        )
+
+
+def _allocate_async(size):
+    import cupy
+
+    memory = cupy.cuda.memory.MemoryAsync(size, cupy.cuda.get_current_stream())
+    return cupy.cuda.memory.MemoryPointer(memory, 0)
+
+
+def _is_out_of_memory(error):
+    import cupy
+
+    if isinstance(error, cupy.cuda.memory.OutOfMemoryError):
+        return True
+    return (
+        isinstance(error, cupy.cuda.runtime.CUDARuntimeError)
+        and error.status == _CUDA_ERROR_MEMORY_ALLOCATION
+    )
+
+
+def _malloc_async(size):
+    """Allocate on the current stream; release cached memory and retry once."""
+    import cupy
+
+    try:
+        return _allocate_async(size)
+    except (MemoryError, RuntimeError) as error:
+        if not _is_out_of_memory(error):
+            raise
+    _allocator_state["oom_retries"] += 1
+    gc.collect()
+    _trim_device_memory()
+    try:
+        return _allocate_async(size)
+    except (MemoryError, RuntimeError) as error:
+        if not _is_out_of_memory(error):
+            raise
+        used = _mempool_attribute("UsedMemCurrent")
+        raise cupy.cuda.memory.OutOfMemoryError(size, used, 0) from error
+
+
+def _mempool_attribute(name):
+    import cupy
+
+    runtime = cupy.cuda.runtime
+    pool = runtime.deviceGetMemPool(runtime.getDevice())
+    return int(
+        runtime.memPoolGetAttribute(pool, getattr(runtime, f"cudaMemPoolAttr{name}"))
+    )
+
+
+def _trim_device_memory():
+    """Return unused cached memory of the current device to CUDA."""
+    import cupy
+
+    runtime = cupy.cuda.runtime
+    # Pending cudaFreeAsync calls release memory only once they execute.
+    runtime.deviceSynchronize()
+    cupy.get_default_memory_pool().free_all_blocks()
+    runtime.memPoolTrimTo(runtime.deviceGetMemPool(runtime.getDevice()), 0)
+    _allocator_state["trims"] += 1
+
+
+def allocator_mode() -> str | None:
+    """Return the CuPy allocator of this process.
+
+    Returns:
+        ``"async"`` for the stream-ordered CUDA mempool, ``"pool"`` for the
+        legacy CuPy pool, or None before the first ``CudaRuntime`` exists.
+        ``FBPIC_GPU_ALLOCATOR=pool`` selects the legacy pool. GPUDirect MPI
+        and devices without mempool support also select it.
+    """
+    return _allocator_state["mode"]
+
+
+def release_unused_device_memory() -> bool:
+    """Return cached device memory to CUDA when the cache is large.
+
+    With the legacy pool, always free all unused CuPy blocks; this calls
+    cudaFree and synchronizes the device. With the CUDA mempool, read the
+    pool counters (no synchronization) and trim only when the unused reserved
+    memory exceeds max(2 GiB, 10% of the device), or when less than 10% of the
+    device memory is free. A trim synchronizes the device first.
+
+    Returns:
+        True if cached memory was released.
+    """
+    import cupy
+
+    if _allocator_state["mode"] != "async":
+        cupy.get_default_memory_pool().free_all_blocks()
+        return True
+    reserved = _mempool_attribute("ReservedMemCurrent")
+    used = _mempool_attribute("UsedMemCurrent")
+    free, total = cupy.cuda.runtime.memGetInfo()
+    _allocator_state["history"].append((reserved, used, free))
+    slack_cap = max(_TRIM_MIN_SLACK_BYTES, _TRIM_SLACK_FRACTION * total)
+    if reserved - used <= slack_cap and free >= _TRIM_FREE_FRACTION * total:
+        return False
+    _trim_device_memory()
+    return True
+
+
+def device_memory_stats() -> dict:
+    """Report the allocator mode and the memory counters of the current device.
+
+    Returns:
+        A dict with ``mode``, ``trims`` and ``oom_retries``. ``history`` lists
+        ``(reserved, used, free)`` bytes at each call of
+        ``release_unused_device_memory``. In async mode, the dict also has the
+        current and peak reserved and used bytes of the CUDA mempool.
+    """
+    stats = {key: _allocator_state[key] for key in ("mode", "trims", "oom_retries")}
+    stats["history"] = [list(entry) for entry in _allocator_state["history"]]
+    if _allocator_state["mode"] == "async":
+        for name in (
+            "ReservedMemCurrent",
+            "ReservedMemHigh",
+            "UsedMemCurrent",
+            "UsedMemHigh",
+        ):
+            stats[name] = _mempool_attribute(name)
+    return stats
 
 
 def get_runtime(ordinal: int | None = None) -> CudaRuntime:
@@ -306,11 +493,19 @@ class CudaGraphSections:
             commands = [
                 _launch(runtime, launch, record_cmd=True) for launch in launches
             ]
-            with wp.ScopedCapture(
-                stream=runtime.stream, force_module_load=False
-            ) as capture:
-                for command in commands:
-                    command.launch(stream=runtime.stream)
+            # A CuPy array collected here would call cudaFreeAsync on the
+            # capturing stream and put that free into the graph.
+            gc_enabled = gc.isenabled()
+            gc.disable()
+            try:
+                with wp.ScopedCapture(
+                    stream=runtime.stream, force_module_load=False
+                ) as capture:
+                    for command in commands:
+                        command.launch(stream=runtime.stream)
+            finally:
+                if gc_enabled:
+                    gc.enable()
             # Retain array owners for the complete lifetime of the graph.
             cached = (key, capture.graph, launches)
             self.cache[name] = cached

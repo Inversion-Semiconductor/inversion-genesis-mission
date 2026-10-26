@@ -123,10 +123,9 @@ def sort_particles_per_cell(cell_idx, sorted_idx):
             keys_start=0,
             shape=d_cell_idx.shape,
         )
-        # As part of `thrust.argsort`, `cupy` will allocate temporarily
-        # arrays in its memory pool. For performance reasons, this
-        # memory is not automatically released, after `argsort`
-        # Here we force `cupy` to release the memory.
+        # `thrust.argsort` allocates its temporary storage through the CuPy
+        # allocator. The allocator keeps this memory cached for later sorts
+        # (see `fbpic.utils.warp.release_unused_device_memory`).
 
 
 @warp_kernel
