@@ -312,6 +312,15 @@ def execution_settings(fbpic_sim) -> dict:
     }
 
 
+def device_memory() -> dict | None:
+    """Read the allocator mode, trim count, and CUDA mempool peaks from FBPIC."""
+    try:
+        from fbpic.utils.warp import device_memory_stats
+    except ImportError:  # FBPIC before the CUDA mempool allocator
+        return None
+    return device_memory_stats()
+
+
 def gpu_identity() -> dict:
     import cupy
 
@@ -662,6 +671,7 @@ def main() -> int:
         result["final_iteration"] = fbpic_sim.iteration
         result["final_particles"] = particle_summary(fbpic_sim)
         result["final_ion_states"] = ion_states(fbpic_sim)
+        result["device_memory"] = device_memory()
         result["status"] = "success"
     except BaseException as error:  # noqa: BLE001 - keep failure evidence
         result.update(
