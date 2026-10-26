@@ -129,6 +129,8 @@ class SimulationHyperparameters(SerializableConfig):
         use_restart: (bool) |OPTIONAL| Whether to restart from a checkpoint. Defaults to False.
         track_electrons: (bool) |OPTIONAL| Whether to track and write particle ids. Defaults to False.
         n_order_mpi: (int) |OPTIONAL| Order of the stencil for z derivatives in the Maxwell solver if using MPI parallelization. Defaults to 32.
+        smoother_passes: (int) |OPTIONAL| Binomial smoothing passes of the charge and currents, along z and r; 0 means no smoothing. Defaults to 1 (fbpic's default).
+        smoother_compensator: (bool) |OPTIONAL| Whether the smoother is compensated. Defaults to False (fbpic's default).
         random_seed: (int | None) |OPTIONAL| Random seed. Defaults to None (unset).
         r_boundary: (Literal["open", "reflective"]) |OPTIONAL| Boundary condition for the radial direction. Defaults to "reflective".
     """
@@ -183,6 +185,10 @@ class SimulationHyperparameters(SerializableConfig):
     n_order_mpi: int = attrs.field(
         default=32, converter=int, validator=attrs.validators.ge(1)
     )
+    smoother_passes: int = attrs.field(
+        default=1, converter=int, validator=attrs.validators.ge(0)
+    )
+    smoother_compensator: bool = attrs.field(default=False, converter=bool)
     random_seed: int | None = attrs.field(
         default=None, converter=attrs.converters.optional(int)
     )
@@ -798,6 +804,18 @@ class Simulation(SerializableConfig):
             set_random_seed(self.hyparams.random_seed)
 
         # Initialize the simulation object
+        from fbpic.fields.smoothing import BinomialSmoother
+
+        smoother = BinomialSmoother(
+            n_passes={
+                "z": self.hyparams.smoother_passes,
+                "r": self.hyparams.smoother_passes,
+            },
+            compensator={
+                "z": self.hyparams.smoother_compensator,
+                "r": self.hyparams.smoother_compensator,
+            },
+        )
         self.simulation = FBPICSimulation(
             Nz=self.hyparams.nz,
             Nr=self.hyparams.nr,
@@ -812,6 +830,7 @@ class Simulation(SerializableConfig):
             boundaries={"z": "open", "r": self.hyparams.r_boundary},
             use_all_mpi_ranks=self.hyparams.use_mpi,
             use_cuda=True,
+            smoother=smoother,
             **kwargs,
         )
 
