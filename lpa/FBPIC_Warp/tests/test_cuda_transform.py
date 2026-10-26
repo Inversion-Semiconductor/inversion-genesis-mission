@@ -78,7 +78,14 @@ def test_cuda_transform(Nz, Nr, m):
 
 @pytest.mark.parametrize(
     "Nz, Nr, sliced",
-    [(1, 1, False), (33, 17, False), (1821, 301, False), (33, 17, True)],
+    [
+        (1, 1, False),
+        (33, 17, False),
+        # 64 tiles fill 8 blocks exactly, so no padding threads run.
+        (64, 32, False),
+        (1821, 301, False),
+        (33, 17, True),
+    ],
 )
 def test_cuda_copy_1d_2d_bitwise(Nz, Nr, sliced):
     """Check that the z-r transposing copies are exact and invert each other."""
@@ -116,3 +123,19 @@ def test_cuda_copy_1d_2d_bitwise(Nz, Nr, sliced):
         untouched = cupy.ones(shape, dtype=bool)
         untouched[1 : 2 * Nz + 1 : 2, 2 : 3 * Nr + 2 : 3] = False
         assert bool(cupy.isnan(back_parent[untouched]).all())
+
+
+@pytest.mark.parametrize(
+    "Nz, Nr", [(1, 1), (8, 4), (9, 4), (8, 5), (33, 17), (64, 32), (1821, 301)]
+)
+def test_cuda_copy_1d_2d_launch(Nz, Nr):
+    """Check that the copy launch covers every micro-tile with whole warps."""
+    from fbpic.fields.spectral_transform.cuda_methods import cuda_copy_1d_2d_launch
+
+    blocks, threads = cuda_copy_1d_2d_launch(Nz, Nr)
+    n_tiles = -(-Nz // 8) * -(-Nr // 4)
+    # The shim launches blocks*threads threads. Fewer than 32*n_tiles threads
+    # drop a tile; a partial warp drops lanes of a tile. The bitwise test
+    # detects a short launch only in the shapes that it runs.
+    assert threads % 32 == 0
+    assert 32 * n_tiles <= blocks * threads < 32 * n_tiles + threads
