@@ -357,7 +357,8 @@ def add_buffers_to_particles(
     to the existing particle in species.
 
     Resize the auxiliary arrays of the particles Ex, Ey, Ez, Bx, By, Bz,
-    as well as cell_idx, sorted_idx and sorting_buffer
+    as well as sorting_buffer (cell_idx and sorted_idx exist only
+    during a sort)
 
     Parameters
     ----------
@@ -393,8 +394,6 @@ def add_buffers_to_particles(
         species.By = cupy.empty(shape, dtype=np.float64)
         species.Bz = cupy.empty(shape, dtype=np.float64)
         # Reallocate empty auxiliary sorting arrays on the GPU
-        species.cell_idx = cupy.empty(shape, dtype=np.int32)
-        species.sorted_idx = cupy.empty(shape, dtype=np.intp)
         species.sorting_buffer = cupy.empty(shape, dtype=np.float64)
         if species.n_integer_quantities > 0:
             species.int_sorting_buffer = cupy.empty(shape, dtype=np.uint64)

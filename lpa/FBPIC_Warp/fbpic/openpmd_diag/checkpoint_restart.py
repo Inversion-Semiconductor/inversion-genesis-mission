@@ -15,12 +15,6 @@ from .field_diag import FieldDiagnostic
 from .particle_diag import ParticleDiagnostic
 from fbpic.utils.mpi import comm
 
-# Check if CUDA is available, then import CUDA
-from fbpic.utils.cuda import cuda_installed
-
-if cuda_installed:
-    import cupy
-
 
 def set_periodic_checkpoint(sim, period, checkpoint_dir="./checkpoints"):
     """
@@ -392,9 +386,7 @@ def load_species(species, name, ts, iteration, comm, openpmd_viewer_version):
     species.By = np.zeros(Ntot)
     # Sorting arrays
     if species.use_cuda:
-        # cell_idx and sorted_idx always stay on GPU
-        species.cell_idx = cupy.empty(Ntot, dtype=np.int32)
-        species.sorted_idx = cupy.empty(Ntot, dtype=np.intp)
+        # cell_idx and sorted_idx exist only during a sort
         # sorting buffers are initialized on CPU
         # (because they are swapped with other particle arrays during sorting)
         species.sorting_buffer = np.empty(Ntot, dtype=np.float64)

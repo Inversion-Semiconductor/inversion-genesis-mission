@@ -77,6 +77,8 @@ if cuda_installed:
     from .utilities.cuda_sorting import (
         write_sorting_buffer,
         get_cell_idx_per_particle,
+        allocate_sort_scratch,
+        release_sort_scratch,
         sort_particles_per_cell,
         prefill_prefix_sum,
         incl_prefix_sum,
@@ -318,10 +320,9 @@ class Particles(object):
             # Register grid shape
             self.grid_shape = grid_shape
             # Allocate arrays for the particles sorting when using CUDA
-            # Most required arrays always stay on GPU
+            # Most required arrays always stay on GPU. The int32 cell_idx and
+            # sorted_idx arrays exist only during `sort_particles`.
             Nz, Nr = grid_shape
-            self.cell_idx = cupy.empty(Ntot, dtype=np.int32)
-            self.sorted_idx = cupy.empty(Ntot, dtype=np.intp)
             self.prefix_sum = cupy.empty(Nz * (Nr + 1), dtype=np.int32)
             # sorting buffers are initialized on CPU like other particle arrays
             # (because they are swapped with these arrays during sorting)
@@ -1793,6 +1794,8 @@ class Particles(object):
         # ------------------------
         # Sorting of the particles
         # ------------------------
+        # Point cell_idx and sorted_idx at a transient int32 block
+        allocate_sort_scratch(self)
         # Get the cell index of each particle
         # (defined by iz_lower and ir_lower)
         get_cell_idx_per_particle[dim_grid_1d, dim_block_1d](
@@ -1812,7 +1815,7 @@ class Particles(object):
         # accordingly. The value of the sorted_idx array corresponds
         # to the index of the sorted particle in the other particle
         # arrays.
-        sort_particles_per_cell(self.cell_idx, self.sorted_idx)
+        sort_particles_per_cell(self)
         # Reset the old prefix sum
         self.prefix_sum_shift = 0
         prefill_prefix_sum[dim_grid_2d_flat, dim_block_2d_flat](
@@ -1822,3 +1825,5 @@ class Particles(object):
         incl_prefix_sum[dim_grid_1d, dim_block_1d](self.cell_idx, self.prefix_sum)
         # Rearrange the particle arrays
         self.rearrange_particle_arrays()
+        # Return the sort block to the CuPy pool (see allocate_sort_scratch)
+        release_sort_scratch(self)

@@ -149,9 +149,8 @@ def reallocate_and_copy_old(species, use_cuda, old_Ntot, new_Ntot):
             setattr(species.spin_tracker, attr, new_array)
 
     # Allocate the auxiliary arrays for GPU
+    # (cell_idx and sorted_idx exist only during a sort)
     if use_cuda:
-        species.cell_idx = cupy.empty((new_Ntot,), dtype=np.int32)
-        species.sorted_idx = cupy.empty((new_Ntot,), dtype=np.intp)
         species.sorting_buffer = cupy.empty((new_Ntot,), dtype=np.float64)
         if species.n_integer_quantities > 0:
             species.int_sorting_buffer = cupy.empty((new_Ntot,), dtype=np.uint64)

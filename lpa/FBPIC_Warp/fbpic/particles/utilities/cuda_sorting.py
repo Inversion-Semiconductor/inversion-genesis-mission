@@ -3,11 +3,11 @@
 # License: 3-Clause-BSD-LBNL
 """Warp kernels retain the baseline particle formulas and array layout."""
 import warp as wp
-from fbpic.utils.warp import warp_kernel
+from fbpic.utils.warp import as_warp_array, get_runtime, warp_kernel
 
 from typing import Any
+import cupy
 import numpy as np
-from cupy.cuda import thrust
 from fbpic.utils.printing import catch_gpu_memory_error
 
 wp.set_module_options({"enable_backward": False})
@@ -16,7 +16,7 @@ wp.set_module_options({"enable_backward": False})
 @warp_kernel
 def get_cell_idx_per_particle(
     cell_idx: wp.array(dtype=wp.int32),
-    sorted_idx: wp.array(dtype=wp.int64),
+    sorted_idx: wp.array(dtype=wp.int32),
     x: wp.array(dtype=wp.float64),
     y: wp.array(dtype=wp.float64),
     z: wp.array(dtype=wp.float64),
@@ -87,45 +87,84 @@ def get_cell_idx_per_particle(
         # areas in a box that is periodic in z but aperiodic in r.
 
         # Reset sorted_idx array
-        sorted_idx[i] = wp.int64(i)
+        sorted_idx[i] = i
         # Calculate the 1D cell_idx
         cell_idx[i] = ir_upper + iz_upper * (Nr + 1)
 
 
+def allocate_sort_scratch(species):
+    """Point ``cell_idx`` and ``sorted_idx`` at a transient int32 sort block.
+
+    The radix sort needs ``2 * Ntot`` elements for each of the keys and the
+    values: it uses ``[0, Ntot)`` and ``[Ntot, 2 * Ntot)`` as its double
+    buffer. One block holds the keys in ``[0, 2 * Ntot)`` and the values in
+    ``[2 * Ntot, 4 * Ntot)``. `release_sort_scratch` drops it after the sort.
+
+    The block is transient on purpose. When a species grows at every step
+    (ionization), each reallocated particle array is slightly larger than the
+    array that it replaces, so the CuPy pool cannot reuse the freed chunks.
+    A transient block that is larger than one particle array gives the pool
+    a chunk to split for the next reallocation, and the freed chunks merge
+    back into it. The thrust argsort workspace had the same role. With
+    persistent sort storage, the pool of the benchmark case grew to the
+    48 GB device limit (23 GB with thrust).
+
+    Args:
+        species: Particles object on the GPU. The function sets
+            ``species.cell_idx`` and ``species.sorted_idx`` to int32 CuPy views
+            of length ``species.Ntot``.
+
+    Raises:
+        ValueError: ``species.Ntot`` does not fit in an int32 sort index.
+    """
+    n = int(species.Ntot)
+    if n >= 2**31:
+        raise ValueError("The int32 particle sort needs Ntot < 2**31.")
+    block = cupy.empty(4 * n, dtype=np.int32)
+    species._sort_keys = block[: 2 * n]
+    species._sort_values = block[2 * n :]
+    species.cell_idx = block[:n]
+    species.sorted_idx = block[2 * n : 3 * n]
+
+
+def release_sort_scratch(species):
+    """Drop the sort block of `allocate_sort_scratch` (back to the CuPy pool)."""
+    species._sort_keys = species._sort_values = None
+    species.cell_idx = species.sorted_idx = None
+
+
 @catch_gpu_memory_error
-def sort_particles_per_cell(cell_idx, sorted_idx):
+def sort_particles_per_cell(species):
     """
     Sort the cell index of the particles and
     modify the sorted index array accordingly.
 
+    The stable radix sort of Warp (CUB Onesweep) sorts the int32 keys
+    ``species.cell_idx`` and the int32 values ``species.sorted_idx`` in place.
+    The sort runs the full 32 key bits: an even number of passes leaves the
+    result in the first half of the storage, so no copy-back is needed.
+
     Parameters
     ----------
-    cell_idx : 1darray of integers
-        The cell index of the particle
-
-    sorted_idx : 1darray of integers
-        Represents the original index of the
-        particle before the sorting.
+    species : a Particles object
+        Its ``cell_idx`` and ``sorted_idx`` arrays are views of the block
+        prepared by `allocate_sort_scratch`.
     """
-    Ntot = cell_idx.shape[0]
+    Ntot = int(species.Ntot)
     if Ntot > 0:
-        if type(cell_idx) is np.ndarray or type(sorted_idx) is np.ndarray:
-            raise ValueError("Unexpected CPU array")
-        d_cell_idx = cell_idx
-        d_sorted_idx = sorted_idx
-        # `thrust.argsort` will simultaneously:
-        # - find the indices `sorted_idx` that sort the initial array cell_idx
-        # - sort `cell_idx` in place
-        thrust.argsort(
-            dtype=d_cell_idx.dtype,
-            idx_start=d_sorted_idx.data.ptr,
-            data_start=d_cell_idx.data.ptr,
-            keys_start=0,
-            shape=d_cell_idx.shape,
-        )
-        # `thrust.argsort` allocates its temporary storage through the CuPy
-        # allocator. The allocator keeps this memory cached for later sorts
-        # (see `fbpic.utils.warp.release_unused_device_memory`).
+        runtime = get_runtime()
+        if runtime.recorded_launches is not None:
+            # The sort runs immediately, so it cannot be ordered after
+            # kernels that a CUDA graph section only records.
+            raise RuntimeError("Particle sorting cannot run in a CUDA graph section.")
+        # The sort runs on the current Warp stream of the current context:
+        # select the shared runtime stream (and its device) explicitly.
+        with wp.ScopedStream(runtime.stream, sync_enter=False):
+            wp.utils.radix_sort_pairs(
+                as_warp_array(species._sort_keys, wp.int32),
+                as_warp_array(species._sort_values, wp.int32),
+                Ntot,
+            )
 
 
 @warp_kernel
@@ -206,7 +245,7 @@ def prefill_prefix_sum(
 
 @warp_kernel
 def write_sorting_buffer(
-    sorted_idx: wp.array(dtype=wp.int64),
+    sorted_idx: wp.array(dtype=wp.int32),
     val: wp.array(dtype=Any),
     buf: wp.array(dtype=Any),
 ):
