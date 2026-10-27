@@ -121,6 +121,10 @@ This creates an isolated run directory, writes the full physical vector to
 `run_manifest.json`, launches `run_fbpic.py`, and reads its saved diagnostic
 results. It is expected to consume normal FBPIC resources.
 
+Local `evaluate` does not impose an execution timeout. For NERSC/libEnsemble
+campaigns, set `execution.simulation_timeout_s` to terminate and record an
+individual simulation that exceeds its allocation.
+
 Inspect the reusable successful records and the exact feature/parameter columns
 used for the selected stage:
 
