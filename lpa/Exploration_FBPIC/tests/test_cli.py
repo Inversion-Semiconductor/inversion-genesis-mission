@@ -124,9 +124,9 @@ def test_density_envelope_samples_stage_parameters_within_bounds() -> None:
         assert profile(
             density.center + right_one_percent_distance, 0.0
         ) == pytest.approx(0.01)
-        assert density.center == pytest.approx(5.0e-3)
+        assert density.center == pytest.approx(4.0e-3)
         assert density.p_zmin == 0.0
-        assert density.p_zmax == 10.0e-3
+        assert density.p_zmax == 9.0e-3
 
 
 def test_evaluate_validates_run_root_compatibility(monkeypatch) -> None:

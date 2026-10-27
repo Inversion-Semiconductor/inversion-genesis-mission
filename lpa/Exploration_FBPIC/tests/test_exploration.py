@@ -84,14 +84,14 @@ def test_stage_one_training_data_rejects_off_nominal_later_stage_rows(
     later_stage = compatible | {
         "run_id": "sim_000001",
         "stage": "stage_2",
-        "p:density_fwhm_right_m": 1.3e-3,
+        "p:laser_gdd_relative": 0.2,
     }
     monkeypatch.setattr(
         explorer.store, "load", lambda: pd.DataFrame([compatible, later_stage])
     )
 
     with pytest.raises(
-        ValueError, match="vary inactive parameter 'density_fwhm_right_m'"
+        ValueError, match="vary inactive parameter 'laser_gdd_relative'"
     ):
         explorer.training_data()
 
@@ -180,7 +180,7 @@ def test_log_scale_uses_log_model_coordinates_and_physical_manifests() -> None:
 
     assert physical["peak_neutral_density_cm3"] == 1.4e18
     assert model["peak_neutral_density_cm3"] == np.log(1.4)
-    assert model["laser_focal_position_m"] == 4.0e-3
+    assert model["laser_focal_position_m"] == 3.0e-3
     assert explorer.model_to_physical(model)[
         "peak_neutral_density_cm3"
     ] == pytest.approx(1.4e18)
@@ -195,4 +195,4 @@ def test_fixed_center_is_excluded_from_exploration_coordinates() -> None:
     assert "density_center_location_m" not in model
     assert Campaign.from_file(CONFIG).config.complete_parameters("stage_1")[
         "density_center_location_m"
-    ] == pytest.approx(5.0e-3)
+    ] == pytest.approx(4.0e-3)
