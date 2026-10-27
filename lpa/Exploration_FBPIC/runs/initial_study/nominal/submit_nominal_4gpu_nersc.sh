@@ -24,4 +24,5 @@ source activate fbpic
 export MPICH_GPU_SUPPORT_ENABLED=0
 export FBPIC_ENABLE_GPUDIRECT=0
 
-srun --cpu-bind=none python run_nominal.py
+SCRIPT_DIRECTORY="$(cd -- "$(dirname -- "$0")" && pwd)"
+srun --cpu-bind=none python "$SCRIPT_DIRECTORY/run_nominal.py"

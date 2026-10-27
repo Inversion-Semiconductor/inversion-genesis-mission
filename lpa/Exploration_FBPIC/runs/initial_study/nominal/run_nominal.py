@@ -9,7 +9,7 @@ from pathlib import Path
 from exploration_fbpic.campaign import Campaign
 
 
-CAMPAIGN_FILE = Path(__file__).with_name("campaign.yaml")
+CAMPAIGN_FILE = Path(__file__).parents[1] / "campaign.yaml"
 PSCRATCH = os.environ.get("PSCRATCH")
 if PSCRATCH is None:
     raise RuntimeError("PSCRATCH must be set for the nominal NERSC run")
