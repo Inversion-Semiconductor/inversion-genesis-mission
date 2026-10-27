@@ -842,8 +842,8 @@ class TestAttachedAnalysis:
         simulation.densities = [
             attrs.evolve(simulation.densities[0], elec_name="electrons")
         ]
-        particle_instances = [MagicMock(), MagicMock()]
-        field_instances = [MagicMock(), MagicMock()]
+        particle_instances = [MagicMock()]
+        field_instances = [MagicMock()]
         particle_diagnostic = MagicMock(side_effect=particle_instances)
         field_diagnostic = MagicMock(side_effect=field_instances)
         monkeypatch.setattr(
@@ -857,17 +857,11 @@ class TestAttachedAnalysis:
 
         simulation.setup_simulation(working_directory=tmp_path)
 
-        final_snapshot_time = (
-            simulation.hyparams.number_dumps - 1
-        ) * particle_diagnostic.call_args_list[0].args[3]
         for diagnostic in (particle_diagnostic, field_diagnostic):
-            assert diagnostic.call_count == 2
-            assert diagnostic.call_args_list[0].kwargs["t_max_snapshots_lab"] == (
-                final_snapshot_time
-            )
-            assert diagnostic.call_args_list[1].kwargs["t_min_snapshots_lab"] == (
-                final_snapshot_time
-            )
+            diagnostic.assert_called_once()
+            assert diagnostic.call_args.args[4] == simulation.hyparams.number_dumps
+            assert diagnostic.call_args.kwargs.get("t_min_snapshots_lab") is None
+            assert diagnostic.call_args.kwargs.get("t_max_snapshots_lab") is None
 
         simulation.run_simulation(show_progress=False, record_hash=False)
         simulation.simulation.step.assert_called_once_with(

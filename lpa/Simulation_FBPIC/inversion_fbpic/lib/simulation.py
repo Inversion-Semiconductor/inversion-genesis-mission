@@ -861,11 +861,7 @@ class Simulation(SerializableConfig):
         if number_dumps == 1:
             boosted_diagnostic_ranges: list[tuple[int, dict[str, float]]] = [(1, {})]
         elif number_dumps > 1:
-            final_snapshot_time = (number_dumps - 1) * dt_lab_diag_period
-            boosted_diagnostic_ranges = [
-                (number_dumps, {"t_max_snapshots_lab": final_snapshot_time}),
-                (number_dumps, {"t_min_snapshots_lab": final_snapshot_time}),
-            ]
+            boosted_diagnostic_ranges = [(number_dumps, {})]
         elif number_dumps == -1:
             boosted_diagnostic_ranges = [
                 (2, {"t_min_snapshots_lab": dt_lab_diag_period})
@@ -914,8 +910,8 @@ class Simulation(SerializableConfig):
             ]:
                 if name is not None and number_dumps != 0:
                     if boost is not None:
-                        # Back-transformed diagnostics lack iteration bounds, so
-                        # their snapshot time ranges select the requested output.
+                        # A final-only boosted dump selects its final lab-frame
+                        # snapshot with a time range; other modes need no filter.
                         for (
                             snapshot_count,
                             snapshot_kwargs,
