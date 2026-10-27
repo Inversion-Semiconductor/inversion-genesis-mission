@@ -1861,6 +1861,11 @@ class TestAllDensityProfiles:
             val = orig_params[key]
             if val is None or isinstance(val, (dict, list)):
                 continue
+            if isinstance(val, (str, bool)):
+                assert (
+                    reload_params[key] == val
+                ), f"Mismatch on {key}: {val} vs {reload_params[key]}"
+                continue
             assert reload_params[key] == pytest.approx(
                 val, rel=1e-6
             ), f"Mismatch on {key}: {val} vs {reload_params[key]}"
