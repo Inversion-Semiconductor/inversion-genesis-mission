@@ -57,21 +57,25 @@ stages:
       - laser_super_gaussian_order
       - laser_focal_position_m
   stage_1:
-    # 200 is the total Stage 1 budget, including the 24 initial points.
-    max_evaluations: 200
-    initial_design_size: 24
-    # Matches the existing single-case FBPIC submission: 8 MPI ranks/GPUs.
-    gpus_per_simulation: 8
-    total_gpus: 32
-    concurrent_simulations: 4
+    # Two 32-simulation seed batches, then ten adaptive 32-simulation batches.
+    continuation: false
+    max_evaluations: 384
+    initial_design_size: 64
+    gpus_per_simulation: 4
+    total_gpus: 128
+    concurrent_simulations: 32
     active_parameters:
       - peak_neutral_density_cm3
       - density_fwhm_left_m
+      - density_fwhm_right_m
+      - density_left_ramp_edge_percent
+      - density_right_ramp_edge_percent
       - laser_energy_J
       - laser_pulse_duration_fwhm_s
+      - laser_tod_relative
       - laser_spot_size_m
-      - laser_super_gaussian_order
       - laser_focal_position_m
+      - zernike_astigmatism_4
   stage_2:
     # Includes all Stage 1 data reused at the nominal values of new inputs.
     continuation: true
@@ -100,10 +104,14 @@ stages:
 analysis:
   exploration_features:
     - total_beam_charge_pc
-    - mean_uz
+    - longitudinal_mean_uz_00
+    - longitudinal_mean_uz_01
+    - longitudinal_mean_uz_02
+    - longitudinal_mean_uz_03
     - cov_x_x
-    - cov_y_y
-    - cov_uz_uz
+    - cov_ux_ux
+    - cov_x_ux
+    - cov_z_z
   keep_raw_diagnostics: true
 
 # All numerical choices remain fixed for every stage. Per-run paths are created
@@ -153,5 +161,5 @@ execution:
   # Use [python] locally. In a NERSC allocation, a libEnsemble worker should
   # supply the slot-aware srun command through this field or its executor.
   launcher: [python]
-  # Terminate and record any individual Stage 0 task still running after 3 hours.
-  simulation_timeout_s: 10800
+  # Terminate and record any individual Stage 1 task still running after 2.5 hours.
+  simulation_timeout_s: 9000
