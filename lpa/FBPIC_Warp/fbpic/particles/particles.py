@@ -84,7 +84,15 @@ if cuda_installed:
         sort_particles_per_cell,
         prefill_prefix_sum,
         incl_prefix_sum,
+        reserve_sort_scratch,
     )
+    from .utilities.capacity import (
+        fit_particle_array,
+        provision_particle_arrays,
+        reserve_particle_capacity,
+        to_device_particle_array,
+    )
+from .utilities.capacity import DEFAULT_HEADROOM, start_growth_period
 
 
 def _permute_width(count):
@@ -92,6 +100,11 @@ def _permute_width(count):
     if count >= 4:
         return 4
     return 2 if count >= 2 else 1
+
+
+def _device_or_none(array):
+    """Return `array` if it is a GPU array, else None."""
+    return None if array is None or isinstance(array, np.ndarray) else array
 
 
 def _is_buffer(array, Ntot, dtype=np.float64):
@@ -124,7 +137,22 @@ class Particles(object):
                 (i.e. px/mc, py/mc, pz/mc)
     At the end or start of any PIC cycle, the momenta should be
     one half-timestep *behind* the position.
+
+    On the GPU, the per-particle arrays are views of `particle_capacity`
+    elements of larger arrays (see `fbpic.particles.utilities.capacity`), with
+    a relative headroom of `capacity_headroom`.
     """
+
+    # Minimum relative headroom of the GPU particle arrays. A species that
+    # grows within the steps (ionization, Compton) gets the headroom of its
+    # measured growth (see `fbpic.particles.utilities.capacity`).
+    capacity_headroom = DEFAULT_HEADROOM
+    # Number of particles that the GPU particle arrays can hold
+    particle_capacity = 0
+    # Number of particles gained within the steps since the last exchange
+    grown_since_exchange = 0
+    # Number of particles after the last exchange (None before the first)
+    count_at_exchange = None
 
     def __init__(
         self,
@@ -388,46 +416,117 @@ class Particles(object):
     def send_particles_to_gpu(self):
         """
         Copy the particles to the GPU.
-        Particle arrays of self now point to the GPU arrays.
+        Particle arrays of self now point to the GPU arrays, which have
+        the capacity of `reserve_particle_capacity`.
         """
         if self.use_cuda:
+            cap = reserve_particle_capacity(self, self.Ntot, rebalance=True)
             # Send positions, velocities, inverse gamma and weights
-            # to the GPU (CUDA)
-            self.x = cupy.asarray(self.x)
-            self.y = cupy.asarray(self.y)
-            self.z = cupy.asarray(self.z)
-            self.ux = cupy.asarray(self.ux)
-            self.uy = cupy.asarray(self.uy)
-            self.uz = cupy.asarray(self.uz)
-            self.inv_gamma = cupy.asarray(self.inv_gamma)
-            self.w = cupy.asarray(self.w)
+            # to the GPU (CUDA), and the fields on the particles
+            for name in (
+                "x",
+                "y",
+                "z",
+                "ux",
+                "uy",
+                "uz",
+                "inv_gamma",
+                "w",
+                "Ex",
+                "Ey",
+                "Ez",
+                "Bx",
+                "By",
+                "Bz",
+            ):
+                setattr(self, name, to_device_particle_array(getattr(self, name), cap))
 
-            # Copy arrays on the GPU for the field
-            # gathering and the particle push
-            self.Ex = cupy.asarray(self.Ex)
-            self.Ey = cupy.asarray(self.Ey)
-            self.Ez = cupy.asarray(self.Ez)
-            self.Bx = cupy.asarray(self.Bx)
-            self.By = cupy.asarray(self.By)
-            self.Bz = cupy.asarray(self.Bz)
-
-            # Copy sorting buffers on the GPU
-            self.sorting_buffer = cupy.asarray(self.sorting_buffer)
+            # Allocate the sorting buffers on the GPU (their content is
+            # not used, so it is not copied)
+            self.sorting_buffer = fit_particle_array(
+                _device_or_none(self.sorting_buffer),
+                self.Ntot,
+                cap,
+                exact=True,
+                dtype=np.float64,
+            )
             if self.n_integer_quantities > 0:
-                self.int_sorting_buffer = cupy.asarray(self.int_sorting_buffer)
+                self.int_sorting_buffer = fit_particle_array(
+                    _device_or_none(getattr(self, "int_sorting_buffer", None)),
+                    self.Ntot,
+                    cap,
+                    exact=True,
+                    dtype=np.uint64,
+                )
 
             # Copy particle tracker data
             if self.tracker is not None:
-                self.tracker.send_to_gpu()
+                self.tracker.send_to_gpu(capacity=cap)
             # Copy the ionization data
             if self.ionizer is not None:
-                self.ionizer.send_to_gpu()
+                self.ionizer.send_to_gpu(capacity=cap)
             # Copy the spin tracking data
             if self.spin_tracker is not None:
-                self.spin_tracker.send_to_gpu()
+                self.spin_tracker.send_to_gpu(capacity=cap)
 
             # Modify flag accordingly
             self.data_is_on_gpu = True
+
+    def particle_arrays(self):
+        """
+        Return the per-particle GPU arrays of this species, which share
+        the capacity `particle_capacity`.
+
+        Returns
+        -------
+        A list of (object, attribute name, kind, dtype), where kind is
+        "data" (particle quantities), "field" (fields on the particles)
+        or "scratch" (sorting buffers, whose content is not kept).
+        The attributes may be missing or None.
+        """
+        f64, u64 = np.float64, np.uint64
+        arrays = [
+            (self, name, "data", f64)
+            for name in ("x", "y", "z", "ux", "uy", "uz", "w", "inv_gamma")
+        ]
+        arrays += [
+            (self, name, "field", f64) for name in ("Ex", "Ey", "Ez", "Bx", "By", "Bz")
+        ]
+        tracker = getattr(self, "tracker", None)
+        if tracker is not None:
+            arrays.append((tracker, "id", "data", u64))
+        ionizer = getattr(self, "ionizer", None)
+        if ionizer is not None:
+            arrays.append((ionizer, "w_times_level", "data", f64))
+            arrays.append((ionizer, "ionization_level", "data", u64))
+        spin_tracker = getattr(self, "spin_tracker", None)
+        if spin_tracker is not None:
+            arrays += [(spin_tracker, name, "data", f64) for name in ("sx", "sy", "sz")]
+        arrays.append((self, "sorting_buffer", "scratch", f64))
+        if getattr(self, "n_integer_quantities", 0) > 0:
+            arrays.append((self, "int_sorting_buffer", "scratch", u64))
+        for name in sorted(vars(self)):
+            if name.startswith("_sort_slot_float"):
+                arrays.append((self, name, "scratch", f64))
+            elif name.startswith("_sort_slot_int"):
+                arrays.append((self, name, "scratch", u64))
+        return arrays
+
+    def reserve_step_workspaces(self):
+        """
+        Prepare the GPU memory of the steps until the next exchange, so that
+        they do not allocate unless the species outgrows its capacity:
+        give all particle arrays the capacity target, and reserve the shared
+        sort block and the ionization workspaces for this capacity.
+        (Called at each exchange, after the release of unused memory.)
+        Then start the count of the growth within the steps.
+        """
+        if self.use_cuda and getattr(self, "data_is_on_gpu", False):
+            provision_particle_arrays(self)
+            reserve_sort_scratch(min(self.particle_capacity, 2**31 - 1))
+            if self.ionizer is not None:
+                self.ionizer.reserve_workspaces(self)
+        start_growth_period(self)
 
     def receive_particles_from_gpu(self):
         """
@@ -911,7 +1010,9 @@ class Particles(object):
         # The extra float slots now hold the unsorted data: return them to
         # the CuPy pool. They exist only for the rare sorts that keep the
         # fields sorted (e.g. a boosted-frame diagnostic) or for neutral
-        # species, so they are not kept for the rest of the run.
+        # species, so they are not kept for the rest of the run. (Such a sort
+        # allocates 3 arrays within the step. The slots have the capacity of
+        # the species, so the arrays that take them keep this capacity.)
         for obj, name in float_slots:
             if name.startswith("_sort_slot_float"):
                 delattr(obj, name)
@@ -985,7 +1086,7 @@ class Particles(object):
             if name is None or not _is_buffer(getattr(self, name), self.Ntot):
                 name = f"_sort_slot_float{k}"
                 if not _is_buffer(getattr(self, name, None), self.Ntot):
-                    setattr(self, name, cupy.empty(self.Ntot, dtype=np.float64))
+                    setattr(self, name, self._new_sorting_slot(np.float64))
             slots.append((self, name))
         return slots
 
@@ -1004,9 +1105,15 @@ class Particles(object):
         for k in range(1, count):
             name = f"_sort_slot_int{k}"
             if not _is_buffer(getattr(self, name, None), self.Ntot, np.uint64):
-                setattr(self, name, cupy.empty(self.Ntot, dtype=np.uint64))
+                setattr(self, name, self._new_sorting_slot(np.uint64))
             slots.append((self, name))
         return slots
+
+    def _new_sorting_slot(self, dtype):
+        """Allocate a sorting buffer of Ntot elements, with the capacity of
+        the species (the sort swaps it with the particle arrays)."""
+        cap = reserve_particle_capacity(self, self.Ntot)
+        return fit_particle_array(None, self.Ntot, cap, dtype=dtype)
 
     def push_p(self, t):
         """
@@ -1926,7 +2033,7 @@ class Particles(object):
         # ------------------------
         # Sorting of the particles
         # ------------------------
-        # Point cell_idx and sorted_idx at a transient int32 block
+        # Point cell_idx and sorted_idx at the shared int32 sort block
         allocate_sort_scratch(self)
         # Get the cell index of each particle
         # (defined by iz_lower and ir_lower)
@@ -1957,7 +2064,7 @@ class Particles(object):
         incl_prefix_sum[dim_grid_1d, dim_block_1d](self.cell_idx, self.prefix_sum)
         # Rearrange the particle arrays
         self.rearrange_particle_arrays()
-        # Return the sort block to the CuPy pool (see allocate_sort_scratch)
+        # Drop the views of the shared sort block (see allocate_sort_scratch)
         release_sort_scratch(self)
         # Notify the listeners that `prefix_sum` changed
         # (The ColumnEndCopy listener of the back-transformed particle

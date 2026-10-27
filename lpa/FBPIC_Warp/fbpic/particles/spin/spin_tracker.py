@@ -18,6 +18,7 @@ if cuda_installed:
     import cupy
     from fbpic.utils.cuda import cuda_tpb_bpg_1d
     from .cuda_methods import push_s_gpu, push_s_ioniz_gpu
+    from fbpic.particles.utilities.capacity import to_device_particle_array
 
 
 class SpinTracker(object):
@@ -321,13 +322,23 @@ class SpinTracker(object):
 
         return sx, sy, sz
 
-    def send_to_gpu(self):
+    def send_to_gpu(self, capacity=None):
         """
         Copy the spin data to the GPU.
+
+        Parameters
+        ----------
+        capacity: int, optional
+            Capacity of the GPU spin arrays (see
+            `fbpic.particles.utilities.capacity`); None gives exact copies.
         """
-        self.sx = cupy.asarray(self.sx)
-        self.sy = cupy.asarray(self.sy)
-        self.sz = cupy.asarray(self.sz)
+        for name in ("sx", "sy", "sz"):
+            array = getattr(self, name)
+            if capacity is None:
+                array = cupy.asarray(array)
+            else:
+                array = to_device_particle_array(array, capacity)
+            setattr(self, name, array)
 
     def receive_from_gpu(self):
         """

@@ -6,9 +6,9 @@ import warp as wp
 from fbpic.utils.warp import as_warp_array, get_runtime, warp_kernel
 
 from typing import Any
-import cupy
 import numpy as np
 from fbpic.utils.printing import catch_gpu_memory_error
+from fbpic.particles.utilities.capacity import reserve_workspace
 
 wp.set_module_options({"enable_backward": False})
 
@@ -92,32 +92,66 @@ def get_cell_idx_per_particle(
         cell_idx[i] = ir_upper + iz_upper * (Nr + 1)
 
 
+_SORT_WORKSPACE = "particle_sort"
+
+
+def reserve_sort_scratch(count):
+    """Reserve the shared int32 sort block for `count` particles.
+
+    The block holds the keys in ``[0, 2 * cap)`` and the values in
+    ``[2 * cap, 4 * cap)``, where ``cap`` is a quarter of its size: the radix
+    sort needs ``2 * n`` elements for each, as a double buffer. All species
+    share the block (see `fbpic.particles.utilities.capacity`), because the
+    sorts run one after the other on the runtime stream and the sort indices
+    live only inside `Particles.sort_particles`.
+
+    When the block grows, one sort of ``cap`` uninitialised elements also
+    grows the cached CUB temporary storage of Warp (``acquire_temp_buffer``
+    in ``warp/native/sort.cu``, one buffer per stream that only grows). The
+    later sorts of at most ``cap`` particles then allocate nothing. This
+    relies on the Warp 1.18 cache; `tests/test_gpu_steady_state_allocations.py`
+    detects a change.
+
+    Args:
+        count: Number of particles; the species capacity, so that a growth
+            within the capacity does not grow the block.
+
+    Returns:
+        The 1D int32 CuPy block.
+
+    Raises:
+        ValueError: `count` does not fit in an int32 sort index.
+    """
+    count = int(count)
+    if count >= 2**31:
+        raise ValueError("The int32 particle sort needs Ntot < 2**31.")
+    block, grown = reserve_workspace(_SORT_WORKSPACE, 4 * count, np.int32)
+    runtime = get_runtime()
+    if grown and runtime.recorded_launches is None:
+        cap = block.size // 4
+        with wp.ScopedStream(runtime.stream, sync_enter=False):
+            wp.utils.radix_sort_pairs(
+                as_warp_array(block[: 2 * cap], wp.int32),
+                as_warp_array(block[2 * cap :], wp.int32),
+                min(cap, 2**31 - 1),
+            )
+    return block
+
+
 def allocate_sort_scratch(species):
-    """Point ``cell_idx`` and ``sorted_idx`` at a transient int32 sort block.
+    """Point ``cell_idx`` and ``sorted_idx`` at the shared sort block.
 
-    The radix sort needs ``2 * Ntot`` elements for each of the keys and the
-    values: it uses ``[0, Ntot)`` and ``[Ntot, 2 * Ntot)`` as its double
-    buffer. One block holds the keys in ``[0, 2 * Ntot)`` and the values in
-    ``[2 * Ntot, 4 * Ntot)``. `release_sort_scratch` drops it after the sort.
-
-    The block is transient on purpose. When a species grows at every step
-    (ionization), each reallocated particle array is slightly larger than the
-    array that it replaces, so the CuPy pool cannot reuse the freed chunks.
-    A transient block that is larger than one particle array gives the pool
-    a chunk to split for the next reallocation, and the freed chunks merge
-    back into it. The thrust argsort workspace had the same role. With
-    persistent sort storage, the pool of the benchmark case grew to the
-    48 GB device limit (23 GB with thrust).
-
-    This is a heuristic that depends on the CuPy pool behaviour, not a bound
-    on the pool size. The root cause is the exact-size reallocation of the
-    particle arrays in `reallocate_and_copy_old`; capacity-based particle
-    arrays would remove the dependence.
+    The block (`reserve_sort_scratch`) has room for the capacity of the
+    species, ``species.particle_capacity``, so that a growth of the species
+    within its capacity does not allocate. `release_sort_scratch` drops the
+    views after the sort; the block stays until the end of
+    ``Simulation.step``.
 
     Args:
         species: Particles object on the GPU. The function sets
             ``species.cell_idx`` and ``species.sorted_idx`` to int32 CuPy views
-            of length ``species.Ntot``.
+            of length ``species.Ntot``, and ``species._sort_keys`` and
+            ``species._sort_values`` to the radix-sort storage.
 
     Raises:
         ValueError: ``species.Ntot`` does not fit in an int32 sort index.
@@ -125,15 +159,17 @@ def allocate_sort_scratch(species):
     n = int(species.Ntot)
     if n >= 2**31:
         raise ValueError("The int32 particle sort needs Ntot < 2**31.")
-    block = cupy.empty(4 * n, dtype=np.int32)
+    count = min(max(n, int(getattr(species, "particle_capacity", 0))), 2**31 - 1)
+    block = reserve_sort_scratch(count)
+    cap = block.size // 4
     species._sort_keys = block[: 2 * n]
-    species._sort_values = block[2 * n :]
+    species._sort_values = block[2 * cap : 2 * cap + 2 * n]
     species.cell_idx = block[:n]
-    species.sorted_idx = block[2 * n : 3 * n]
+    species.sorted_idx = block[2 * cap : 2 * cap + n]
 
 
 def release_sort_scratch(species):
-    """Drop the sort block of `allocate_sort_scratch` (back to the CuPy pool)."""
+    """Drop the views of `allocate_sort_scratch` (the shared block stays)."""
     species._sort_keys = species._sort_values = None
     species.cell_idx = species.sorted_idx = None
 
@@ -153,7 +189,7 @@ def sort_particles_per_cell(species):
     ----------
     species : a Particles object
         Its ``cell_idx`` and ``sorted_idx`` arrays are views of the block
-        prepared by `allocate_sort_scratch`.
+        that `allocate_sort_scratch` binds.
     """
     Ntot = int(species.Ntot)
     if Ntot > 0:

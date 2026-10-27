@@ -425,6 +425,19 @@ def test_open_boundary_rebuild_matches_legacy_sequence(monkeypatch):
     assert np.abs(new["rho", 0]).max() > 0
 
 
+def _float_arrays(species):
+    """Return the float particle arrays of `species`, in the rebuild order."""
+    arrays = [
+        getattr(species, name)
+        for name in ("x", "y", "z", "ux", "uy", "uz", "inv_gamma", "w")
+    ]
+    if species.ionizer is not None:
+        arrays.append(species.ionizer.w_times_level)
+    if species.spin_tracker is not None:
+        arrays += [getattr(species.spin_tracker, n) for n in ("sx", "sy", "sz")]
+    return arrays
+
+
 def _float_quantities(species):
     """Return the float quantities of all particles of `species` on the host,
     in the order of the rows of the particle buffers."""
@@ -453,7 +466,9 @@ def _injected_uints(species, n):
 @gpu
 def test_open_boundary_rebuild_keeps_count():
     """Inject as many particles as are removed: Ntot does not change, so the
-    rebuild replaces the particle arrays but keeps the auxiliary arrays."""
+    rebuild replaces the particle arrays but keeps the field arrays. Each new
+    particle array is written into the sorting buffer, which takes the old
+    array (as in a sort)."""
     from fbpic.boundaries.particle_buffer_handling import (
         add_buffers_to_particles,
         rebuild_open_boundary_gpu,
@@ -493,8 +508,9 @@ def test_open_boundary_rebuild_keeps_count():
     # GPU rebuild, from the same state
     _restore(sim, state)
     for i, species in enumerate((electrons, ions)):
-        auxiliary = species.Ex, species.Bz, species.sorting_buffer
+        auxiliary = species.Ex, species.Bz
         old_x = species.x
+        old_float = _float_arrays(species)
         float_r = floats[i][:, -n_removed[i] :]
         species.injection_staging = PinnedStagingBuffer()
         staged = species.injection_staging.array(float_r.shape)
@@ -502,8 +518,13 @@ def test_open_boundary_rebuild_keeps_count():
         rebuild_open_boundary_gpu(species, sim.fld, comm.n_guard, staged)
         assert species.Ntot == counts[i]
         assert species.x is not old_x
-        kept = (species.Ex, species.Bz, species.sorting_buffer)
+        kept = (species.Ex, species.Bz)
         assert all(a is b for a, b in zip(kept, auxiliary))
+        # The sorting buffer takes the last old float array, and all arrays
+        # stay distinct
+        assert species.sorting_buffer is old_float[-1]
+        new_float = _float_arrays(species) + [species.sorting_buffer]
+        assert len({a.data.ptr for a in new_float}) == len(new_float)
     new = _exchange_result(sim)
 
     _assert_bitwise_equal(legacy, new)

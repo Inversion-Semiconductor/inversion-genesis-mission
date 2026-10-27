@@ -50,11 +50,17 @@ from fbpic.utils.printing import catch_gpu_memory_error
 
 if cuda_installed:
     import cupy
+    import cupyx
     from fbpic.utils.cuda import cuda_tpb_bpg_1d
     from .cuda_methods import ionize_ions_cuda, copy_ionized_electrons_cuda
     from .random import generate_ionization_draws_gpu
     from ...spin.cuda_methods import copy_ionized_electron_spin_cuda
     from ...spin.cuda_numba_utils import random_point_sphere_gpu
+    from ...utilities.capacity import (
+        reserve_workspace,
+        to_device_particle_array,
+        workspace_view,
+    )
 
 
 class Ionizer(object):
@@ -294,7 +300,11 @@ class Ionizer(object):
         iteration = index(iteration)
         if not 0 <= iteration < 2**32:
             raise ValueError("Ionization iteration must be an unsigned 32-bit integer.")
-        draws = allocate_empty(ion.Ntot, self.use_cuda, dtype=np.float32)
+        if self.use_cuda:
+            # Shared workspace: every element is written below
+            draws = workspace_view("ionizer_draws", (ion.Ntot,), np.float32)
+        else:
+            draws = allocate_empty(ion.Ntot, False, dtype=np.float32)
         args = (
             ion.tracker.id,
             self.ionization_level,
@@ -337,14 +347,17 @@ class Ionizer(object):
         use_cuda = self.use_cuda
 
         # Set the number of levels that should be distinguished
-        if self.store_electrons_per_level:
-            n_levels = self.level_max - self.level_start
-        else:
-            n_levels = 1
+        n_levels = self._n_levels()
 
         # Create temporary arrays (on CPU or GPU, depending on `use_cuda`)
-        ionized_from = allocate_empty(ion.Ntot, use_cuda, dtype=np.int16)
-        n_ionized = allocate_empty((n_levels, N_batch), use_cuda, dtype=np.int64)
+        # On GPU, they are views of workspaces that all ionizers share (see
+        # `reserve_workspaces`); the kernels write every element.
+        if use_cuda:
+            ionized_from = workspace_view("ionizer_from", (ion.Ntot,), np.int16)
+            n_ionized = workspace_view("ionizer_count", (n_levels, N_batch), np.int64)
+        else:
+            ionized_from = allocate_empty(ion.Ntot, use_cuda, dtype=np.int16)
+            n_ionized = allocate_empty((n_levels, N_batch), use_cuda, dtype=np.int64)
         # Associate each draw with an ion ID when the reproducible path is active.
         random_draw = self._draw_random_numbers(ion, iteration)
 
@@ -407,14 +420,24 @@ class Ionizer(object):
             )
 
         # Count the total number of new electrons
-        cumulative_n_ionized = perform_cumsum_2d(n_ionized, use_cuda)
-        # If no new particle was created, skip the rest of this function
         if use_cuda:
-            if cupy.all(cumulative_n_ionized[:, -1] == 0):
-                return
+            cumulative_n_ionized = perform_cumsum_2d(
+                n_ionized,
+                use_cuda,
+                out=workspace_view("ionizer_cumsum", (n_levels, N_batch + 1), np.int64),
+            )
+            # Copy the totals of all levels to the host at once (this waits
+            # for the GPU, as the previous per-level reads did)
+            if getattr(self, "_totals_device", None) is None:
+                self._allocate_totals()
+            cupy.copyto(self._totals_device, cumulative_n_ionized[:, -1])
+            n_new = self._totals_device.get(out=self._totals_host)
         else:
-            if np.all(cumulative_n_ionized[:, -1] == 0):
-                return
+            cumulative_n_ionized = perform_cumsum_2d(n_ionized, use_cuda)
+            n_new = cumulative_n_ionized[:, -1]
+        # If no new particle was created, skip the rest of this function
+        if np.all(n_new == 0):
+            return
 
         # Loop over the electron species associated to each level
         # (when store_electrons_per_level is False, there is a single species)
@@ -424,8 +447,7 @@ class Ionizer(object):
         assert len(self.target_species) == n_levels
         for i_level, elec in enumerate(self.target_species):
             old_Ntot = elec.Ntot
-            # Cast to int transfers the data from the GPU if needed
-            new_Ntot = old_Ntot + int(cumulative_n_ionized[i_level, -1])
+            new_Ntot = old_Ntot + int(n_new[i_level])
             reallocate_and_copy_old(elec, use_cuda, old_Ntot, new_Ntot)
             # Create the new electrons from ionization (one thread per batch)
             if use_cuda:
@@ -560,14 +582,63 @@ class Ionizer(object):
                         ion.spin_tracker.sz,
                     )
 
-    def send_to_gpu(self):
+    def _n_levels(self):
+        """Return the number of ionization levels with distinct electrons."""
+        if self.store_electrons_per_level:
+            return self.level_max - self.level_start
+        return 1
+
+    def reserve_workspaces(self, ion):
+        """
+        Reserve the shared GPU workspaces of `handle_ionization` for the
+        capacity of the ions, so that the steps until the next exchange do
+        not allocate them. (The ionizers share the workspaces: the runtime
+        stream orders their use.)
+
+        Parameters
+        ----------
+        ion: an fbpic.Particles object
+            The ionizable species, with its data on the GPU.
+        """
+        count = max(int(ion.Ntot), int(ion.particle_capacity))
+        n_levels = self._n_levels()
+        N_batch = int(count / self.batch_size) + 1
+        reserve_workspace("ionizer_from", count, np.int16)
+        reserve_workspace("ionizer_count", n_levels * N_batch, np.int64)
+        reserve_workspace("ionizer_cumsum", n_levels * (N_batch + 1), np.int64)
+        if self.rng_seed is not None:
+            reserve_workspace("ionizer_draws", count, np.float32)
+
+    def _allocate_totals(self):
+        """Allocate the number of new electrons per level, on the GPU and in
+        pinned host memory (for one device-to-host copy per step)."""
+        n_levels = self._n_levels()
+        self._totals_device = cupy.empty(n_levels, dtype=np.int64)
+        self._totals_host = cupyx.empty_pinned(n_levels, dtype=np.int64)
+
+    def send_to_gpu(self, capacity=None):
         """
         Copy the ionization data to the GPU.
+
+        Parameters
+        ----------
+        capacity: int, optional
+            Capacity of the per-particle GPU arrays (see
+            `fbpic.particles.utilities.capacity`); None gives exact copies.
         """
         if self.use_cuda:
             # Arrays with one element per macroparticles
-            self.ionization_level = cupy.asarray(self.ionization_level)
-            self.w_times_level = cupy.asarray(self.w_times_level)
+            if capacity is None:
+                self.ionization_level = cupy.asarray(self.ionization_level)
+                self.w_times_level = cupy.asarray(self.w_times_level)
+            else:
+                self.ionization_level = to_device_particle_array(
+                    self.ionization_level, capacity
+                )
+                self.w_times_level = to_device_particle_array(
+                    self.w_times_level, capacity
+                )
+            self._allocate_totals()
             # Small-size arrays with ADK parameters
             # (One element per ionization level)
             self.adk_power = cupy.asarray(self.adk_power)
@@ -587,3 +658,4 @@ class Ionizer(object):
             self.adk_power = self.adk_power.get()
             self.adk_prefactor = self.adk_prefactor.get()
             self.adk_exp_prefactor = self.adk_exp_prefactor.get()
+            self._totals_device = self._totals_host = None

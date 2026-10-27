@@ -27,6 +27,7 @@ if cuda_installed:
         get_runtime,
         release_unused_device_memory,
     )
+    from .particles.utilities.capacity import release_workspaces
 
 # Import the rest of the requirements
 import warnings
@@ -556,6 +557,13 @@ class Simulation(object):
                 # large with the CUDA mempool).
                 if self.use_cuda:
                     release_unused_device_memory()
+                    # Give the particle arrays their capacity and reserve the
+                    # sort and ionization workspaces, so that the steps until
+                    # the next exchange allocate no device memory (unless a
+                    # species outgrows its capacity). After the release, so
+                    # that a trim cannot drop them.
+                    for species in ptcl:
+                        species.reserve_step_workspaces()
 
             # For the field diagnostics of the first step: deposit J
             # (Note however that this is not the *corrected* current)
@@ -703,6 +711,8 @@ class Simulation(object):
         if self.use_cuda:
             receive_data_from_gpu(self)
             self._cuda_graphs.clear()
+            # Return the shared step workspaces (sort, ionization) to the pool
+            release_workspaces()
 
         # Print the measured time taken by the PIC cycle
         if show_progress and (self.comm.rank == 0):

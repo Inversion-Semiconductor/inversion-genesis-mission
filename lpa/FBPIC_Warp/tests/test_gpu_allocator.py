@@ -242,6 +242,38 @@ def test_out_of_memory_retries_once_after_trim(async_runtime, monkeypatch):
     assert state["trims"] == trims + 1
 
 
+def test_out_of_memory_retry_drops_step_workspaces(async_runtime, monkeypatch):
+    import cupy
+    import numpy as np
+
+    from fbpic.particles.utilities import capacity
+
+    unused, _ = capacity.reserve_workspace("test_unused", 1 << 20, np.int32)
+    del unused
+    in_use = capacity.workspace_view("test_in_use", (4096,), np.float64)
+    in_use[:] = 2.0
+    allocate = async_runtime._allocate_async
+    calls = []
+
+    def fail_once(size):
+        calls.append(size)
+        if len(calls) == 1:
+            raise cupy.cuda.runtime.CUDARuntimeError(2)
+        return allocate(size)
+
+    monkeypatch.setattr(async_runtime, "_allocate_async", fail_once)
+    cupy.empty(1000, dtype=cupy.float64)
+    assert len(calls) == 2
+    # The retry dropped the workspaces; a view in use keeps its memory
+    assert "test_unused" not in capacity._workspaces
+    assert "test_in_use" not in capacity._workspaces
+    assert float(in_use.sum()) == 2.0 * 4096
+    monkeypatch.setattr(async_runtime, "_allocate_async", allocate)
+    _, grown = capacity.reserve_workspace("test_unused", 1 << 20, np.int32)
+    assert grown
+    capacity.release_workspaces()
+
+
 def test_out_of_memory_raises_after_retry(async_runtime, monkeypatch):
     import cupy
 

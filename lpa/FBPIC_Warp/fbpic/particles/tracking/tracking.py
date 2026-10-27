@@ -15,6 +15,7 @@ if cuda_installed:
     import warp as wp
     from fbpic.utils.cuda import cuda_tpb_bpg_1d
     from fbpic.utils.warp import warp_kernel
+    from fbpic.particles.utilities.capacity import to_device_particle_array
 
 
 class ParticleTracker(object):
@@ -59,11 +60,20 @@ class ParticleTracker(object):
         )
         self.next_attributed_id = new_next_attributed_id
 
-    def send_to_gpu(self):
+    def send_to_gpu(self, capacity=None):
         """
         Transfer the tracking data from the CPU to the GPU
+
+        Parameters
+        ----------
+        capacity: int, optional
+            Capacity of the GPU id array (see
+            `fbpic.particles.utilities.capacity`); None gives an exact copy.
         """
-        self.id = cupy.asarray(self.id)
+        if capacity is None:
+            self.id = cupy.asarray(self.id)
+        else:
+            self.id = to_device_particle_array(self.id, capacity)
 
     def receive_from_gpu(self):
         """
