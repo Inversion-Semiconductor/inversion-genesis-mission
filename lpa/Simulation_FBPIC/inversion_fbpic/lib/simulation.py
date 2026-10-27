@@ -120,7 +120,7 @@ class SimulationHyperparameters(SerializableConfig):
             If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
         use_mpi: (bool) Whether to use MPI.
         gamma_boost: (float | None) |OPTIONAL| Gamma boost factor.
-        number_dumps: (int) Number of diagnostic dumps to save.
+        number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics.
         field_diagnostics: (list[Literal["rho", "E", "B", "J"]] | None) |OPTIONAL| List of field diagnostics to save. If None, no field diagnostics are saved.
         save_directory: (str | Path) |OPTIONAL| Directory to save the diagnostics. If not absolute, this is relative to the `working_directory` passed to `Simulation.setup_simulation()`. Defaults to "diags".
         save_checkpoints: (bool) |OPTIONAL| Whether to save checkpoints. Defaults to False.
@@ -155,7 +155,7 @@ class SimulationHyperparameters(SerializableConfig):
     nr: int = attrs.field(converter=int, validator=attrs.validators.ge(1))
     nm: int = attrs.field(converter=int, validator=attrs.validators.ge(1))
     use_mpi: bool = attrs.field(converter=bool)
-    number_dumps: int = attrs.field(converter=int, validator=attrs.validators.ge(1))
+    number_dumps: int = attrs.field(converter=int, validator=attrs.validators.ge(-1))
     right_buffer: float | None = attrs.field(
         default=None,
         converter=attrs.converters.optional(float),
@@ -816,7 +816,18 @@ class Simulation(SerializableConfig):
         )
 
         # Add the particles and particle diagnostics
-        if self.hyparams.number_dumps < 2:
+        final_iteration = self.num_steps
+        number_dumps = self.hyparams.number_dumps
+        diagnostics_requested = self.hyparams.field_diagnostics is not None or any(
+            density.elec_name is not None or density.ion_name is not None
+            for density in self.densities
+        )
+        if number_dumps == 0 and diagnostics_requested:
+            self._logger.warning(
+                "Diagnostics were requested but number_dumps=0; skipping diagnostics."
+            )
+
+        if number_dumps < 2:
             dt_lab_diag_period = (
                 L_interact + (self.hyparams.zmax - self.hyparams.zmin)
             ) / v_window
@@ -826,12 +837,43 @@ class Simulation(SerializableConfig):
             dt_lab_diag_period = np.nextafter(
                 (L_interact + (self.hyparams.zmax - self.hyparams.zmin))
                 / v_window
-                / (max(1, self.hyparams.number_dumps - 1)),
+                / (number_dumps - 1),
                 -np.inf,
             )
             dn_lab_diag_period = self._particle_diagnostic_period_steps(
-                self.num_steps, self.hyparams.number_dumps
+                self.num_steps, number_dumps - 1
             )
+
+        if number_dumps == 1:
+            regular_diagnostic_kwargs: dict[str, int] | None = {
+                "period": 1,
+                "iteration_min": 0,
+                "iteration_max": 1,
+            }
+        elif number_dumps > 1:
+            regular_diagnostic_kwargs = {
+                "period": dn_lab_diag_period,
+                "iteration_min": 0,
+                "iteration_max": final_iteration,
+            }
+        else:
+            regular_diagnostic_kwargs = None
+        write_final_diagnostic = number_dumps == -1 or number_dumps > 1
+
+        if number_dumps == 1:
+            boosted_diagnostic_ranges: list[tuple[int, dict[str, float]]] = [(1, {})]
+        elif number_dumps > 1:
+            final_snapshot_time = (number_dumps - 1) * dt_lab_diag_period
+            boosted_diagnostic_ranges = [
+                (number_dumps, {"t_max_snapshots_lab": final_snapshot_time}),
+                (number_dumps, {"t_min_snapshots_lab": final_snapshot_time}),
+            ]
+        elif number_dumps == -1:
+            boosted_diagnostic_ranges = [
+                (2, {"t_min_snapshots_lab": dt_lab_diag_period})
+            ]
+        else:
+            boosted_diagnostic_ranges = []
 
         # check for duplicate elec names in the un-boosted case (FBPIC glitch)
         if boost is None:
@@ -872,34 +914,54 @@ class Simulation(SerializableConfig):
                 (density.elec_name, density.elec_select, elec),
                 (density.ion_name, density.ion_select, ion),
             ]:
-                if name is not None:
+                if name is not None and number_dumps != 0:
                     if boost is not None:
-                        self.simulation.diags.append(
-                            BackTransformedParticleDiagnostic(
-                                self.hyparams.zmin,
-                                self.hyparams.zmax,
-                                v_window,
-                                dt_lab_diag_period,
-                                self.hyparams.number_dumps,
-                                boost.gamma0,
-                                self.hyparams.write_period,
-                                self.simulation.fld,
-                                species={name: spec},
-                                select=select,
-                                comm=self.simulation.comm,
-                                write_dir=save_directory_absolute,
-                            ),
-                        )
+                        # Back-transformed diagnostics lack iteration bounds, so
+                        # their snapshot time ranges select the requested output.
+                        for (
+                            snapshot_count,
+                            snapshot_kwargs,
+                        ) in boosted_diagnostic_ranges:
+                            self.simulation.diags.append(
+                                BackTransformedParticleDiagnostic(
+                                    self.hyparams.zmin,
+                                    self.hyparams.zmax,
+                                    v_window,
+                                    dt_lab_diag_period,
+                                    snapshot_count,
+                                    boost.gamma0,
+                                    self.hyparams.write_period,
+                                    self.simulation.fld,
+                                    species={name: spec},
+                                    select=select,
+                                    comm=self.simulation.comm,
+                                    write_dir=save_directory_absolute,
+                                    **snapshot_kwargs,
+                                )
+                            )
                     else:
-                        self.simulation.diags.append(
-                            ParticleDiagnostic(
-                                period=dn_lab_diag_period,
-                                species={name: spec},
-                                select=select,
-                                comm=self.simulation.comm,
-                                write_dir=save_directory_absolute,
-                            ),
-                        )
+                        if regular_diagnostic_kwargs is not None:
+                            self.simulation.diags.append(
+                                ParticleDiagnostic(
+                                    species={name: spec},
+                                    select=select,
+                                    comm=self.simulation.comm,
+                                    write_dir=save_directory_absolute,
+                                    **regular_diagnostic_kwargs,
+                                )
+                            )
+                        if write_final_diagnostic:
+                            self.simulation.diags.append(
+                                ParticleDiagnostic(
+                                    period=1,
+                                    species={name: spec},
+                                    select=select,
+                                    comm=self.simulation.comm,
+                                    write_dir=save_directory_absolute,
+                                    iteration_min=final_iteration,
+                                    iteration_max=final_iteration + 1,
+                                )
+                            )
             # /add diags
             # add tracking
             if self.hyparams.track_electrons and not self.hyparams.use_restart:
@@ -931,32 +993,46 @@ class Simulation(SerializableConfig):
             self.simulation.set_moving_window(v=v_window)
 
         # Add field diagnostics
-        if self.hyparams.field_diagnostics is not None:
+        if self.hyparams.field_diagnostics is not None and number_dumps != 0:
             if boost is not None:
-                self.simulation.diags.append(
-                    BackTransformedFieldDiagnostic(
-                        self.hyparams.zmin,
-                        self.hyparams.zmax,
-                        v_window,
-                        dt_lab_diag_period,
-                        self.hyparams.number_dumps,
-                        boost.gamma0,
-                        fieldtypes=self.hyparams.field_diagnostics,
-                        period=self.hyparams.write_period,
-                        fldobject=self.simulation.fld,
-                        comm=self.simulation.comm,
-                        write_dir=save_directory_absolute,
+                for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
+                    self.simulation.diags.append(
+                        BackTransformedFieldDiagnostic(
+                            self.hyparams.zmin,
+                            self.hyparams.zmax,
+                            v_window,
+                            dt_lab_diag_period,
+                            snapshot_count,
+                            boost.gamma0,
+                            fieldtypes=self.hyparams.field_diagnostics,
+                            period=self.hyparams.write_period,
+                            fldobject=self.simulation.fld,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            **snapshot_kwargs,
+                        )
                     )
-                )
             else:
-                self.simulation.diags.append(
-                    FieldDiagnostic(
-                        period=dn_lab_diag_period,
-                        fldobject=self.simulation.fld,
-                        comm=self.simulation.comm,
-                        write_dir=save_directory_absolute,
+                if regular_diagnostic_kwargs is not None:
+                    self.simulation.diags.append(
+                        FieldDiagnostic(
+                            fldobject=self.simulation.fld,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            **regular_diagnostic_kwargs,
+                        )
                     )
-                )
+                if write_final_diagnostic:
+                    self.simulation.diags.append(
+                        FieldDiagnostic(
+                            period=1,
+                            fldobject=self.simulation.fld,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            iteration_min=final_iteration,
+                            iteration_max=final_iteration + 1,
+                        )
+                    )
         # /Add field diagnostics
 
         # Checkpoints
@@ -1012,11 +1088,14 @@ class Simulation(SerializableConfig):
                 "Simulation not setup. Run `Simulation.setup_simulation()` before `Simulation.run_simulation()`."
             )
 
+        # FBPIC writes diagnostics before advancing an iteration. Run one extra
+        # iteration so the diagnostics constrained to ``self.num_steps`` see the
+        # final physical state.
+        num_steps = self.num_steps + 1
         if not logger_friendly_progress:
-            self.simulation.step(self.num_steps, show_progress=show_progress)
+            self.simulation.step(num_steps, show_progress=show_progress)
         else:
             # figure out how many sub-steps to run
-            num_steps = self.num_steps
             if num_steps < 50:
                 num_sub_steps = 1
             elif num_steps < 500:
@@ -1044,6 +1123,11 @@ class Simulation(SerializableConfig):
                 time0 = time1
 
             self._logger.info(f"Completed in {round((time0-time00)):d} seconds.")
+
+        if self.hyparams.is_boosted:
+            # Back-transformed diagnostics buffer slices until their write period.
+            for diagnostic in self.simulation.diags:
+                diagnostic.flush_to_disk()
 
         # TODO: read simulation output to see if it actually was successful
         if record_hash and self.do_write_to_disk:

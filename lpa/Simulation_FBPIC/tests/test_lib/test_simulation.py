@@ -729,6 +729,149 @@ class TestSupportingElements:
 
 
 class TestAttachedAnalysis:
+    def test_zero_dumps_warns_and_skips_requested_diagnostics(
+        self, analysis_simulation, tmp_path, caplog
+    ) -> None:
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams, number_dumps=0, field_diagnostics=["E"]
+        )
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            simulation.setup_simulation(working_directory=tmp_path)
+
+        assert simulation.simulation.diags == []
+        assert "number_dumps=0; skipping diagnostics" in caplog.text
+
+    @pytest.mark.parametrize(
+        ("number_dumps", "iteration_min", "iteration_max"),
+        [(1, 0, 1), (-1, "final", "after_final")],
+    )
+    def test_single_unboosted_dump_uses_requested_boundary(
+        self,
+        analysis_simulation,
+        tmp_path,
+        monkeypatch,
+        number_dumps,
+        iteration_min,
+        iteration_max,
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams,
+            number_dumps=number_dumps,
+            field_diagnostics=["E"],
+        )
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+        particle_diagnostic = MagicMock()
+        field_diagnostic = MagicMock()
+        monkeypatch.setattr(
+            simulation_module, "ParticleDiagnostic", particle_diagnostic
+        )
+        monkeypatch.setattr(simulation_module, "FieldDiagnostic", field_diagnostic)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        expected_min = (
+            simulation.num_steps if iteration_min == "final" else iteration_min
+        )
+        expected_max = (
+            simulation.num_steps + 1
+            if iteration_max == "after_final"
+            else iteration_max
+        )
+        for diagnostic in (particle_diagnostic, field_diagnostic):
+            diagnostic.assert_called_once()
+            assert diagnostic.call_args.kwargs["iteration_min"] == expected_min
+            assert diagnostic.call_args.kwargs["iteration_max"] == expected_max
+
+    def test_final_unboosted_diagnostics_and_extra_step(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, field_diagnostics=["E"])
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+        particle_diagnostic = MagicMock()
+        field_diagnostic = MagicMock()
+        monkeypatch.setattr(
+            simulation_module, "ParticleDiagnostic", particle_diagnostic
+        )
+        monkeypatch.setattr(simulation_module, "FieldDiagnostic", field_diagnostic)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert particle_diagnostic.call_count == field_diagnostic.call_count == 2
+        for diagnostic in (particle_diagnostic, field_diagnostic):
+            final_call = diagnostic.call_args_list[-1]
+            assert final_call.kwargs["period"] == 1
+            assert final_call.kwargs["iteration_min"] == simulation.num_steps
+            assert final_call.kwargs["iteration_max"] == simulation.num_steps + 1
+
+        simulation.run_simulation(show_progress=False, record_hash=False)
+        simulation.simulation.step.assert_called_once_with(
+            simulation.num_steps + 1, show_progress=False
+        )
+
+    def test_final_boosted_snapshot_is_flushed_after_extra_step(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams,
+            gamma_boost=2.0,
+            field_diagnostics=["E"],
+            write_period=3,
+        )
+        simulation.densities = [
+            attrs.evolve(simulation.densities[0], elec_name="electrons")
+        ]
+        particle_instances = [MagicMock(), MagicMock()]
+        field_instances = [MagicMock(), MagicMock()]
+        particle_diagnostic = MagicMock(side_effect=particle_instances)
+        field_diagnostic = MagicMock(side_effect=field_instances)
+        monkeypatch.setattr(
+            simulation_module,
+            "BackTransformedParticleDiagnostic",
+            particle_diagnostic,
+        )
+        monkeypatch.setattr(
+            simulation_module, "BackTransformedFieldDiagnostic", field_diagnostic
+        )
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        final_snapshot_time = (
+            simulation.hyparams.number_dumps - 1
+        ) * particle_diagnostic.call_args_list[0].args[3]
+        for diagnostic in (particle_diagnostic, field_diagnostic):
+            assert diagnostic.call_count == 2
+            assert diagnostic.call_args_list[0].kwargs["t_max_snapshots_lab"] == (
+                final_snapshot_time
+            )
+            assert diagnostic.call_args_list[1].kwargs["t_min_snapshots_lab"] == (
+                final_snapshot_time
+            )
+
+        simulation.run_simulation(show_progress=False, record_hash=False)
+        simulation.simulation.step.assert_called_once_with(
+            simulation.num_steps + 1, show_progress=False
+        )
+        for diagnostic in [*particle_instances, *field_instances]:
+            diagnostic.flush_to_disk.assert_called_once_with()
+
     def test_moment_descriptor_runs_after_stepping(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:
@@ -794,7 +937,7 @@ class TestAttachedAnalysis:
         assert before.calls == after.calls == 1
         assert (
             sum(call.args[0] for call in simulation.simulation.step.call_args_list)
-            == simulation.num_steps
+            == simulation.num_steps + 1
         )
 
     def test_setup_is_idempotent_and_explicit_runs_rerun_analysis(
@@ -1260,6 +1403,91 @@ class TestSkipIfHashed:
 
 @pytest.mark.integration
 class TestIntegration:
+    def test_boosted_single_dump_is_at_initial_lab_time(self, tmp_path: Path) -> None:
+        import h5py
+
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        hyp = attrs.evolve(
+            hyp,
+            gamma_boost=2.0,
+            field_diagnostics=["E"],
+            number_dumps=1,
+            write_period=10_000,
+        )
+        simulation = Simulation(elements=[hyp, density, laser])
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(show_progress=False)
+
+        dumps = sorted((simulation._save_directory / "hdf5").glob("data*.h5"))
+        assert [dump.name for dump in dumps] == ["data00000000.h5"]
+        with h5py.File(dumps[0]) as handle:
+            assert handle["data/0"].attrs["time"] == 0.0
+
+    def test_boosted_final_only_dump_is_at_final_lab_time(self, tmp_path: Path) -> None:
+        import h5py
+
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        hyp = attrs.evolve(
+            hyp,
+            gamma_boost=2.0,
+            field_diagnostics=["E"],
+            number_dumps=-1,
+            write_period=10_000,
+        )
+        simulation = Simulation(elements=[hyp, density, laser])
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(show_progress=False)
+
+        dumps = sorted((simulation._save_directory / "hdf5").glob("data*.h5"))
+        assert [dump.name for dump in dumps] == ["data00000001.h5"]
+        with h5py.File(dumps[0]) as handle:
+            assert handle["data/1"].attrs["time"] > 0.0
+
+    def test_boosted_final_field_snapshot_is_completely_flushed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import h5py
+
+        from fbpic.openpmd_diag import BackTransformedFieldDiagnostic
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        hyp = attrs.evolve(
+            hyp,
+            gamma_boost=2.0,
+            field_diagnostics=["E"],
+            write_period=10_000,
+        )
+        simulation = Simulation(elements=[hyp, density, laser])
+        written_final_slices: list[tuple[int, int]] = []
+        write_slices = BackTransformedFieldDiagnostic.write_slices
+
+        def record_final_slices(self, field_array, iz_min, iz_max, snapshot, f2i):
+            if snapshot.iteration == hyp.number_dumps - 1:
+                written_final_slices.append((iz_min, iz_max))
+            return write_slices(self, field_array, iz_min, iz_max, snapshot, f2i)
+
+        monkeypatch.setattr(
+            BackTransformedFieldDiagnostic, "write_slices", record_final_slices
+        )
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(show_progress=False)
+
+        final_dump = tmp_path / hyp.save_directory / "hdf5" / "data00000001.h5"
+        with h5py.File(final_dump) as handle:
+            longitudinal_size = handle["data/1/fields/E/r"].shape[-1]
+
+        # Back-transformed diagnostics retain two endpoint cells outside their
+        # strict lab-frame bounds; every physical longitudinal cell must be set.
+        filled = np.zeros(longitudinal_size - 2, dtype=bool)
+        for iz_min, iz_max in written_final_slices:
+            filled[iz_min : min(iz_max, len(filled))] = True
+        assert filled.all()
+
     def test_setup_and_step(self, tmp_path: Path) -> None:
         """Set up a tiny simulation (8x8, nm=1) and step 3 times."""
         from inversion_fbpic.lib.simulation import Simulation
