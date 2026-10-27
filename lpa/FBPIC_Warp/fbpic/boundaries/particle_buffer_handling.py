@@ -18,6 +18,11 @@ if cuda_installed:
     import warp as wp
     from fbpic.utils.cuda import cuda_tpb_bpg_1d
     from fbpic.utils.warp import warp_kernel
+    from fbpic.particles.utilities.capacity import (
+        fit_particle_array,
+        provision_particle_arrays,
+        reserve_particle_capacity,
+    )
 
 
 def remove_outside_particles(species, fld, n_guard, left_proc, right_proc):
@@ -192,6 +197,29 @@ def remove_particles_cpu(species, fld, n_guard, left_proc, right_proc):
     return (float_send_left, float_send_right, uint_send_left, uint_send_right)
 
 
+def _rebuild_destination(species, buffer_name, n, cap, dtype):
+    """Return an `n`-element destination for a rebuilt particle array.
+
+    The destination is the sorting buffer `buffer_name` of `species` when its
+    capacity is the target `cap` (no allocation), else a new array of
+    capacity `cap`. The sorting buffer is distinct from all particle arrays,
+    so a kernel can read a particle array and write the destination.
+    After the kernel, `_swap_with_buffer` installs the destination.
+    """
+    buffer = getattr(species, buffer_name, None)
+    if isinstance(buffer, np.ndarray):
+        buffer = None
+    return fit_particle_array(buffer, n, cap, exact=True, dtype=dtype)
+
+
+def _swap_with_buffer(species, buffer_name, obj, name, new_array):
+    """Make `new_array` the attribute `name` of `obj`; the old array becomes
+    the sorting buffer `buffer_name` of `species` (as in a sort)."""
+    old_array = getattr(obj, name)
+    setattr(obj, name, new_array)
+    setattr(species, buffer_name, old_array)
+
+
 def get_stay_range_gpu(species, fld, n_guard):
     """
     Sort the particles on the GPU if needed, and return the range of
@@ -301,6 +329,8 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
 
     # Get the threads per block and the blocks per grid
     dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(species.Ntot)
+    # The particles that stay go to the sorting buffers (capacity target)
+    cap = reserve_particle_capacity(species, new_Ntot, rebalance=True)
     # Float quantities:
     # Build list of float attributes to copy
     attr_list = [
@@ -327,7 +357,9 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
         # inside the loop, as `copy_to_host` invalidates these arrays)
         left_buffer = cupy.empty((N_send_l,), dtype=np.float64)
         right_buffer = cupy.empty((N_send_r,), dtype=np.float64)
-        stay_buffer = cupy.empty((new_Ntot,), dtype=np.float64)
+        stay_buffer = _rebuild_destination(
+            species, "sorting_buffer", new_Ntot, cap, np.float64
+        )
         # Check that the buffers are still on GPU
         # (safeguard against automatic memory management)
         assert type(left_buffer) is not np.ndarray
@@ -340,7 +372,7 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
         )
         # Assign the stay_buffer to the initial particle data array
         # and fill the sending buffers (if needed for MPI)
-        setattr(attr_list[i_attr][0], attr_list[i_attr][1], stay_buffer)
+        _swap_with_buffer(species, "sorting_buffer", *attr_list[i_attr], stay_buffer)
         if left_proc is not None:
             left_buffer.get(out=float_send_left[i_attr])
         if right_proc is not None:
@@ -358,7 +390,9 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
         # inside the loop, as `copy_to_host` invalidates these arrays)
         left_buffer = cupy.empty((N_send_l,), dtype=np.uint64)
         right_buffer = cupy.empty((N_send_r,), dtype=np.uint64)
-        stay_buffer = cupy.empty((new_Ntot,), dtype=np.uint64)
+        stay_buffer = _rebuild_destination(
+            species, "int_sorting_buffer", new_Ntot, cap, np.uint64
+        )
         # Split the particle array into the 3 buffers on the GPU
         particle_array = getattr(attr_list[i_attr][0], attr_list[i_attr][1])
         split_particles_to_buffers[dim_grid_1d, dim_block_1d](
@@ -366,7 +400,9 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
         )
         # Assign the stay_buffer to the initial particle data array
         # and fill the sending buffers (if needed for MPI)
-        setattr(attr_list[i_attr][0], attr_list[i_attr][1], stay_buffer)
+        _swap_with_buffer(
+            species, "int_sorting_buffer", *attr_list[i_attr], stay_buffer
+        )
         if left_proc is not None:
             left_buffer.get(out=uint_send_left[i_attr])
         if right_proc is not None:
@@ -415,18 +451,7 @@ def add_buffers_to_particles(
     # Reallocate the particles auxiliary arrays. This needs to be done,
     # as the total number of particles in this domain has changed.
     if species.use_cuda:
-        shape = (species.Ntot,)
-        # Reallocate empty field-on-particle arrays on the GPU
-        species.Ex = cupy.empty(shape, dtype=np.float64)
-        species.Ey = cupy.empty(shape, dtype=np.float64)
-        species.Ez = cupy.empty(shape, dtype=np.float64)
-        species.Bx = cupy.empty(shape, dtype=np.float64)
-        species.By = cupy.empty(shape, dtype=np.float64)
-        species.Bz = cupy.empty(shape, dtype=np.float64)
-        # Reallocate empty auxiliary sorting arrays on the GPU
-        species.sorting_buffer = cupy.empty(shape, dtype=np.float64)
-        if species.n_integer_quantities > 0:
-            species.int_sorting_buffer = cupy.empty(shape, dtype=np.uint64)
+        reallocate_auxiliary_arrays_gpu(species)
     else:
         # Reallocate empty field-on-particle arrays on the CPU
         species.Ex = np.empty(species.Ntot, dtype=np.float64)
@@ -533,6 +558,8 @@ def add_buffers_gpu(
     n_left_grid, n_left_block = cuda_tpb_bpg_1d(n_left)
     n_right_grid, n_right_block = cuda_tpb_bpg_1d(n_right)
     n_old_grid, n_old_block = cuda_tpb_bpg_1d(old_Ntot)
+    # The merged particles go to the sorting buffers (capacity target)
+    cap = reserve_particle_capacity(species, new_Ntot, rebalance=True)
 
     # Iterate over particle attributes
     # Build list of float attributes to copy
@@ -560,7 +587,9 @@ def add_buffers_gpu(
         left_buffer = cupy.asarray(float_recv_left[i_attr])
         right_buffer = cupy.asarray(float_recv_right[i_attr])
         # Initialize the new particle array
-        particle_array = cupy.empty((new_Ntot,), dtype=np.float64)
+        particle_array = _rebuild_destination(
+            species, "sorting_buffer", new_Ntot, cap, np.float64
+        )
         # Merge the arrays on the GPU
         stay_buffer = getattr(attr_list[i_attr][0], attr_list[i_attr][1])
         if n_left != 0:
@@ -575,9 +604,8 @@ def add_buffers_gpu(
             copy_particles[n_right_grid, n_right_block](
                 n_right, right_buffer, 0, particle_array, n_left + old_Ntot
             )
-        # Assign the stay_buffer to the initial particle data array
-        # and fill the sending buffers (if needed for MPI)
-        setattr(attr_list[i_attr][0], attr_list[i_attr][1], particle_array)
+        # Assign the merged array to the particle data array
+        _swap_with_buffer(species, "sorting_buffer", *attr_list[i_attr], particle_array)
 
     # Build list of integer quantities to copy
     attr_list = []
@@ -591,7 +619,9 @@ def add_buffers_gpu(
         left_buffer = cupy.asarray(uint_recv_left[i_attr])
         right_buffer = cupy.asarray(uint_recv_right[i_attr])
         # Initialize the new particle array
-        particle_array = cupy.empty((new_Ntot,), dtype=np.uint64)
+        particle_array = _rebuild_destination(
+            species, "int_sorting_buffer", new_Ntot, cap, np.uint64
+        )
         # Merge the arrays on the GPU
         stay_buffer = getattr(attr_list[i_attr][0], attr_list[i_attr][1])
         if n_left != 0:
@@ -606,9 +636,10 @@ def add_buffers_gpu(
             copy_particles[n_right_grid, n_right_block](
                 n_right, right_buffer, 0, particle_array, n_left + old_Ntot
             )
-        # Assign the stay_buffer to the initial particle data array
-        # and fill the sending buffers (if needed for MPI)
-        setattr(attr_list[i_attr][0], attr_list[i_attr][1], particle_array)
+        # Assign the merged array to the particle data array
+        _swap_with_buffer(
+            species, "int_sorting_buffer", *attr_list[i_attr], particle_array
+        )
 
     # Adapt the total number of particles
     species.Ntot = new_Ntot
@@ -664,6 +695,10 @@ def rebuild_open_boundary_gpu(species, fld, n_guard, float_injected=None):
     # Copy the injected particles to the GPU (one asynchronous transfer)
     if n_inj > 0:
         d_injected = species.injection_staging.to_device(float_injected)
+    # Each new array is written into the sorting buffer, which then takes
+    # the old array. When the sorting buffer has the capacity target, the
+    # rebuild allocates nothing.
+    cap = reserve_particle_capacity(species, new_Ntot, rebalance=True)
 
     dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(new_Ntot)
     # Float quantities, in the order of the rows of float_injected
@@ -687,36 +722,48 @@ def rebuild_open_boundary_gpu(species, fld, n_guard, float_injected=None):
         ]
     for i_attr, (obj, name) in enumerate(attr_list):
         old_array = getattr(obj, name)
-        new_array = cupy.empty((new_Ntot,), dtype=np.float64)
+        new_array = _rebuild_destination(
+            species, "sorting_buffer", new_Ntot, cap, np.float64
+        )
         # Without injected particles, the kernel does not read `injected`
         injected = d_injected[i_attr] if n_inj > 0 else old_array
         merge_stay_and_injected[dim_grid_1d, dim_block_1d](
             old_array, i_min, n_stay, injected, new_array
         )
-        setattr(obj, name, new_array)
+        _swap_with_buffer(species, "sorting_buffer", obj, name, new_array)
 
     # Integer quantities: copy the particles that stay, then generate the
     # quantities of the injected particles
     if n_stay > 0:
         dim_grid_stay, dim_block_stay = cuda_tpb_bpg_1d(n_stay)
     if species.tracker is not None:
-        new_id = cupy.empty((new_Ntot,), dtype=np.uint64)
+        new_id = _rebuild_destination(
+            species, "int_sorting_buffer", new_Ntot, cap, np.uint64
+        )
         if n_stay > 0:
             copy_particles[dim_grid_stay, dim_block_stay](
                 n_stay, species.tracker.id, i_min, new_id, 0
             )
-        species.tracker.id = new_id
+        _swap_with_buffer(species, "int_sorting_buffer", species.tracker, "id", new_id)
         if n_inj > 0:
             species.tracker.generate_new_ids_gpu(n_stay, new_Ntot)
     if species.ionizer is not None:
-        new_level = cupy.empty((new_Ntot,), dtype=np.uint64)
+        new_level = _rebuild_destination(
+            species, "int_sorting_buffer", new_Ntot, cap, np.uint64
+        )
         if n_stay > 0:
             copy_particles[dim_grid_stay, dim_block_stay](
                 n_stay, species.ionizer.ionization_level, i_min, new_level, 0
             )
         # All new particles start at the default ionization level
         new_level[n_stay:] = species.ionizer.level_start
-        species.ionizer.ionization_level = new_level
+        _swap_with_buffer(
+            species,
+            "int_sorting_buffer",
+            species.ionizer,
+            "ionization_level",
+            new_level,
+        )
 
     species.Ntot = new_Ntot
     if new_Ntot != old_Ntot:
@@ -725,28 +772,21 @@ def rebuild_open_boundary_gpu(species, fld, n_guard, float_injected=None):
 
 def reallocate_auxiliary_arrays_gpu(species):
     """
-    Allocate the auxiliary GPU arrays of the particles for `species.Ntot`
+    Resize the auxiliary GPU arrays of the particles to `species.Ntot`
     particles: the fields on the particles (Ex, Ey, Ez, Bx, By, Bz) and
     the sorting arrays. Their previous content is not kept.
+
+    Each array that has the capacity target of the species becomes a view
+    of its memory; the others are reallocated with this capacity (see
+    `fbpic.particles.utilities.capacity.provision_particle_arrays`).
 
     Parameters
     ----------
     species: a Particles object
         Contains the data of this species
     """
-    shape = (species.Ntot,)
-    # Reallocate empty field-on-particle arrays on the GPU
-    species.Ex = cupy.empty(shape, dtype=np.float64)
-    species.Ey = cupy.empty(shape, dtype=np.float64)
-    species.Ez = cupy.empty(shape, dtype=np.float64)
-    species.Bx = cupy.empty(shape, dtype=np.float64)
-    species.By = cupy.empty(shape, dtype=np.float64)
-    species.Bz = cupy.empty(shape, dtype=np.float64)
-    # Reallocate empty auxiliary sorting arrays on the GPU
     # (cell_idx and sorted_idx exist only during a sort)
-    species.sorting_buffer = cupy.empty(shape, dtype=np.float64)
-    if species.n_integer_quantities > 0:
-        species.int_sorting_buffer = cupy.empty(shape, dtype=np.uint64)
+    provision_particle_arrays(species, keep_fields=False)
 
 
 def shift_particles_periodic_subdomain(species, zmin, zmax):

@@ -327,8 +327,97 @@ def test_sort_uses_runtime_stream(runtime, monkeypatch):
         assert wp.get_stream() is other
     finally:
         runtime.use()
-    assert streams == [runtime.stream.cuda_stream]
+    # The sort, and a warm-up sort when the shared block grows
+    assert streams and set(streams) == {runtime.stream.cuda_stream}
     assert other.cuda_stream != runtime.stream.cuda_stream
+
+
+def test_sort_of_capacity_views_keeps_tails_and_does_not_allocate(runtime, monkeypatch):
+    """Sort particle arrays that are views of larger arrays (see
+    `fbpic.particles.utilities.capacity`): the sort matches the host
+    reference, leaves the elements beyond Ntot untouched, and a growth within
+    the capacity sorts without any device allocation."""
+    import ctypes
+
+    import cupy as cp
+    import warp as wp
+
+    import fbpic.utils.warp as warp_utils
+    from fbpic.particles.utilities.capacity import (
+        capacity,
+        provision_particle_arrays,
+    )
+
+    if warp_utils.allocator_mode() != "async":
+        pytest.skip("The allocator hook needs the CUDA mempool allocator.")
+    sentinel = np.array([0x7FF0DEADBEEF0001], dtype=np.uint64)
+    counts = [30_000, 30_500, 31_000]
+    data = _host_data(counts[0], 2, seed=21)
+    species = _species(data, keep_fields_sorted=False)
+    species.capacity_headroom = 0.25
+    provision_particle_arrays(species)
+    cap = species.particle_capacity
+    assert cap >= 1.25 * counts[-1]
+
+    def arrays():
+        return [getattr(o, n) for o, n, _, _ in species.particle_arrays()]
+
+    def fill_tails():
+        for array in arrays():
+            base = array.base
+            base[array.size :] = cp.asarray(sentinel).view(base.dtype)[0]
+
+    def check_tails():
+        for array in arrays():
+            tail = array.base[array.size :].get()
+            assert np.all(tail.view(np.uint64) == sentinel[0])
+
+    allocations = []
+    allocate = warp_utils._allocate_async
+
+    def traced(size):
+        allocations.append(size)
+        return allocate(size)
+
+    wp.init()
+    core = wp._src.context.runtime.core
+    core.wp_alloc_tracker_get_total_alloc_count.restype = ctypes.c_size_t
+    core.wp_alloc_tracker_enable(1)
+    for step, count in enumerate(counts):
+        if step > 0:
+            # Grow within the capacity, with new particles
+            old = species.Ntot
+            new_data = _host_data(count, 2, seed=21 + step)
+            from fbpic.particles.elementary_process.cuda_numba_utils import (
+                reallocate_and_copy_old,
+            )
+
+            reallocate_and_copy_old(species, True, old, count)
+            for obj, name, kind, _ in species.particle_arrays():
+                if kind != "scratch":
+                    getattr(obj, name)[old:] = cp.asarray(new_data[name][old:])
+            data = {
+                name: np.concatenate([data[name], new_data[name][old:]])
+                for name in data
+            }
+        assert all(capacity(a) == cap for a in arrays())
+        fill_tails()
+        runtime.synchronize()
+        native = core.wp_alloc_tracker_get_total_alloc_count()
+        monkeypatch.setattr(warp_utils, "_allocate_async", traced)
+        data = _sort_and_check(runtime, species, data, False)
+        monkeypatch.setattr(warp_utils, "_allocate_async", allocate)
+        runtime.synchronize()
+        if step > 0:
+            # The first sort reserves the shared block for the capacity.
+            # Only the test copies the sort indices (`_sort_and_check`).
+            assert allocations == [4 * count, 4 * count]
+            assert core.wp_alloc_tracker_get_total_alloc_count() == native
+        allocations.clear()
+        if step > 0:
+            # (The first sort allocates the second uint64 buffer, whose tail
+            # was not filled)
+            check_tails()
 
 
 def test_sort_rejects_cuda_graph_section(runtime):
