@@ -1,0 +1,11 @@
+# Not checked in: images, PDFs and other large or generated files.
+*.png
+*.pdf
+*.h5
+*.egg-info/
+__pycache__/
+.pytest_cache/
+# The Phoebus displays of the HTU twin demo, written by their generators (see
+# docs/htu-twin/phoebus/README.md)
+docs/htu-twin/phoebus/htu_synoptic_lpa.bob
+docs/htu-twin/phoebus/lpa_bunch.bob

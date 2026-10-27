@@ -132,7 +132,10 @@ class DutchCalibration:
         1 T-equivalent momentum (p / B).
         """
         grid = self.p_mev[: self.n_rows]
-        ok = (p_eff_mev >= grid[0]) & (p_eff_mev <= grid[-1])
+        # particles the tracker left non-finite (a NaN p_eff fails the range test too)
+        # would turn the zoom centroid into NaN; they land on no screen
+        finite = np.isfinite(x) & np.isfinite(a) & np.isfinite(y) & np.isfinite(b)
+        ok = finite & (p_eff_mev >= grid[0]) & (p_eff_mev <= grid[-1])
         x, a, y, b, p, q = (v[ok] for v in (x, a, y, b, p_eff_mev, charge))
         if p.size == 0:
             return {"front": (np.empty(0),) * 3, "side": (np.empty(0),) * 3}
