@@ -215,6 +215,16 @@ class LaserAntenna(object):
 
             self.w = cupy.asarray(self.w)
 
+            # Persistent scratch arrays, so that the push and the deposition
+            # allocate nothing. The deposition of each sign of the virtual
+            # charge has its own arrays: in a CUDA graph section, the kernels
+            # of both signs would run after the CuPy operations of both.
+            self._d_push = cupy.empty(Ntot, dtype=np.float64)
+            self._d_scratch = {
+                q: [cupy.empty(Ntot, dtype=np.float64) for _ in range(4)]
+                for q in (-1, 1)
+            }
+
     def update_current_rank(self, comm):
         """
         Determine whether the antenna deposits on the local domain
@@ -262,14 +272,24 @@ class LaserAntenna(object):
                  if x_push=-1., the particles are pushed backward in x
         """
         # Push transverse particle positions (element-wise array operation)
-        self.excursion_x += (dt * x_push) * self.vx
-        self.excursion_y += (dt * y_push) * self.vy
+        # On GPU, the products go to a scratch array: same operations,
+        # without temporary arrays
+        if self.use_cuda:
+            scratch = self._d_push
+            cupy.multiply(self.vx, dt * x_push, out=scratch)
+            self.excursion_x += scratch
+            cupy.multiply(self.vy, dt * y_push, out=scratch)
+            self.excursion_y += scratch
+        else:
+            self.excursion_x += (dt * x_push) * self.vx
+            self.excursion_y += (dt * y_push) * self.vy
         # Move the position of the antenna (element-wise array operation)
         self.baseline_z += (dt * z_push) * self.vz
 
         # If possible, the antenna position is updated on both GPU and CPU
         if self.use_cuda:
-            self.d_baseline_z += (dt * z_push) * self.d_vz
+            cupy.multiply(self.d_vz, dt * z_push, out=scratch)
+            self.d_baseline_z += scratch
 
     def update_v(self, t, dt):
         """
@@ -376,9 +396,13 @@ class LaserAntenna(object):
                 self.deposit_virtual_particles_cpu(q, fieldtype, grid, fld)
 
     def deposit_virtual_particles_gpu(self, q, fieldtype, grid):
-        # Position of the particles
-        x = self.d_baseline_x + q * self.excursion_x
-        y = self.d_baseline_y + q * self.excursion_y
+        # Position of the particles, in the scratch arrays of this sign of q
+        # (the same operations as `baseline + q * excursion`)
+        x, y, vx, vy = self._d_scratch[q]
+        cupy.multiply(self.excursion_x, q, out=x)
+        cupy.add(self.d_baseline_x, x, out=x)
+        cupy.multiply(self.excursion_y, q, out=y)
+        cupy.add(self.d_baseline_y, y, out=y)
 
         if fieldtype == "rho":
             # ---------------------------------------
@@ -406,8 +430,8 @@ class LaserAntenna(object):
 
         elif fieldtype == "J":
             # Particle velocities
-            vx = q * self.vx
-            vy = q * self.vy
+            cupy.multiply(self.vx, q, out=vx)
+            cupy.multiply(self.vy, q, out=vy)
             # ---------------------------------------
             # Deposit the current density mode by mode
             # ---------------------------------------
