@@ -301,24 +301,28 @@ class TestNormalizeWorkingDirectory:
 
 class TestDiagnosticPeriods:
     @pytest.mark.parametrize(
-        ("num_steps", "number_dumps", "expected_period"),
+        ("num_steps", "number_dumps", "expected_iterations"),
         [
-            (100, 4, 33),
-            (100, 11, 10),
-            (100, 21, 5),
-            (100, 26, 4),
-            (100, 1, 100),
+            (1000, 5, [0, 250, 500, 750, 1000]),
+            (100, 4, [0, 34, 68, 100]),
+            (100, 1, [0]),
         ],
     )
-    def test_particle_diagnostic_period_does_not_exceed_dump_limit(
-        self, num_steps: int, number_dumps: int, expected_period: int
+    def test_regular_dumps_are_spaced_before_final_dump(
+        self, num_steps: int, number_dumps: int, expected_iterations: list[int]
     ) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 
-        period = Simulation._particle_diagnostic_period_steps(num_steps, number_dumps)
+        if number_dumps == 1:
+            iterations = [0]
+        else:
+            period = Simulation._particle_diagnostic_period_steps(
+                num_steps, number_dumps - 1
+            )
+            iterations = list(range(0, num_steps, period)) + [num_steps]
 
-        assert period == expected_period
-        assert (num_steps - 1) // period + 1 <= number_dumps
+        assert iterations == expected_iterations
+        assert len(iterations) <= number_dumps
 
 
 # ===================================================================

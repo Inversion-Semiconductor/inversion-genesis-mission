@@ -705,15 +705,11 @@ class Simulation(SerializableConfig):
         return int(self.T_interact / self.simulation.dt)
 
     @staticmethod
-    def _particle_diagnostic_period_steps(num_steps: int, number_dumps: int) -> int:
-        """Return an diagnostic period measured in steps that does not exceed a dump limit."""
-        if number_dumps < 2:
+    def _particle_diagnostic_period_steps(num_steps: int, regular_dumps: int) -> int:
+        """Return a period that spaces regular dumps before the final dump."""
+        if regular_dumps < 1:
             return num_steps
-
-        period = max(1, (num_steps - 1) // (number_dumps - 1))
-        while (num_steps - 1) // period + 1 > number_dumps:
-            period += 1
-        return period
+        return max(1, -(-num_steps // regular_dumps))
 
     def setup_simulation(
         self,
