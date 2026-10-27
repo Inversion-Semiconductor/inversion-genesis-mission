@@ -22,6 +22,11 @@ python -m pip install -e '.[nersc,dev]'
 `libensemble` and `mpi4py` are only needed for NERSC dispatch. The base package
 includes Xopt, scalar storage, and the local single-run workflow.
 
+The package installs two commands: `explore-fbpic` for local evaluation, design,
+inspection, and plotting; and `explore-fbpic-libe` for resource-managed
+libEnsemble campaigns. Run `pytest -q` from this directory after installation to
+verify the campaign tooling and its saved-result contract.
+
 ## Campaign configuration
 
 [runs/initial_study/campaign.yaml](runs/initial_study/campaign.yaml) is the
@@ -38,6 +43,12 @@ production campaign template. It contains:
 The configuration fingerprint is written to every `run_manifest.json`. Change bounds
 or active stages as needed; do not change the frozen template, numerical settings,
 or analysis settings within a campaign. Begin a new campaign when those must change.
+
+`run_root` supports environment-variable expansion. The production configuration
+uses `${PSCRATCH}/ionization_injection_exploration`; set `PSCRATCH` before local
+commands or replace `run_root` in a copied configuration with an absolute local
+directory. Do not use the production run root for an unrelated campaign because
+existing manifests with a different fingerprint cause preflight to fail.
 
 ### Adapting a new template
 
@@ -81,20 +92,21 @@ for feature extraction.
 
 ## Stage 1
 
-Stage 1 varies eight physically important controls: plasma density, dopant fraction,
-density length/position, laser energy, duration, spot size, and focal position. It
-retains all 29 physical inputs in each manifest. The suggested first batch is nominal
-plus low/high anchors through that point and a Sobol fill:
+Stage 1 varies 11 controls: plasma density; both density widths and ramp locations;
+laser energy, duration, third-order spectral phase, spot size, and focal position;
+and fourth-order astigmatism. It retains all 33 physical inputs in each manifest.
+The production stage seeds 64 evaluations: the nominal point, low/high anchors for
+each active parameter, and a Sobol fill:
 
 ```bash
 explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 initial-design \
-  --count 24 --seed 0 --output initial_design.json
+  --count 64 --seed 0 --output initial_design.json
 ```
 
 The template's diagnostics save the fixed 33-scalar moment descriptor and mean
 kinetic energy. The executor copies these saved scalars into `result.json`, alongside
-stdout/stderr logs and an append-only `campaign_runs.parquet` record under
-`data/ionization_injection_exploration/`.
+stdout/stderr logs and an append-only `campaign_runs.parquet` record under the
+configured `run_root`.
 
 ## Local smoke evaluation
 
@@ -108,6 +120,24 @@ explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 evaluate \
 This creates an isolated run directory, writes the full physical vector to
 `run_manifest.json`, launches `run_fbpic.py`, and reads its saved diagnostic
 results. It is expected to consume normal FBPIC resources.
+
+Inspect the reusable successful records and the exact feature/parameter columns
+used for the selected stage:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 status
+```
+
+Each run writes its durable `result.json` before the aggregate Parquet table is
+updated. Rebuild that table after an interrupted local run or filesystem issue:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 rebuild-store
+```
+
+The rebuild scans `sim_*/result.json` below the configured `run_root`; it does not
+rerun FBPIC. Local `evaluate` automatically chooses the next numeric `sim_` ID.
+Pass `--run-id` when an external dispatcher needs a predetermined, unique ID.
 
 ## Inspecting density ramps
 
@@ -152,8 +182,8 @@ on the libEnsemble manager and uses resource-set workers to launch FBPIC. It sta
 with the campaign's deterministic initial design, records the completed scalar
 outputs, then asks Xopt for later candidates as GPU resource sets become available.
 
-A production submission starts one manager and a configurable number of
-two-GPU simulation workers. Do not dispatch background `explore-fbpic evaluate`
+A production submission starts one manager and 32 four-GPU simulation workers. Do
+not dispatch background `explore-fbpic evaluate`
 processes from the batch script: libEnsemble's `MPIExecutor` owns the FBPIC MPI
 launch and GPU binding. The reproducible NERSC smoke fixtures live under
 `tests/smoke_campaigns/`, and the four-GPU OOM repro lives under
@@ -169,6 +199,13 @@ Then submit from the campaign directory:
 
 ```bash
 sbatch submit_nersc.sh
+```
+
+For a site-specific allocation, invoke the installed driver directly after arranging
+the required manager and worker ranks:
+
+```bash
+explore-fbpic-libe campaign.yaml --stage stage_1
 ```
 
 `runs/initial_study/submit_nersc.sh` is the authoritative Perlmutter/libEnsemble
