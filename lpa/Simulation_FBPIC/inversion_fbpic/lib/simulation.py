@@ -827,6 +827,8 @@ class Simulation(SerializableConfig):
             dt_lab_diag_period = (
                 L_interact + (self.hyparams.zmax - self.hyparams.zmin)
             ) / v_window
+            if number_dumps == -1:
+                dt_lab_diag_period = np.nextafter(dt_lab_diag_period, -np.inf)
             dn_lab_diag_period = self.num_steps
         else:
             # Avoid an extra lab-frame dump from floating-point boundary rounding.
