@@ -216,9 +216,8 @@ class LaserAntenna(object):
             self.w = cupy.asarray(self.w)
 
             # Persistent scratch arrays, so that the push and the deposition
-            # allocate nothing. The deposition of each sign of the virtual
-            # charge has its own arrays: in a CUDA graph section, the kernels
-            # of both signs would run after the CuPy operations of both.
+            # allocate nothing. Each sign of the virtual charge has its own
+            # deposition arrays, so the two depositions share no buffers.
             self._d_push = cupy.empty(Ntot, dtype=np.float64)
             self._d_scratch = {
                 q: [cupy.empty(Ntot, dtype=np.float64) for _ in range(4)]

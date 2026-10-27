@@ -329,8 +329,10 @@ def remove_particles_gpu(species, fld, n_guard, left_proc, right_proc):
 
     # Get the threads per block and the blocks per grid
     dim_grid_1d, dim_block_1d = cuda_tpb_bpg_1d(species.Ntot)
-    # The particles that stay go to the sorting buffers (capacity target)
-    cap = reserve_particle_capacity(species, new_Ntot, rebalance=True)
+    # The particles that stay go to the sorting buffers (capacity target).
+    # add_buffers_gpu renews the target after the add, so that one exchange
+    # does not shrink and then grow every array.
+    cap = reserve_particle_capacity(species, new_Ntot)
     # Float quantities:
     # Build list of float attributes to copy
     attr_list = [
