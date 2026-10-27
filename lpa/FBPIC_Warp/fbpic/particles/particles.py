@@ -92,7 +92,7 @@ if cuda_installed:
         reserve_particle_capacity,
         to_device_particle_array,
     )
-from .utilities.capacity import DEFAULT_HEADROOM, GROWTH_HEADROOM
+from .utilities.capacity import DEFAULT_HEADROOM, start_growth_period
 
 
 def _permute_width(count):
@@ -143,12 +143,16 @@ class Particles(object):
     a relative headroom of `capacity_headroom`.
     """
 
-    # Relative headroom of the GPU particle arrays. The species that grow
-    # within a step (ionization, Compton) use GROWTH_HEADROOM (see
-    # `expect_growth_within_step`).
+    # Minimum relative headroom of the GPU particle arrays. A species that
+    # grows within the steps (ionization, Compton) gets the headroom of its
+    # measured growth (see `fbpic.particles.utilities.capacity`).
     capacity_headroom = DEFAULT_HEADROOM
     # Number of particles that the GPU particle arrays can hold
     particle_capacity = 0
+    # Number of particles gained within the steps since the last exchange
+    grown_since_exchange = 0
+    # Number of particles after the last exchange (None before the first)
+    count_at_exchange = None
 
     def __init__(
         self,
@@ -508,13 +512,6 @@ class Particles(object):
                 arrays.append((self, name, "scratch", u64))
         return arrays
 
-    def expect_growth_within_step(self):
-        """
-        Give the GPU particle arrays the headroom of a species that grows
-        within a step (the target of ionization or Compton scattering).
-        """
-        self.capacity_headroom = max(self.capacity_headroom, GROWTH_HEADROOM)
-
     def reserve_step_workspaces(self):
         """
         Prepare the GPU memory of the steps until the next exchange, so that
@@ -522,13 +519,14 @@ class Particles(object):
         give all particle arrays the capacity target, and reserve the shared
         sort block and the ionization workspaces for this capacity.
         (Called at each exchange, after the release of unused memory.)
+        Then start the count of the growth within the steps.
         """
-        if not (self.use_cuda and getattr(self, "data_is_on_gpu", False)):
-            return
-        provision_particle_arrays(self)
-        reserve_sort_scratch(min(self.particle_capacity, 2**31 - 1))
-        if self.ionizer is not None:
-            self.ionizer.reserve_workspaces(self)
+        if self.use_cuda and getattr(self, "data_is_on_gpu", False):
+            provision_particle_arrays(self)
+            reserve_sort_scratch(min(self.particle_capacity, 2**31 - 1))
+            if self.ionizer is not None:
+                self.ionizer.reserve_workspaces(self)
+        start_growth_period(self)
 
     def receive_particles_from_gpu(self):
         """
@@ -856,9 +854,6 @@ class Particles(object):
             rng_seed=rng_seed,
             rng_stream=rng_stream,
         )
-        # The electron species grow within the steps
-        for species in self.ionizer.target_species:
-            species.expect_growth_within_step()
         # Set charge to the elementary charge e (assumed by deposition kernel,
         # when using self.ionizer.w_times_level as the effective weight)
         self.q = e

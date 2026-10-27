@@ -106,6 +106,20 @@ _allocator_state = {
     "history": [],
     "trim_log": [],
 }
+# Functions that drop cached device buffers before an out-of-memory retry
+_out_of_memory_callbacks = []
+
+
+def register_out_of_memory_callback(callback: Callable[[], None]) -> None:
+    """Call `callback` before the retry of an allocation that ran out of memory.
+
+    The callback drops references to cached device buffers (for example the
+    shared step workspaces), so that the trim before the retry can release
+    them. It must not allocate device memory. A buffer that is still in use
+    stays alive through its other references.
+    """
+    if callback not in _out_of_memory_callbacks:
+        _out_of_memory_callbacks.append(callback)
 
 
 def _select_allocator_mode(ordinal):
@@ -178,6 +192,8 @@ def _malloc_async(size):
         if not _is_out_of_memory(error):
             raise
     _allocator_state["oom_retries"] += 1
+    for callback in _out_of_memory_callbacks:
+        callback()
     gc.collect()
     _trim_device_memory()
     try:

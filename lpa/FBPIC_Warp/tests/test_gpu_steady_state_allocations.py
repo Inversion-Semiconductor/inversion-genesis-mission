@@ -166,10 +166,13 @@ def _check_particle_arrays(sim):
     return problems
 
 
-def _ionizing_simulation(per_level):
+def _ionizing_simulation(per_level, electron_headroom=8.0):
     """A moving window through a nitrogen plasma (N2+), in a constant Ex field
     that ionizes N2+ at a few percent per step. The continuous injection
-    brings new ions at each exchange, so the electrons grow at each step."""
+    brings new ions at each exchange, so the electrons grow at each step.
+    A large `electron_headroom` holds the growth of a whole exchange period
+    from the start; None keeps the default (the headroom then follows the
+    measured growth)."""
     from fbpic.lpa_utils.external_fields import ExternalField
     from fbpic.main import Simulation
     from fbpic.utils.random_seed import set_random_seed
@@ -215,11 +218,10 @@ def _ionizing_simulation(per_level):
         rng_seed=7,
         rng_stream=3,
     )
-    # The electrons isolate the allocation-free growth: the capacity holds
-    # the growth of a whole exchange period from the start
     electrons = list(targets.values()) if per_level else [targets]
-    for species in electrons:
-        species.capacity_headroom = 8.0
+    if electron_headroom is not None:
+        for species in electrons:
+            species.capacity_headroom = electron_headroom
 
     def constant(F, x, y, z, t, amplitude, length_scale):
         return F + amplitude
@@ -229,9 +231,17 @@ def _ionizing_simulation(per_level):
     return sim, ions, electrons
 
 
-@pytest.mark.parametrize("per_level", [False, True])
-def test_ionizing_steps_do_not_allocate(async_runtime, monkeypatch, per_level):
-    sim, ions, electrons = _ionizing_simulation(per_level)
+@pytest.mark.parametrize(
+    "per_level, electron_headroom",
+    [(False, 8.0), (True, 8.0), (False, None)],
+    ids=["single-level", "per-level", "measured-growth"],
+)
+def test_ionizing_steps_do_not_allocate(
+    async_runtime, monkeypatch, per_level, electron_headroom
+):
+    """With a large fixed headroom, and with the default headroom that
+    follows the measured growth (after one period of measurement)."""
+    sim, ions, electrons = _ionizing_simulation(per_level, electron_headroom)
     period = sim.comm.exchange_period
     recorder = AllocationRecorder(monkeypatch, async_runtime, sim)
     # Warm up: the first ionization steps outgrow the initial capacity
@@ -439,6 +449,66 @@ def test_capacity_refuses_foreign_views(async_runtime):
     assert fit_particle_array(owned, 900, 1000).data.ptr == owned.data.ptr
     # With `exact`, a base of another capacity is replaced
     assert fit_particle_array(owned, 50, 512, exact=True).data.ptr != owned.data.ptr
+
+
+def test_headroom_follows_measured_growth():
+    """The capacity target holds GROWTH_PERIODS periods of the measured
+    growth, all calls of one exchange agree, and a species that stops
+    growing returns to the default headroom (bounded by SHRINK_FACTOR)."""
+    from fbpic.particles.utilities import capacity as cap_module
+    from fbpic.particles.utilities.capacity import (
+        DEFAULT_HEADROOM,
+        GROWTH_PERIODS,
+        SHRINK_FACTOR,
+        capacity_for,
+        reserve_particle_capacity,
+        start_growth_period,
+    )
+
+    species = SimpleNamespace(capacity_headroom=DEFAULT_HEADROOM)
+    n = 1_000_000
+    assert reserve_particle_capacity(species, n, rebalance=True) == capacity_for(
+        n, DEFAULT_HEADROOM
+    )
+    start_growth_period(species)
+    # In-step overflow: the new capacity holds the growth since the exchange
+    # GROWTH_PERIODS more times
+    species.grown_since_exchange = 400_000
+    n += 400_000
+    grown = reserve_particle_capacity(species, n)
+    assert grown >= n + GROWTH_PERIODS * 400_000
+    # At the exchange, every call uses the growth of the finished period
+    for _ in range(3):
+        assert reserve_particle_capacity(species, n, rebalance=True) == grown
+    start_growth_period(species)
+    # One period at the same rate fits; the next exchange keeps the target
+    species.grown_since_exchange = 400_000
+    n += 400_000
+    assert reserve_particle_capacity(species, n) == grown
+    assert reserve_particle_capacity(species, n, rebalance=True) == grown
+    start_growth_period(species)
+    # The growth stops: the target returns to the default headroom
+    stopped = reserve_particle_capacity(species, n, rebalance=True)
+    assert stopped == capacity_for(n, DEFAULT_HEADROOM) < grown
+    # The net growth of an exchange (injection) also counts
+    species.Ntot = n
+    start_growth_period(species)
+    assert species.count_at_exchange == n
+    injected = n + n // 10
+    assert reserve_particle_capacity(species, injected, rebalance=True) == (
+        capacity_for(injected, GROWTH_PERIODS * (n // 10) / injected)
+    )
+    # Bound after any exchange: c <= SHRINK_FACTOR * capacity_for(n, h)
+    rng = np.random.default_rng(3)
+    for _ in range(2000):
+        n = int(np.clip(n * rng.uniform(0.8, 1.25), 1, 10**8))
+        species.grown_since_exchange = int(rng.integers(0, n // 4 + 1))
+        c = reserve_particle_capacity(species, n, rebalance=True)
+        h = cap_module.growth_headroom(species, n)
+        assert max(n * (1 + h / 2), 1024) <= c <= SHRINK_FACTOR * capacity_for(n, h)
+        assert c < max(SHRINK_FACTOR * 17 / 16 * (1 + h) * n + 1, 1024 * 1.25)
+        species.Ntot = n
+        start_growth_period(species)
 
 
 def test_size_classes():

@@ -17,6 +17,36 @@ next growth allocate. The exchange restores this invariant for every array
 Capacities are size classes (16 classes per octave), so that repeated
 allocations request the same sizes and the device pool can reuse freed blocks.
 
+The headroom of a species follows its measured growth. The species counts
+the particles that it gains within the steps (ionization, Compton
+scattering) in ``species.grown_since_exchange``, and keeps its count after
+the last exchange in ``species.count_at_exchange``. The relative headroom is
+
+    h = max(species.capacity_headroom, GROWTH_PERIODS * g / n),
+
+where ``n`` is the number of particles and ``g`` the larger of the growth
+within the steps and the net growth ``n - count_at_exchange`` (which also
+includes the injection of the exchange). At an exchange, ``g`` is the growth
+of the last exchange period; within a step, the growth since the exchange.
+The capacity target is ``capacity_for(n, h)``. A species that stops growing
+returns to ``capacity_headroom`` (1/32 by default).
+
+Memory bound: after an exchange, the capacity ``c`` of each species is
+renewed unless ``n * (1 + h/2) <= c <= SHRINK_FACTOR * capacity_for(n, h)``.
+`size_class` rounds up by less than 1/16, so
+
+    c < SHRINK_FACTOR * (17/16) * (1 + h) * n    (or the minimum, 1024).
+
+A species without growth within the steps (``h = 1/32``) holds less than
+1.37 n elements in each particle array. A growing species holds less than
+1.33 (1 + h) n, which is the growth of `GROWTH_PERIODS` exchange periods at
+the measured rate, plus at most 33%. Within a step, the particle count only
+grows, so the ratio only decreases until an overflow; an overflow sets
+``c < (17/16) * (1 + h) * n``, and the old arrays stay alive until the
+copy is queued. The shared workspaces add the sort block (16 bytes times
+the largest capacity) and the ionization arrays (`reserve_workspace`); they
+only grow until the end of ``Simulation.step``.
+
 Only bases that this module allocated grow in place. A prefix view of another
 block (for example a row of a 2D array) reports its own size as its capacity,
 so it is never extended over the memory of a neighbour.
@@ -24,7 +54,8 @@ so it is never extended over the memory of a neighbour.
 The module also keeps the shared step workspaces (`reserve_workspace`): device
 scratch that one step reuses, such as the particle sort block and the
 ionization arrays. One CUDA stream orders all their users, so the species can
-share them.
+share them. An out-of-memory retry drops them (see
+``fbpic.utils.warp.register_out_of_memory_callback``).
 """
 import weakref
 
@@ -35,12 +66,15 @@ from fbpic.utils.cuda import cuda_installed
 if cuda_installed:
     import cupy
 
-# Default relative headroom of the particle arrays of a species
+    from fbpic.utils.warp import register_out_of_memory_callback
+
+# Default (minimum) relative headroom of the particle arrays of a species
 DEFAULT_HEADROOM = 1.0 / 32
-# Headroom of the species that grow within a step (ionization, Compton)
-GROWTH_HEADROOM = 0.25
+# The headroom holds the measured growth within the steps of this many
+# exchange periods
+GROWTH_PERIODS = 2.5
 # At an exchange, a capacity above SHRINK_FACTOR times the target is released
-SHRINK_FACTOR = 1.5
+SHRINK_FACTOR = 1.25
 _MIN_CAPACITY = 1024
 _CLASS_BITS = 4
 
@@ -156,15 +190,36 @@ def to_device_particle_array(array, cap):
     return new
 
 
+def growth_headroom(species, n):
+    """Return the relative headroom of `species` for `n` particles.
+
+    The headroom is the larger of ``species.capacity_headroom`` and
+    `GROWTH_PERIODS` times the growth since the last exchange, relative to
+    `n`. The growth is the larger of the growth within the steps
+    (``species.grown_since_exchange``) and the net growth
+    ``n - species.count_at_exchange``.
+    """
+    headroom = species.capacity_headroom
+    grown = int(getattr(species, "grown_since_exchange", 0))
+    count = getattr(species, "count_at_exchange", None)
+    if count is not None:
+        grown = max(grown, int(n) - int(count))
+    if grown > 0 and n > 0:
+        headroom = max(headroom, GROWTH_PERIODS * grown / n)
+    return headroom
+
+
 def reserve_particle_capacity(species, n, rebalance=False):
     """Return the capacity target of `species` for `n` particles.
 
     Within a step (`rebalance` False), the target only grows, when `n` exceeds
     it. At an exchange (`rebalance` True), the target is also renewed when its
-    headroom falls below half of ``species.capacity_headroom`` or when it
-    exceeds `SHRINK_FACTOR` times the renewed target (or is below the
-    minimum capacity). This hysteresis keeps
-    the target, and so the bases, unchanged over many exchanges.
+    headroom falls below half of the `growth_headroom` or when it exceeds
+    `SHRINK_FACTOR` times the renewed target (or is below the minimum
+    capacity). This hysteresis keeps the target, and so the bases, unchanged
+    over several exchanges. The calls of one exchange use the same growth,
+    so that they agree on the target (`start_growth_period` resets it after
+    the exchange).
 
     Args:
         species: A Particles object. Sets ``species.particle_capacity``.
@@ -175,7 +230,7 @@ def reserve_particle_capacity(species, n, rebalance=False):
         The capacity target, at least `n`.
     """
     n = int(n)
-    headroom = species.capacity_headroom
+    headroom = growth_headroom(species, n)
     cap = int(getattr(species, "particle_capacity", 0))
     if rebalance:
         target = capacity_for(n, headroom)
@@ -190,6 +245,15 @@ def reserve_particle_capacity(species, n, rebalance=False):
     return cap
 
 
+def start_growth_period(species):
+    """Start the measurement of the growth of `species` (at the end of an
+    exchange, after the last `reserve_particle_capacity` of the exchange):
+    reset ``species.grown_since_exchange`` and store ``species.Ntot`` in
+    ``species.count_at_exchange``."""
+    species.grown_since_exchange = 0
+    species.count_at_exchange = getattr(species, "Ntot", None)
+
+
 def grow_particle_arrays(species, old_Ntot, new_Ntot):
     """Resize all particle arrays of `species` from `old_Ntot` to `new_Ntot`
     particles, within a step.
@@ -197,13 +261,17 @@ def grow_particle_arrays(species, old_Ntot, new_Ntot):
     The particle data and the fields of the first `old_Ntot` particles are
     kept; the other elements are undefined. When `new_Ntot` fits in the
     capacity of the species, no array is allocated. Otherwise all arrays move
-    to new bases with a larger capacity.
+    to new bases with a larger capacity (see `growth_headroom`).
 
     Args:
         species: A Particles object with its data on the GPU. Sets
-            ``species.Ntot``.
+            ``species.Ntot`` and adds the growth to
+            ``species.grown_since_exchange``.
         old_Ntot, new_Ntot: Number of particles before and after.
     """
+    species.grown_since_exchange = int(
+        getattr(species, "grown_since_exchange", 0)
+    ) + max(int(new_Ntot) - int(old_Ntot), 0)
     cap = reserve_particle_capacity(species, new_Ntot)
     for obj, name, kind, dtype in species.particle_arrays():
         array = getattr(obj, name, None)
@@ -280,3 +348,9 @@ def release_workspaces():
     """Drop the shared workspaces (their memory returns to the pool once the
     views that the caller still holds are gone)."""
     _workspaces.clear()
+
+
+if cuda_installed:
+    # An allocation that runs out of memory drops the workspaces before its
+    # retry; the next `reserve_workspace` allocates them again.
+    register_out_of_memory_callback(release_workspaces)
