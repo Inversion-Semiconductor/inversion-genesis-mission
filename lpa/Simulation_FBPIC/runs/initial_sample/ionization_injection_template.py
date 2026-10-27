@@ -290,19 +290,20 @@ class IonizationInjectionSimulation:
             f"density_{side}_ramp_edge_percent": ramp_edge_percent,
             f"density_{side}_one_percent_location_m": one_percent_location_m,
             f"density_{side}_edge_fraction": exp(
-                -log(2.0) * (2.0 * center_m / fwhm_m) ** beta
+                -log(2.0) * (2.0 * edge_distance_m / fwhm_m) ** beta
             ),
         }
         _LOGGER.info(
             "%s density ramp: FWHM = %.6g m, beta = %.6g, "
             "requested/effective ramp edge = %.6g/%.6g, "
-            "1%% at z = %.6g m, n(0)/n_peak = %.6g",
+            "1%% at z = %.6g m, n(%s)/n_peak = %.6g",
             side.capitalize(),
             fwhm_m,
             beta,
             requested_ramp_edge_percent,
             ramp_edge_percent,
             resolved[f"density_{side}_one_percent_location_m"],
+            boundary_name,
             resolved[f"density_{side}_edge_fraction"],
         )
         return resolved
