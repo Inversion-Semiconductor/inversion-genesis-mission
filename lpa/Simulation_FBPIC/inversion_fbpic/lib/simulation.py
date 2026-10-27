@@ -120,7 +120,7 @@ class SimulationHyperparameters(SerializableConfig):
             If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
         use_mpi: (bool) Whether to use MPI.
         gamma_boost: (float | None) |OPTIONAL| Gamma boost factor.
-        number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics.
+        number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics. Values greater than 1 request at most that many dumps; fewer are written when there are too few simulation steps.
         field_diagnostics: (list[Literal["rho", "E", "B", "J"]] | None) |OPTIONAL| List of field diagnostics to save. If None, no field diagnostics are saved.
         save_directory: (str | Path) |OPTIONAL| Directory to save the diagnostics. If not absolute, this is relative to the `working_directory` passed to `Simulation.setup_simulation()`. Defaults to "diags".
         save_checkpoints: (bool) |OPTIONAL| Whether to save checkpoints. Defaults to False.
