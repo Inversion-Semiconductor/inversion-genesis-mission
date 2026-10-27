@@ -25,6 +25,7 @@ HYPERPARAMETERS = {
     "rmax": 200.0e-6,
     "n_azimuthal_modes": 5,
     "p_zmin": 0.0,
+    "p_zmax": 9.0e-3,
     "p_rmax": 90e-6,
     "p_nz": 2,
     "p_nr": 2,
