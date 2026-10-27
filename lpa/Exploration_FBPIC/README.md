@@ -156,7 +156,8 @@ A production submission starts one manager and a configurable number of
 two-GPU simulation workers. Do not dispatch background `explore-fbpic evaluate`
 processes from the batch script: libEnsemble's `MPIExecutor` owns the FBPIC MPI
 launch and GPU binding. The reproducible NERSC smoke fixtures live under
-`tests/smoke_campaigns/`, not under `runs/`.
+`tests/smoke_campaigns/`, and the four-GPU OOM repro lives under
+`tests/memory_stress/`; neither belongs under production `runs/`.
 
 Install the NERSC extra before running the driver:
 
@@ -169,6 +170,38 @@ Then submit from the campaign directory:
 ```bash
 sbatch submit_nersc.sh
 ```
+
+`runs/initial_study/submit_nersc.sh` is the authoritative Perlmutter/libEnsemble
+submission format. Its node count, `SLURM_EXACT` settings, and 33-rank `srun`
+launch are coupled to one manager-hosted generator and 32 four-GPU workers; keep
+that allocation pattern intact when changing the production campaign.
+
+### Single-case NERSC checks
+
+The production campaign's nominal single-case entrypoints are grouped under
+`runs/initial_study/nominal/`. Each submission script runs the colocated
+`run_nominal.py`, which loads the parent `runs/initial_study/campaign.yaml` and
+evaluates its Stage 1 nominal point with inspection diagnostics. Submit the
+variant matching the requested GPU count:
+
+```bash
+sbatch runs/initial_study/nominal/submit_nominal_nersc.sh
+sbatch runs/initial_study/nominal/submit_nominal_2gpu_nersc.sh
+sbatch runs/initial_study/nominal/submit_nominal_4gpu_nersc.sh
+```
+
+The reproducible four-GPU memory-stress case is deliberately kept with test
+artifacts. It combines extrema observed in distinct Stage 0 OOM cases, then
+runs against the same production campaign:
+
+```bash
+sbatch tests/memory_stress/submit_memory_stress_4gpu_nersc.sh
+```
+
+All single-case scripts write scheduler output and FBPIC artifacts under
+`$PSCRATCH`; update their allocation account, QoS, wall time, and run labels as
+needed for the target NERSC environment. They are direct `srun` launches and do
+not use the production libEnsemble allocation format.
 
 ### Continuation
 
