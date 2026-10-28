@@ -822,10 +822,8 @@ class Simulation(SerializableConfig):
         else:
             v_comoving = 0.0
 
-        # Use the same final lab-frame position in both simulation modes.
-        lab_final_time = (
-            L_interact + (self.hyparams.zmax - self.hyparams.zmin)
-        ) / v_window
+        # ``L_interact`` already includes the configured right buffer.
+        lab_final_time = L_interact / v_window
 
         # Interaction time, in the simulation frame (seconds)
         if boost is not None:
