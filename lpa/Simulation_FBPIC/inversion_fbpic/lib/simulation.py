@@ -781,13 +781,18 @@ class Simulation(SerializableConfig):
         else:
             v_comoving = 0.0
 
-        # Interaction time, in the boosted frame (seconds)
+        # Use the same final lab-frame position in both simulation modes.
+        lab_final_time = (
+            L_interact + (self.hyparams.zmax - self.hyparams.zmin)
+        ) / v_window
+
+        # Interaction time, in the simulation frame (seconds)
         if boost is not None:
             self.T_interact = boost.interaction_time(
                 L_interact, (self.hyparams.zmax - self.hyparams.zmin), v_window
             )
         else:
-            self.T_interact = L_interact / v_window
+            self.T_interact = lab_final_time
 
         # Set the random seed
         if self.hyparams.random_seed is not None:
@@ -824,19 +829,14 @@ class Simulation(SerializableConfig):
             )
 
         if number_dumps < 2:
-            dt_lab_diag_period = (
-                L_interact + (self.hyparams.zmax - self.hyparams.zmin)
-            ) / v_window
+            dt_lab_diag_period = lab_final_time
             if number_dumps == -1:
                 dt_lab_diag_period = np.nextafter(dt_lab_diag_period, -np.inf)
             dn_lab_diag_period = self.num_steps
         else:
             # Avoid an extra lab-frame dump from floating-point boundary rounding.
             dt_lab_diag_period = np.nextafter(
-                (L_interact + (self.hyparams.zmax - self.hyparams.zmin))
-                / v_window
-                / (number_dumps - 1),
-                -np.inf,
+                lab_final_time / (number_dumps - 1), -np.inf
             )
             dn_lab_diag_period = self._particle_diagnostic_period_steps(
                 self.num_steps, number_dumps - 1

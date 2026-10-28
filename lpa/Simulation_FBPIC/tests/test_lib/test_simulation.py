@@ -1456,6 +1456,19 @@ class TestIntegration:
         with h5py.File(periodic_dump) as handle:
             assert handle["data/1"].attrs["time"] == final_only_time
 
+        unboosted_hyp = attrs.evolve(hyp, gamma_boost=None)
+        unboosted = Simulation(elements=[unboosted_hyp, density, laser])
+        unboosted.setup_simulation(
+            working_directory=tmp_path / "unboosted", skip_if_hashed=False
+        )
+        unboosted.run_simulation(show_progress=False, skip_if_hashed=False)
+        unboosted_dump = next((unboosted._save_directory / "hdf5").glob("data*.h5"))
+        unboosted_iteration = int(unboosted_dump.stem[4:])
+        with h5py.File(unboosted_dump) as handle:
+            assert handle[f"data/{unboosted_iteration}"].attrs["time"] == (
+                pytest.approx(final_only_time, abs=unboosted.simulation.dt)
+            )
+
     def test_boosted_final_field_snapshot_is_completely_flushed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
