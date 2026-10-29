@@ -1560,7 +1560,11 @@ class TestIntegration:
         from fbpic.main import Simulation as FBPICSimulation
         from inversion_fbpic.lib.simulation import Simulation
 
-        monkeypatch.chdir(tmp_path)
+        # FBPIC checkpoint paths are relative to the current working directory.
+        # Use a distinct directory for the uninterrupted and restarted runs.
+        uninterrupted_directory = tmp_path / "uninterrupted"
+        uninterrupted_directory.mkdir()
+        monkeypatch.chdir(uninterrupted_directory)
         # FBPIC checkpoints do not preserve MovingWindow's fractional position,
         # so disable it while comparing diagnostics across a restart.
         monkeypatch.setattr(FBPICSimulation, "set_moving_window", lambda self, v: None)
@@ -1576,11 +1580,14 @@ class TestIntegration:
         )
 
         uninterrupted = Simulation(elements=[hyp, density, laser])
-        uninterrupted.setup_simulation(working_directory=tmp_path / "uninterrupted")
+        uninterrupted.setup_simulation(working_directory=uninterrupted_directory)
         uninterrupted.run_simulation(show_progress=False, record_hash=False)
 
+        restarted_directory = tmp_path / "restarted"
+        restarted_directory.mkdir()
+        monkeypatch.chdir(restarted_directory)
         partial = Simulation(elements=[hyp, density, laser])
-        partial.setup_simulation(working_directory=tmp_path / "restarted")
+        partial.setup_simulation(working_directory=restarted_directory)
         partial.simulation.step(checkpoint_period, show_progress=False)
         if gamma_boost is not None:
             for diagnostic in partial.simulation.diags:
@@ -1589,7 +1596,7 @@ class TestIntegration:
         restarted_hyp = attrs.evolve(hyp, use_restart=True)
         restarted = Simulation(elements=[restarted_hyp, density, laser])
         restarted.setup_simulation(
-            working_directory=tmp_path / "restarted", skip_if_hashed=False
+            working_directory=restarted_directory, skip_if_hashed=False
         )
         assert restarted.simulation.iteration == checkpoint_period
         restarted.run_simulation(
