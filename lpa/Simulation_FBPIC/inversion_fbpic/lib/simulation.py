@@ -1151,6 +1151,7 @@ class Simulation(SerializableConfig):
                 self.simulation.iteration,
                 self.num_steps,
             )
+            num_steps = 0
         if not logger_friendly_progress:
             self.simulation.step(num_steps, show_progress=show_progress)
         else:

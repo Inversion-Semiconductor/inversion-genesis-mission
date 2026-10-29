@@ -897,12 +897,18 @@ class TestAttachedAnalysis:
         assert events.index("restart") < events.index("setup")
 
     @pytest.mark.parametrize("logger_friendly", [False, True])
+    @pytest.mark.parametrize("iteration_offset", [1, 3])
     def test_completed_restart_warns_when_no_steps_remain(
-        self, analysis_simulation, tmp_path, caplog, logger_friendly: bool
+        self,
+        analysis_simulation,
+        tmp_path,
+        caplog,
+        logger_friendly: bool,
+        iteration_offset: int,
     ) -> None:
         simulation, _, _, _ = analysis_simulation
         simulation.setup_simulation(working_directory=tmp_path)
-        simulation.simulation.iteration = simulation.num_steps + 1
+        simulation.simulation.iteration = simulation.num_steps + iteration_offset
 
         with caplog.at_level(logging.WARNING):
             simulation.run_simulation(
