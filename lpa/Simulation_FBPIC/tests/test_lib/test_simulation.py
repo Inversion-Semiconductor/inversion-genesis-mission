@@ -1479,6 +1479,88 @@ class TestSkipIfHashed:
 
 @pytest.mark.integration
 class TestIntegration:
+    @pytest.mark.parametrize(
+        ("gamma_boost", "checkpoint_period"),
+        [(None, 7), (2.0, 18)],
+        ids=["unboosted", "boosted"],
+    )
+    def test_restarted_diagnostic_dumps_match_uninterrupted_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        gamma_boost: float | None,
+        checkpoint_period: int,
+    ) -> None:
+        import h5py
+
+        from inversion_fbpic.lib.simulation import Simulation
+
+        monkeypatch.chdir(tmp_path)
+        hyp, density, laser = _make_simulation_elements()
+        hyp = attrs.evolve(
+            hyp,
+            gamma_boost=gamma_boost,
+            field_diagnostics=["E"],
+            number_dumps=3,
+            save_checkpoints=True,
+            checkpoint_period=checkpoint_period,
+            write_period=1,
+        )
+
+        uninterrupted = Simulation(elements=[hyp, density, laser])
+        uninterrupted.setup_simulation(working_directory=tmp_path / "uninterrupted")
+        uninterrupted.run_simulation(show_progress=False, record_hash=False)
+
+        partial = Simulation(elements=[hyp, density, laser])
+        partial.setup_simulation(working_directory=tmp_path / "restarted")
+        partial.simulation.step(checkpoint_period, show_progress=False)
+        if gamma_boost is not None:
+            for diagnostic in partial.simulation.diags:
+                diagnostic.flush_to_disk()
+
+        restarted = Simulation(elements=[hyp, density, laser])
+        restarted.setup_simulation(
+            working_directory=tmp_path / "restarted", skip_if_hashed=False
+        )
+        restarted.run_simulation(
+            show_progress=False, record_hash=False, skip_if_hashed=False
+        )
+
+        expected_dumps = sorted(
+            (uninterrupted._save_directory / "hdf5").glob("data*.h5")
+        )
+        actual_dumps = sorted((restarted._save_directory / "hdf5").glob("data*.h5"))
+        assert [dump.name for dump in actual_dumps] == [
+            dump.name for dump in expected_dumps
+        ]
+
+        for expected_dump, actual_dump in zip(expected_dumps, actual_dumps):
+            with h5py.File(expected_dump) as expected, h5py.File(actual_dump) as actual:
+                expected_names: set[str] = set()
+                actual_names: set[str] = set()
+                expected.visit(expected_names.add)
+                actual.visit(actual_names.add)
+                assert actual_names == expected_names
+
+                def assert_matching_attributes(actual_object, expected_object) -> None:
+                    keys = set(expected_object.attrs) - {"date"}
+                    assert set(actual_object.attrs) - {"date"} == keys
+                    for key in keys:
+                        np.testing.assert_equal(
+                            actual_object.attrs[key], expected_object.attrs[key]
+                        )
+
+                assert_matching_attributes(actual, expected)
+
+                def assert_matching_object(name, expected_object) -> None:
+                    actual_object = actual[name]
+                    assert type(actual_object) is type(expected_object)
+                    assert_matching_attributes(actual_object, expected_object)
+                    if isinstance(expected_object, h5py.Dataset):
+                        np.testing.assert_equal(actual_object[()], expected_object[()])
+
+                expected.visititems(assert_matching_object)
+
     def test_boosted_single_dump_is_at_initial_lab_time(self, tmp_path: Path) -> None:
         import h5py
 
