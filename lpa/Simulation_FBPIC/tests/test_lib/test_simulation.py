@@ -1617,6 +1617,26 @@ class TestIntegration:
             dump.name for dump in expected_dumps
         ]
 
+        def assert_matching_attributes(actual_object, expected_object) -> None:
+            ignored_keys = {"date"}
+            keys = set(expected_object.attrs) - ignored_keys
+            assert set(actual_object.attrs) - ignored_keys == keys
+            for key in keys:
+                np.testing.assert_equal(
+                    actual_object.attrs[key],
+                    expected_object.attrs[key],
+                    err_msg=f"{actual_object.name}: {key}",
+                )
+
+        def assert_matching_object(actual, name, expected_object) -> None:
+            actual_object = actual[name]
+            assert type(actual_object) is type(expected_object)
+            assert_matching_attributes(actual_object, expected_object)
+            if isinstance(expected_object, h5py.Dataset):
+                np.testing.assert_allclose(
+                    actual_object[()], expected_object[()], rtol=1e-5, atol=1e-12
+                )
+
         for expected_dump, actual_dump in zip(expected_dumps, actual_dumps):
             with h5py.File(expected_dump) as expected, h5py.File(actual_dump) as actual:
                 expected_names: set[str] = set()
@@ -1624,33 +1644,12 @@ class TestIntegration:
                 expected.visit(expected_names.add)
                 actual.visit(actual_names.add)
                 assert actual_names == expected_names
-
-                def assert_matching_attributes(actual_object, expected_object) -> None:
-                    ignored_keys = {"date"}
-                    keys = set(expected_object.attrs) - ignored_keys
-                    assert set(actual_object.attrs) - ignored_keys == keys
-                    for key in keys:
-                        np.testing.assert_equal(
-                            actual_object.attrs[key],
-                            expected_object.attrs[key],
-                            err_msg=f"{actual_object.name}: {key}",
-                        )
-
                 assert_matching_attributes(actual, expected)
-
-                def assert_matching_object(name, expected_object) -> None:
-                    actual_object = actual[name]
-                    assert type(actual_object) is type(expected_object)
-                    assert_matching_attributes(actual_object, expected_object)
-                    if isinstance(expected_object, h5py.Dataset):
-                        np.testing.assert_allclose(
-                            actual_object[()],
-                            expected_object[()],
-                            rtol=1e-5,
-                            atol=1e-12,
-                        )
-
-                expected.visititems(assert_matching_object)
+                expected.visititems(
+                    lambda name, expected_object: assert_matching_object(
+                        actual, name, expected_object
+                    )
+                )
 
     def test_boosted_single_dump_is_at_initial_lab_time(self, tmp_path: Path) -> None:
         import h5py
