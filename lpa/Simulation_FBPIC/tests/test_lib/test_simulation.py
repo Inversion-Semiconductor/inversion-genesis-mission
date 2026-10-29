@@ -879,6 +879,23 @@ class TestAttachedAnalysis:
         electron.track.assert_called_once_with(simulation.simulation.comm)
         simulation_module.add_laser_pulse.assert_called_once()
 
+    def test_restart_loads_checkpoint_before_initializing_moving_window(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, events = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+
+        def restart(backend) -> None:
+            events.append("restart")
+            backend.iteration = 4
+
+        monkeypatch.setattr(simulation_module, "restart_from_checkpoint", restart)
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert events.index("restart") < events.index("setup")
+
     @pytest.mark.parametrize("logger_friendly", [False, True])
     def test_completed_restart_warns_when_no_steps_remain(
         self, analysis_simulation, tmp_path, caplog, logger_friendly: bool
@@ -1544,6 +1561,8 @@ class TestIntegration:
         from inversion_fbpic.lib.simulation import Simulation
 
         monkeypatch.chdir(tmp_path)
+        # FBPIC checkpoints do not preserve MovingWindow's fractional position,
+        # so disable it while comparing diagnostics across a restart.
         monkeypatch.setattr(FBPICSimulation, "set_moving_window", lambda self, v: None)
         hyp, density, laser = _make_simulation_elements()
         hyp = attrs.evolve(
