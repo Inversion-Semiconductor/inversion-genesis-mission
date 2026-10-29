@@ -1143,6 +1143,12 @@ class Simulation(SerializableConfig):
         # the configured final iteration and one extra step so diagnostics see
         # the final physical state.
         num_steps = self.num_steps - self.simulation.iteration + 1
+        if num_steps <= 0:
+            self._logger.warning(
+                "Checkpoint iteration %s is at or beyond the final iteration %s; no steps remain.",
+                self.simulation.iteration,
+                self.num_steps,
+            )
         if not logger_friendly_progress:
             self.simulation.step(num_steps, show_progress=show_progress)
         else:

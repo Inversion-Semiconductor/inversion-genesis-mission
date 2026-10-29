@@ -870,6 +870,25 @@ class TestAttachedAnalysis:
         assert "No checkpoints found; starting a new simulation instead." in caplog.text
         simulation_module.add_laser_pulse.assert_called_once()
 
+    @pytest.mark.parametrize("logger_friendly", [False, True])
+    def test_completed_restart_warns_when_no_steps_remain(
+        self, analysis_simulation, tmp_path, caplog, logger_friendly: bool
+    ) -> None:
+        simulation, _, _, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.simulation.iteration = simulation.num_steps + 1
+
+        with caplog.at_level(logging.WARNING):
+            simulation.run_simulation(
+                show_progress=False,
+                logger_friendly_progress=logger_friendly,
+                record_hash=False,
+            )
+
+        assert "Checkpoint iteration" in caplog.text
+        assert "no steps remain" in caplog.text
+        simulation.simulation.step.assert_called_once_with(0, show_progress=False)
+
     def test_restart_runs_only_remaining_steps(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:
@@ -880,14 +899,14 @@ class TestAttachedAnalysis:
         monkeypatch.setattr(
             simulation_module,
             "restart_from_checkpoint",
-            lambda backend: setattr(backend, "iteration", 10),
+            lambda backend: setattr(backend, "iteration", 4),
         )
 
         simulation.setup_simulation(working_directory=tmp_path)
         simulation.run_simulation(show_progress=False, record_hash=False)
 
         simulation.simulation.step.assert_called_once_with(
-            simulation.num_steps - 10 + 1, show_progress=False
+            simulation.num_steps - 4 + 1, show_progress=False
         )
 
     def test_final_boosted_snapshot_is_flushed_after_extra_step(
