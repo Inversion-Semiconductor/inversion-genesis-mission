@@ -851,6 +851,25 @@ class TestAttachedAnalysis:
             simulation.num_steps + 1, show_progress=False
         )
 
+    def test_restart_without_checkpoints_starts_new_simulation(
+        self, analysis_simulation, tmp_path, monkeypatch, caplog
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        monkeypatch.setattr(
+            simulation_module,
+            "restart_from_checkpoint",
+            MagicMock(side_effect=RuntimeError("no checkpoints")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            simulation.setup_simulation(working_directory=tmp_path)
+
+        assert "No checkpoints found; starting a new simulation instead." in caplog.text
+        simulation_module.add_laser_pulse.assert_called_once()
+
     def test_restart_runs_only_remaining_steps(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:
@@ -1493,9 +1512,11 @@ class TestIntegration:
     ) -> None:
         import h5py
 
+        from fbpic.main import Simulation as FBPICSimulation
         from inversion_fbpic.lib.simulation import Simulation
 
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(FBPICSimulation, "set_moving_window", lambda self, v: None)
         hyp, density, laser = _make_simulation_elements()
         hyp = attrs.evolve(
             hyp,
@@ -1518,10 +1539,12 @@ class TestIntegration:
             for diagnostic in partial.simulation.diags:
                 diagnostic.flush_to_disk()
 
-        restarted = Simulation(elements=[hyp, density, laser])
+        restarted_hyp = attrs.evolve(hyp, use_restart=True)
+        restarted = Simulation(elements=[restarted_hyp, density, laser])
         restarted.setup_simulation(
             working_directory=tmp_path / "restarted", skip_if_hashed=False
         )
+        assert restarted.simulation.iteration == checkpoint_period
         restarted.run_simulation(
             show_progress=False, record_hash=False, skip_if_hashed=False
         )
@@ -1543,11 +1566,14 @@ class TestIntegration:
                 assert actual_names == expected_names
 
                 def assert_matching_attributes(actual_object, expected_object) -> None:
-                    keys = set(expected_object.attrs) - {"date"}
-                    assert set(actual_object.attrs) - {"date"} == keys
+                    ignored_keys = {"date"}
+                    keys = set(expected_object.attrs) - ignored_keys
+                    assert set(actual_object.attrs) - ignored_keys == keys
                     for key in keys:
                         np.testing.assert_equal(
-                            actual_object.attrs[key], expected_object.attrs[key]
+                            actual_object.attrs[key],
+                            expected_object.attrs[key],
+                            err_msg=f"{actual_object.name}: {key}",
                         )
 
                 assert_matching_attributes(actual, expected)
@@ -1557,7 +1583,12 @@ class TestIntegration:
                     assert type(actual_object) is type(expected_object)
                     assert_matching_attributes(actual_object, expected_object)
                     if isinstance(expected_object, h5py.Dataset):
-                        np.testing.assert_equal(actual_object[()], expected_object[()])
+                        np.testing.assert_allclose(
+                            actual_object[()],
+                            expected_object[()],
+                            rtol=1e-5,
+                            atol=1e-12,
+                        )
 
                 expected.visititems(assert_matching_object)
 

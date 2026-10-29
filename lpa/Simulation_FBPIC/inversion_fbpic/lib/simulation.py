@@ -1006,21 +1006,36 @@ class Simulation(SerializableConfig):
                 elec.track(self.simulation.comm)
         # /Add the particles and particle diagnostics
 
+        restart_loaded = False
+        if self.hyparams.use_restart:
+            try:
+                restart_from_checkpoint(self.simulation)
+            except RuntimeError:
+                checkpoint_files = Path("checkpoints").glob("proc*/hdf5/data*.h5")
+                if any(checkpoint_files):
+                    raise
+                self._logger.warning(
+                    "No checkpoints found; starting a new simulation instead."
+                )
+            else:
+                restart_loaded = True
+
         # Add the laser pulses
-        # One-time (possibly collective) setup first, e.g. LasyLaserPulse writes
-        # its HDF5 file on rank 0 and broadcasts the path (or the failure) to
-        # the other ranks.
-        for laser in self.lasers:
-            laser.prepare(self.simulation.comm, relative_to=self.working_directory)
-        for laser in self.lasers:
-            add_laser_pulse(
-                self.simulation,
-                laser.build_laser_profile(),
-                gamma_boost=boost.gamma0 if boost is not None else None,
-                method=laser.method if laser.method is not None else "direct",
-                z0_antenna=laser.z0_antenna if laser.method == "antenna" else None,
-                v_antenna=laser.v_antenna if laser.method == "antenna" else 0,
-            )
+        if not restart_loaded:
+            # One-time (possibly collective) setup first, e.g. LasyLaserPulse writes
+            # its HDF5 file on rank 0 and broadcasts the path (or the failure) to
+            # the other ranks.
+            for laser in self.lasers:
+                laser.prepare(self.simulation.comm, relative_to=self.working_directory)
+            for laser in self.lasers:
+                add_laser_pulse(
+                    self.simulation,
+                    laser.build_laser_profile(),
+                    gamma_boost=boost.gamma0 if boost is not None else None,
+                    method=laser.method if laser.method is not None else "direct",
+                    z0_antenna=laser.z0_antenna if laser.method == "antenna" else None,
+                    v_antenna=laser.v_antenna if laser.method == "antenna" else 0,
+                )
         # /Add the laser pulses
 
         # Moving window
@@ -1076,8 +1091,6 @@ class Simulation(SerializableConfig):
         # Checkpoints
         if self.hyparams.save_checkpoints:
             set_periodic_checkpoint(self.simulation, self.hyparams.checkpoint_period)
-        if self.hyparams.use_restart:
-            restart_from_checkpoint(self.simulation)
 
         self._analyze_diagnostics(before_simulation=True)
         self.is_setup = True
