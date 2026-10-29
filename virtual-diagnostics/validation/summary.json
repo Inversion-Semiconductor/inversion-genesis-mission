@@ -1,0 +1,180 @@
+{
+  "format_version": 1,
+  "date": "2026-10-15",
+  "code_revision": "bf525ae715c4227f069322f2ebbd58492dd9732b",
+  "cpu": {
+    "installed_wheel_tests": 24,
+    "passed": true,
+    "wheel_contains_artifacts": false,
+    "original_codec_parity": {
+      "topview": {
+        "original_cpu_exact": true,
+        "rows": 8
+      },
+      "camera1": {
+        "original_cpu_exact": true,
+        "rows": 8
+      },
+      "decoder": {
+        "original_cpu_exact": true,
+        "rows": 8
+      },
+      "gaia": {
+        "original_cpu_exact": true,
+        "rows": 8
+      },
+      "frog": {
+        "saved_coordinates_exact": true,
+        "rows": 8
+      },
+      "oap": {
+        "original_preparation_and_projection_exact": true,
+        "input": "stored_training_mean_frame",
+        "raw_shot_frames_checked": false
+      },
+      "passed": true
+    }
+  },
+  "polaris": {
+    "job_id": "7751049",
+    "job_exit_status": 0,
+    "walltime_seconds": 399,
+    "installed_package": true,
+    "offline_model_cache_empty": true,
+    "gpu_model": "NVIDIA A100",
+    "python": "3.13.15 | packaged by conda-forge | (main, Sep  2 2026, 22:01:58) [GCC 15.3.0]",
+    "torch": "2.14.0",
+    "cuda": "13.0",
+    "packages": {
+      "numpy": "2.5.3",
+      "pyarrow": "25.0.1",
+      "huggingface_hub": "1.32.0",
+      "safetensors": "0.8.0",
+      "typing_extensions": "4.16.0"
+    },
+    "runtime_sha256": {
+      "preprocessing.py": "878c85d05ad0703542bfb138ca26cc0187229aa37e7956a96ab1c47505abf52a",
+      "features.py": "d90aeda420638720fe971ab83bd0b765edc7f3f953c2e69e81c5138063bd5c4e",
+      "encoders.py": "6be654759fc9f17a7908a296d64014c7b9a456cb7b36ca74681dd79acac19b54",
+      "decoders.py": "27ae69a69e7083f3fddef514e74f25caa196ff8b5cb029bded66387657ff6568",
+      "artifacts.py": "2bf5ea77b9ef7cc68d464974ff1d91e3c66bbe1da4b1fd49a2fd778ab60dc3a7",
+      "_images.py": "3e20e02be42d116ee67875f2194bf051f304c3183fbbb5f4c61bd10259faf29a",
+      "__init__.py": "f8f1f8f1263ef1e91ee247d29d83a7d7254177be4335ceaeb6f6df8bb2e3aa40",
+      "tabular/serving_adapter.py": "211e9896f12a92d205dd57cccb52cd48a10f7cf442914f1321e5881053d880d2",
+      "tabular/numerical_serving.py": "389fe6a93f00b69dcd2edfe40aa08bd1cc9ceee5de13a52cb4332ce1b508a173",
+      "tabular/api.py": "6a45333157b7e7556fcb7cef34545a9e69a25859e45d31a2e47934e592922692",
+      "tabular/__init__.py": "115009ad9b45d40549efce244a9ec491a50b8edad88437a0e9d6fe55c260d2b6"
+    },
+    "fixture_sha256": "2aa3b3d347606b267560cf3d28807ba8bf5e9bcc7f65df38106c7cb821c64c70",
+    "total_validation_predictions": 3696,
+    "cases": [
+      {
+        "GPU": 1,
+        "seed": 20261009,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 63.72370060789399
+      },
+      {
+        "GPU": 1,
+        "seed": 20261010,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 63.056146037066355
+      },
+      {
+        "GPU": 2,
+        "seed": 20261009,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 39.44257659395225
+      },
+      {
+        "GPU": 2,
+        "seed": 20261010,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 38.54338064487092
+      },
+      {
+        "GPU": 3,
+        "seed": 20261009,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 39.08326250803657
+      },
+      {
+        "GPU": 3,
+        "seed": 20261010,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 38.74628367414698
+      },
+      {
+        "GPU": 4,
+        "seed": 20261009,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 28.22960544610396
+      },
+      {
+        "GPU": 4,
+        "seed": 20261010,
+        "validation_shots": 462,
+        "exact_targets": true,
+        "exact_images": true,
+        "elapsed_seconds": 28.02702942909673
+      }
+    ],
+    "codecs": {
+      "passed": true,
+      "fixture_sha256": "76971d28a435a165a30b949d6f1f4ea9c1624b507b226956dddbd1e2870ad24c",
+      "results": {
+        "camera1": {
+          "rows": 8,
+          "max_abs_difference": 9.953975677490234e-06
+        },
+        "topview": {
+          "rows": 8,
+          "max_abs_difference": 5.7220458984375e-05
+        },
+        "gaia": {
+          "rows": 8,
+          "max_abs_difference": 5.0067901611328125e-06
+        },
+        "decoder": {
+          "rows": 8,
+          "max_abs_difference": 1.7881393432617188e-06
+        },
+        "frog": {
+          "rows": 8,
+          "max_abs_difference": 0.0
+        },
+        "oap": {
+          "rows": 1,
+          "max_abs_difference": 0.0
+        }
+      },
+      "oap_input": "stored training-mean frame; raw shot acquisition not tested"
+    },
+    "headless_example_passed": true
+  },
+  "prior_attempt": {
+    "job_id": "7751044",
+    "result": "Stopped at CPU codec parity before GPU checks because cross-platform rounding exceeded the original 1e-5 encoder tolerance.",
+    "resolution": "Portable encoder check uses rtol=1e-4 and atol=1e-4; GPU vector and decoded-image comparisons remain exact."
+  },
+  "limits": [
+    "462 validation rows repeated across two seeds and four GPU counts; not 3696 independent shots.",
+    "No test-partition evaluation or new scientific accuracy claim.",
+    "Raw OAP shot preprocessing was not checked; stored training-mean frame only.",
+    "Per-case elapsed time includes startup, prediction, decoding and checks; not a latency benchmark."
+  ]
+}
