@@ -1001,9 +1001,6 @@ class Simulation(SerializableConfig):
                                 )
                             )
             # /add diags
-            # add tracking
-            if self.hyparams.track_electrons and not self.hyparams.use_restart:
-                elec.track(self.simulation.comm)
         # /Add the particles and particle diagnostics
 
         restart_loaded = False
@@ -1019,6 +1016,11 @@ class Simulation(SerializableConfig):
                 )
             else:
                 restart_loaded = True
+
+        # Add tracking
+        if self.hyparams.track_electrons and not restart_loaded:
+            for elec in elecs:
+                elec.track(self.simulation.comm)
 
         # Add the laser pulses
         if not restart_loaded:

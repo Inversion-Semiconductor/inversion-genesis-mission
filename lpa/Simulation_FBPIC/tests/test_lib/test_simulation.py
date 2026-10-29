@@ -857,7 +857,15 @@ class TestAttachedAnalysis:
         from inversion_fbpic.lib import simulation as simulation_module
 
         simulation, _, _, _ = analysis_simulation
-        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams, use_restart=True, track_electrons=True
+        )
+        electron = MagicMock()
+        monkeypatch.setattr(
+            type(simulation.densities[0]),
+            "add_to_simulation",
+            MagicMock(return_value=(electron, None)),
+        )
         monkeypatch.setattr(
             simulation_module,
             "restart_from_checkpoint",
@@ -868,6 +876,7 @@ class TestAttachedAnalysis:
             simulation.setup_simulation(working_directory=tmp_path)
 
         assert "No checkpoints found; starting a new simulation instead." in caplog.text
+        electron.track.assert_called_once_with(simulation.simulation.comm)
         simulation_module.add_laser_pulse.assert_called_once()
 
     @pytest.mark.parametrize("logger_friendly", [False, True])
