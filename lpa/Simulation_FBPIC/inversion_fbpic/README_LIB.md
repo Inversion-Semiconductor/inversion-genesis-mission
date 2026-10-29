@@ -82,6 +82,12 @@ simulation.run_simulation()
 - `0` disables FBPIC diagnostics; a warning is logged when output was otherwise requested.
 - Values greater than `1` request periodic output including a final dump. They produce at most the requested number of dumps; fewer are written when there are too few simulation steps.
 
+### Boosted-Frame Restart Limitation
+
+FBPIC checkpoints preserve the boosted-frame fields and particles, but not the in-memory slice buffers used by back-transformed diagnostics. Restarting a boosted-frame simulation can therefore produce incomplete or different lab-frame snapshots when a checkpoint interrupts construction of a snapshot. Flushing diagnostics before interruption writes completed buffered slices, but cannot preserve a partially accumulated snapshot. Use checkpoints at lab-frame snapshot boundaries when continuity of back-transformed diagnostic output is required.
+
+FBPIC also does not checkpoint the moving window's fractional position. This wrapper recreates the moving window after loading a checkpoint, but restarted output can differ from an uninterrupted moving-window run by up to a grid-cell shift.
+
 ## Delete Older Diagnostic Dumps
 
 After simulation, analysis, and plotting are complete, use

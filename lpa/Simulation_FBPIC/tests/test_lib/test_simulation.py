@@ -132,7 +132,7 @@ def analysis_simulation(analysis_classes, monkeypatch: pytest.MonkeyPatch):
             ]
         )
     )
-    backend = MagicMock(dt=hyperparameters.dt, diags=[])
+    backend = MagicMock(dt=hyperparameters.dt, diags=[], iteration=0)
     backend.step.side_effect = lambda *args, **kwargs: events.append("step")
     backend.set_moving_window.side_effect = lambda *args, **kwargs: events.append(
         "setup"
@@ -851,6 +851,96 @@ class TestAttachedAnalysis:
             simulation.num_steps + 1, show_progress=False
         )
 
+    def test_restart_without_checkpoints_starts_new_simulation(
+        self, analysis_simulation, tmp_path, monkeypatch, caplog
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams, use_restart=True, track_electrons=True
+        )
+        electron = MagicMock()
+        monkeypatch.setattr(
+            type(simulation.densities[0]),
+            "add_to_simulation",
+            MagicMock(return_value=(electron, None)),
+        )
+        monkeypatch.setattr(
+            simulation_module,
+            "restart_from_checkpoint",
+            MagicMock(side_effect=RuntimeError("no checkpoints")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            simulation.setup_simulation(working_directory=tmp_path)
+
+        assert "No checkpoints found; starting a new simulation instead." in caplog.text
+        electron.track.assert_called_once_with(simulation.simulation.comm)
+        simulation_module.add_laser_pulse.assert_called_once()
+
+    def test_restart_loads_checkpoint_before_initializing_moving_window(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, events = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+
+        def restart(backend) -> None:
+            events.append("restart")
+            backend.iteration = 4
+
+        monkeypatch.setattr(simulation_module, "restart_from_checkpoint", restart)
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert events.index("restart") < events.index("setup")
+
+    @pytest.mark.parametrize("logger_friendly", [False, True])
+    @pytest.mark.parametrize("iteration_offset", [1, 3])
+    def test_completed_restart_warns_when_no_steps_remain(
+        self,
+        analysis_simulation,
+        tmp_path,
+        caplog,
+        logger_friendly: bool,
+        iteration_offset: int,
+    ) -> None:
+        simulation, _, _, _ = analysis_simulation
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.simulation.iteration = simulation.num_steps + iteration_offset
+
+        with caplog.at_level(logging.WARNING):
+            simulation.run_simulation(
+                show_progress=False,
+                logger_friendly_progress=logger_friendly,
+                record_hash=False,
+            )
+
+        assert "Checkpoint iteration" in caplog.text
+        assert "no steps remain" in caplog.text
+        simulation.simulation.step.assert_called_once_with(0, show_progress=False)
+
+    def test_restart_runs_only_remaining_steps(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        monkeypatch.setattr(
+            simulation_module,
+            "restart_from_checkpoint",
+            lambda backend: setattr(backend, "iteration", 4),
+        )
+
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(show_progress=False, record_hash=False)
+
+        simulation.simulation.step.assert_called_once_with(
+            simulation.num_steps - 4 + 1, show_progress=False
+        )
+
     def test_final_boosted_snapshot_is_flushed_after_extra_step(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:
@@ -1459,6 +1549,108 @@ class TestSkipIfHashed:
 
 @pytest.mark.integration
 class TestIntegration:
+    @pytest.mark.parametrize(
+        ("gamma_boost", "checkpoint_period"),
+        [(None, 7), (2.0, 18)],
+        ids=["unboosted", "boosted"],
+    )
+    def test_restarted_diagnostic_dumps_match_uninterrupted_run(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        gamma_boost: float | None,
+        checkpoint_period: int,
+    ) -> None:
+        import h5py
+
+        from fbpic.main import Simulation as FBPICSimulation
+        from inversion_fbpic.lib.simulation import Simulation
+
+        # FBPIC checkpoint paths are relative to the current working directory.
+        # Use a distinct directory for the uninterrupted and restarted runs.
+        uninterrupted_directory = tmp_path / "uninterrupted"
+        uninterrupted_directory.mkdir()
+        monkeypatch.chdir(uninterrupted_directory)
+        # FBPIC checkpoints do not preserve MovingWindow's fractional position,
+        # so disable it while comparing diagnostics across a restart.
+        monkeypatch.setattr(FBPICSimulation, "set_moving_window", lambda self, v: None)
+        hyp, density, laser = _make_simulation_elements()
+        hyp = attrs.evolve(
+            hyp,
+            gamma_boost=gamma_boost,
+            field_diagnostics=["E"],
+            number_dumps=3,
+            save_checkpoints=True,
+            checkpoint_period=checkpoint_period,
+            write_period=1,
+        )
+
+        uninterrupted = Simulation(elements=[hyp, density, laser])
+        uninterrupted.setup_simulation(working_directory=uninterrupted_directory)
+        uninterrupted.run_simulation(show_progress=False, record_hash=False)
+
+        restarted_directory = tmp_path / "restarted"
+        restarted_directory.mkdir()
+        monkeypatch.chdir(restarted_directory)
+        partial = Simulation(elements=[hyp, density, laser])
+        partial.setup_simulation(working_directory=restarted_directory)
+        partial.simulation.step(checkpoint_period, show_progress=False)
+        if gamma_boost is not None:
+            for diagnostic in partial.simulation.diags:
+                diagnostic.flush_to_disk()
+
+        restarted_hyp = attrs.evolve(hyp, use_restart=True)
+        restarted = Simulation(elements=[restarted_hyp, density, laser])
+        restarted.setup_simulation(
+            working_directory=restarted_directory, skip_if_hashed=False
+        )
+        assert restarted.simulation.iteration == checkpoint_period
+        restarted.run_simulation(
+            show_progress=False, record_hash=False, skip_if_hashed=False
+        )
+
+        expected_dumps = sorted(
+            (uninterrupted._save_directory / "hdf5").glob("data*.h5")
+        )
+        actual_dumps = sorted((restarted._save_directory / "hdf5").glob("data*.h5"))
+        assert [dump.name for dump in actual_dumps] == [
+            dump.name for dump in expected_dumps
+        ]
+
+        def assert_matching_attributes(actual_object, expected_object) -> None:
+            ignored_keys = {"date"}
+            keys = set(expected_object.attrs) - ignored_keys
+            assert set(actual_object.attrs) - ignored_keys == keys
+            for key in keys:
+                np.testing.assert_equal(
+                    actual_object.attrs[key],
+                    expected_object.attrs[key],
+                    err_msg=f"{actual_object.name}: {key}",
+                )
+
+        def assert_matching_object(actual, name, expected_object) -> None:
+            actual_object = actual[name]
+            assert type(actual_object) is type(expected_object)
+            assert_matching_attributes(actual_object, expected_object)
+            if isinstance(expected_object, h5py.Dataset):
+                np.testing.assert_allclose(
+                    actual_object[()], expected_object[()], rtol=1e-5, atol=1e-12
+                )
+
+        for expected_dump, actual_dump in zip(expected_dumps, actual_dumps):
+            with h5py.File(expected_dump) as expected, h5py.File(actual_dump) as actual:
+                expected_names: set[str] = set()
+                actual_names: set[str] = set()
+                expected.visit(expected_names.add)
+                actual.visit(actual_names.add)
+                assert actual_names == expected_names
+                assert_matching_attributes(actual, expected)
+                expected.visititems(
+                    lambda name, expected_object: assert_matching_object(
+                        actual, name, expected_object
+                    )
+                )
+
     def test_boosted_single_dump_is_at_initial_lab_time(self, tmp_path: Path) -> None:
         import h5py
 
