@@ -1126,10 +1126,10 @@ class Simulation(SerializableConfig):
                 "Simulation not setup. Run `Simulation.setup_simulation()` before `Simulation.run_simulation()`."
             )
 
-        # FBPIC writes diagnostics before advancing an iteration. Run one extra
-        # iteration so the diagnostics constrained to ``self.num_steps`` see the
-        # final physical state.
-        num_steps = self.num_steps + 1
+        # FBPIC writes diagnostics before advancing an iteration. Run through
+        # the configured final iteration and one extra step so diagnostics see
+        # the final physical state.
+        num_steps = self.num_steps - self.simulation.iteration + 1
         if not logger_friendly_progress:
             self.simulation.step(num_steps, show_progress=show_progress)
         else:

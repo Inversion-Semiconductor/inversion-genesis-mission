@@ -132,7 +132,7 @@ def analysis_simulation(analysis_classes, monkeypatch: pytest.MonkeyPatch):
             ]
         )
     )
-    backend = MagicMock(dt=hyperparameters.dt, diags=[])
+    backend = MagicMock(dt=hyperparameters.dt, diags=[], iteration=0)
     backend.step.side_effect = lambda *args, **kwargs: events.append("step")
     backend.set_moving_window.side_effect = lambda *args, **kwargs: events.append(
         "setup"
@@ -849,6 +849,26 @@ class TestAttachedAnalysis:
         simulation.run_simulation(show_progress=False, record_hash=False)
         simulation.simulation.step.assert_called_once_with(
             simulation.num_steps + 1, show_progress=False
+        )
+
+    def test_restart_runs_only_remaining_steps(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        monkeypatch.setattr(
+            simulation_module,
+            "restart_from_checkpoint",
+            lambda backend: setattr(backend, "iteration", 10),
+        )
+
+        simulation.setup_simulation(working_directory=tmp_path)
+        simulation.run_simulation(show_progress=False, record_hash=False)
+
+        simulation.simulation.step.assert_called_once_with(
+            simulation.num_steps - 10 + 1, show_progress=False
         )
 
     def test_final_boosted_snapshot_is_flushed_after_extra_step(
