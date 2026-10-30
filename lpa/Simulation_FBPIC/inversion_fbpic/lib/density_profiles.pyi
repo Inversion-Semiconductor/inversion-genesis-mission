@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from .density_core import _DensityProfile
 
+from .math_expression import MathExpression
 from collections.abc import Mapping
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
-from inversion_fbpic.lib.math_expression import MathExpression
 from typing import ClassVar, Iterator
 import numpy.typing as npt
 

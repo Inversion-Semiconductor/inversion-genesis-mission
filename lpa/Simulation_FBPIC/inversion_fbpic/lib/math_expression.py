@@ -1,9 +1,4 @@
-"""Safe, declarative, serializable numerical functions.
-
-Functions are stored as validated expressions rather than pickled callables.  This
-makes configuration files portable and prevents deserialization from executing
-arbitrary Python code.
-"""
+"""Safe, declarative, serializable numerical functions."""
 
 from __future__ import annotations
 
