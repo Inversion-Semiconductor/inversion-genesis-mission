@@ -207,6 +207,7 @@ def test_plot_movie_plot_error_does_not_encode(
     movie.assert_not_called()
 
 
+@pytest.mark.ffmpeg
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required")
 def test_plot_movie_creates_stills_and_movie(
     minimal_simulation_elements,

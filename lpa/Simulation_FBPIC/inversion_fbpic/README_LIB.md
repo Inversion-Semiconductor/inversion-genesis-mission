@@ -73,6 +73,15 @@ simulation.run_simulation()
 
 `setup_simulation()` resolves runtime paths, creates the FBPIC object, adds particle species and lasers, configures the moving window, diagnostics, checkpoints, and restart behavior. `run_simulation()` advances the derived interaction time. Setup and execution have filesystem side effects; the wrapper writes only from rank zero when MPI is enabled.
 
+## Control Diagnostic Dumps
+
+`SimulationHyperparameters.number_dumps` controls FBPIC particle and field output:
+
+- `1` writes one initial dump.
+- `-1` writes one final dump.
+- `0` disables FBPIC diagnostics; a warning is logged when output was otherwise requested.
+- Values greater than `1` request periodic output including a final dump. They produce at most the requested number of dumps; fewer are written when there are too few simulation steps.
+
 ## Delete Older Diagnostic Dumps
 
 After simulation, analysis, and plotting are complete, use

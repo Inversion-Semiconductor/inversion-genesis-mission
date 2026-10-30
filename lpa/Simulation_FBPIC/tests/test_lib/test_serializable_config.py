@@ -1367,10 +1367,9 @@ def test_density_subclass_yaml_round_trip(yaml_str: str) -> None:
     orig_params = profile.to_dict()["parameters"]
     reload_params = reloaded.to_dict()["parameters"]
     for key, val in orig_params.items():
-        if val is not None:
-            if isinstance(val, (str, bool)):
-                assert reload_params[key] == val, f"Mismatch on {key}"
-                continue
+        if isinstance(val, (int, float)):
             assert reload_params[key] == pytest.approx(
                 val, rel=1e-6
             ), f"Mismatch on {key}"
+        else:
+            assert reload_params[key] == val, f"Mismatch on {key}"

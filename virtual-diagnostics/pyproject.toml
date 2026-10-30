@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inversion-virtual-diagnostics"
+version = "0.1.0"
+description = "Independent image encoders, Kumo inference, and image decoding"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy", "torch>=2.7"]
+
+[project.optional-dependencies]
+kumo = ["structured-data-models @ git+https://github.com/NVIDIA/structured-data-models.git@842c408fe2a8711bdf2e7cff4bfbe54266d6b940"]
+images = ["scikit-image", "matplotlib"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["virtual_diagnostics*"]
+
+[tool.setuptools.package-data]
+virtual_diagnostics = ["manifests/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

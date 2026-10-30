@@ -1857,18 +1857,15 @@ class TestAllDensityProfiles:
         assert type(reloaded) is type(profile_instance)
         orig_params = profile_instance.to_dict()["parameters"]
         reload_params = reloaded.to_dict()["parameters"]
-        for key in orig_params:
-            val = orig_params[key]
-            if val is None or isinstance(val, (dict, list)):
-                continue
-            if isinstance(val, (str, bool)):
+        for key, val in orig_params.items():
+            if isinstance(val, (int, float)):
+                assert reload_params[key] == pytest.approx(
+                    val, rel=1e-6
+                ), f"Mismatch on {key}: {val} vs {reload_params[key]}"
+            else:
                 assert (
                     reload_params[key] == val
                 ), f"Mismatch on {key}: {val} vs {reload_params[key]}"
-                continue
-            assert reload_params[key] == pytest.approx(
-                val, rel=1e-6
-            ), f"Mismatch on {key}: {val} vs {reload_params[key]}"
 
     def test_get_plasma_wavelength_nominal(self, profile_instance) -> None:
         wl = profile_instance.get_plasma_wavelength()
