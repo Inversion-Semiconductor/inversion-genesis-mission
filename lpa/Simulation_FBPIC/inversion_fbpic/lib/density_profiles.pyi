@@ -6,6 +6,7 @@ from .density_core import _DensityProfile
 
 from collections.abc import Mapping
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
+from inversion_fbpic.lib.math_expression import MathExpression
 from typing import ClassVar, Iterator
 import numpy.typing as npt
 
@@ -484,6 +485,115 @@ class GaussianPlusTriangle(_DensityProfile):
             tri_right_width: (float) [m] Length scale of the triangle to the right of the tip.
             tri_height: (float) [m] |OPTIONAL| Height of the triangle at the tip with respect to the Gaussian amplitude. Defaults to 1.0.
             num_sigma_extent: (float) |OPTIONAL| Number of sigma's to account for in the longitudinal extent of the Gaussian component. Defaults to 3.0."""
+    def _get_z_extent(self) -> tuple[float, float]:
+        ...
+    def _get_r_extent(self) -> float | None:
+        ...
+    def build_density_function(self) -> DensityCallable:
+        ...
+
+class GeneralDensityProfile(_DensityProfile):
+    """A serializable density profile defined by a two-dimensional expression.
+
+    The expression is evaluated as ``function(z, r)`` and should return the
+    relative density. Its support extents are explicit so FBPIC can create
+    particles without inferring them from user code.
+
+    Args:
+        nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
+            the relative profile returned by `build_density_function` (which is normalized to 1).
+        p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
+        p_nr: (int) Number of macroparticles per gridcell along the radial direction.
+        p_nt: (int) Number of macroparticles per gridcell along the angular direction.
+        species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
+            If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+            ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
+            Defaults to Hydrogen.
+        ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
+            Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
+        p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+        p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+        elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
+        elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
+            The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+            Example Python: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+            Example YAML: elec_select: {uz: [10.0, null], z: [-1.0e-6, 1.0e-6]}
+            Defaults to None.
+        ion_name: (str|None) [str] |OPTIONAL| Name of the ion species when writing diagnostics. If None, the ion particles will not be written to diagnostics.
+        ion_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the ion species when writing diagnostics.
+            The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+            Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+            Defaults to None.
+        function: A :class:`MathExpression` with variables ``("z", "r")``.
+        z_min: (float) [m] Lower longitudinal support bound.
+        z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+        r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None."""
+    SUBCLASS: ClassVar[str]
+    function: MathExpression
+    z_min: float
+    z_max: float
+    r_max: float | None
+    def __init__(
+        self,
+        *,
+        nominal_density: float,
+        p_nz: int,
+        p_nr: int,
+        p_nt: int,
+        species: str | None = 'H',
+        ionization: int | None = 0,
+        p_rmin: float | None = None,
+        p_rmax: float | None = None,
+        p_zmin: float | None = None,
+        p_zmax: float | None = None,
+        elec_name: str | None = None,
+        elec_select: dict[str, list[float | None]] | None = None,
+        ion_name: str | None = None,
+        ion_select: dict[str, list[float | None]] | None = None,
+        function: MathExpression,
+        z_min: float,
+        z_max: float,
+        r_max: float | None = None,
+    ) -> None:
+        """A serializable density profile defined by a two-dimensional expression.
+
+        The expression is evaluated as ``function(z, r)`` and should return the
+        relative density. Its support extents are explicit so FBPIC can create
+        particles without inferring them from user code.
+
+        Args:
+            nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
+                the relative profile returned by `build_density_function` (which is normalized to 1).
+            p_nz: (int) Number of macroparticles per gridcell along the longitudinal direction.
+            p_nr: (int) Number of macroparticles per gridcell along the radial direction.
+            p_nt: (int) Number of macroparticles per gridcell along the angular direction.
+            species: (str|None) [str] |OPTIONAL| Species name for the density profile. Should be the one- or two-character code for the species.
+                If None, the profile is a bare electron species only: `nominal_density` is the electron density, there are no
+                ions and no ionization. This is not supported in a boosted-frame simulation (the ion background is needed there).
+                Defaults to Hydrogen.
+            ionization: (int|None) [int] |OPTIONAL| Initial ionization level for this species. If None or 0, the plasma is assumed to be initially unionized. If -1, the plasma is assumed to be fully ionized.
+                Defaults to unionized (ionization level 0). When `species` is None, only None, 0 (the default), -1 or 1 are accepted and all mean fully ionized (it is stored as 1, so a saved profile loads back).
+            p_rmin: (float|None) [m] |OPTIONAL| Minimum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_rmax: (float|None) [m] |OPTIONAL| Maximum radial extent of the density profile, passed directly to FBPIC. If None, the radial extent is determined by the simulation grid.
+            p_zmin: (float|None) [m] |OPTIONAL| Minimum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            p_zmax: (float|None) [m] |OPTIONAL| Maximum longitudinal extent of the density profile, passed directly to FBPIC. If None, the longitudinal extent is determined by the simulation grid.
+            elec_name: (str|None) [str] |OPTIONAL| Name of the electron species when writing diagnostics. If None, the electron particles will not be written to diagnostics.
+            elec_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the electron species when writing diagnostics.
+                The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+                Example Python: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+                Example YAML: elec_select: {uz: [10.0, null], z: [-1.0e-6, 1.0e-6]}
+                Defaults to None.
+            ion_name: (str|None) [str] |OPTIONAL| Name of the ion species when writing diagnostics. If None, the ion particles will not be written to diagnostics.
+            ion_select: (dict[str, list[float|None]]|None) [dict] |OPTIONAL| Filters for the ion species when writing diagnostics.
+                The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
+                Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
+                Defaults to None.
+            function: A :class:`MathExpression` with variables ``("z", "r")``.
+            z_min: (float) [m] Lower longitudinal support bound.
+            z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+            r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None."""
     def _get_z_extent(self) -> tuple[float, float]:
         ...
     def _get_r_extent(self) -> float | None:

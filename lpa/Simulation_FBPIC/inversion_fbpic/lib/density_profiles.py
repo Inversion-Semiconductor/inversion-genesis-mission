@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 from inversion_fbpic.lib.density_core import _DensityProfile, DensityCallable
+from inversion_fbpic.lib.math_expression import MathExpression
 
 from ._density_implementations.interpolate_from_h5_profile import (
     InterpolateFromH5Profile as InterpolateFromH5Profile,
@@ -91,6 +92,49 @@ class ExampleDensityProfile(_DensityProfile):
             return n
 
         return dens_func
+
+
+@attrs.define(kw_only=True, slots=False, frozen=True)
+class GeneralDensityProfile(_DensityProfile):
+    """A serializable density profile defined by a two-dimensional expression.
+
+    The expression is evaluated as ``function(z, r)`` and should return the
+    relative density. Its support extents are explicit so FBPIC can create
+    particles without inferring them from user code.
+
+    Args:
+        function: A :class:`MathExpression` with variables ``("z", "r")``.
+        z_min: (float) [m] Lower longitudinal support bound.
+        z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+        r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None.
+    """
+
+    SUBCLASS: ClassVar[str] = "general_expression"
+
+    function: MathExpression = attrs.field(converter=MathExpression.from_any)
+    z_min: float = attrs.field(converter=float)
+    z_max: float = attrs.field(converter=float)
+    r_max: float | None = attrs.field(
+        default=None,
+        converter=attrs.converters.optional(float),
+        validator=attrs.validators.optional(attrs.validators.ge(0.0)),
+    )
+
+    def __attrs_post_init__(self) -> None:
+        super().__attrs_post_init__()
+        if self.function.variables != ("z", "r"):
+            raise ValueError("function variables must be exactly ('z', 'r').")
+        if not self.z_min < self.z_max:
+            raise ValueError("z_min must be less than z_max.")
+
+    def _get_z_extent(self) -> tuple[float, float]:
+        return self.z_min, self.z_max
+
+    def _get_r_extent(self) -> float | None:
+        return self.r_max
+
+    def build_density_function(self) -> DensityCallable:
+        return self.function
 
 
 # ------------------------------------------------------------

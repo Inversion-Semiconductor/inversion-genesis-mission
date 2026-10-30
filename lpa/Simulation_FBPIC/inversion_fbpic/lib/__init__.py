@@ -1,6 +1,7 @@
 # import all submodules to instantiate their registries
 from . import (
     serializable_config as serializable_config,
+    math_expression as math_expression,
     datapoint as datapoint,
     diagnostics as diagnostics,
     config_container as config_container,
