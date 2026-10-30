@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH -J fbpic-workflow-smoke
+#SBATCH -A gen0007
+#SBATCH -C gpu
+#SBATCH --qos debug
+#SBATCH --time 00:15:00
+#SBATCH --nodes 4
+
+set -euo pipefail
+
+module load PrgEnv-gnu cpe-cuda cudatoolkit python
+source activate fbpic
+
+export MPICH_GPU_SUPPORT_ENABLED=0
+export FBPIC_ENABLE_GPUDIRECT=0
+export LIBE_PLATFORM=perlmutter_g
+export SLURM_EXACT=1
+export SLURM_MEM_PER_NODE=0
+
+cd "${SLURM_SUBMIT_DIR:?Submit this script with sbatch from its directory.}"
+
+# One manager and eight two-GPU workers, each running ten FBPIC steps.
+srun --ntasks=9 --cpu-bind=none python -m exploration_fbpic.libensemble_driver \
+  campaign.yaml --stage smoke

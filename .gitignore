@@ -90,3 +90,6 @@ inversion-radiasoft-plasma-injector/
 # large document files
 *.pdf
 *.pptx
+*.h5
+*.err
+*.out

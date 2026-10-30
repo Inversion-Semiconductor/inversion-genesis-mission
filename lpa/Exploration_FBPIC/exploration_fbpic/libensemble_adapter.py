@@ -27,12 +27,14 @@ def run_fbpic_simulation(
     """
     user = sim_specs["user"]
     executor: FBPICRunExecutor = user["executor"]
-    store = user["store"]
     stage: str = user["stage"]
     active_names: tuple[str, ...] = tuple(user["active_parameter_names"])
     log_scaled_names: set[str] = set(user.get("log_scaled_names", ()))
     linear_scales: dict[str, float] = dict(user.get("linear_scales", {}))
     run_id_offset = int(user.get("run_id_offset", 0))
+    simulation_timeout_s = executor.config.execution.get("simulation_timeout_s")
+    if simulation_timeout_s is not None:
+        simulation_timeout_s = float(simulation_timeout_s)
     out = np.zeros(len(H), dtype=sim_specs["out"])
     for name in out.dtype.names or ():
         if name != "status_code" and np.issubdtype(out.dtype[name], np.floating):
@@ -40,10 +42,13 @@ def run_fbpic_simulation(
     for index, row in enumerate(H):
         model_point = {name: float(row[name]) for name in active_names}
         physical_point = {
-            name: (float(np.exp(value)) if name in log_scaled_names else value) * linear_scales.get(name, 1.0)
+            name: (float(np.exp(value)) if name in log_scaled_names else value)
+            * linear_scales.get(name, 1.0)
             for name, value in model_point.items()
         }
-        run_number = run_id_offset + (int(row["sim_id"]) if "sim_id" in H.dtype.names else index)
+        run_number = run_id_offset + (
+            int(row["sim_id"]) if "sim_id" in H.dtype.names else index
+        )
         run_id = f"sim_{run_number:06d}"
         run_directory, manifest = executor.prepare_run(run_id, stage, physical_point)
         started = time.perf_counter()
@@ -54,24 +59,20 @@ def run_fbpic_simulation(
                     app_args="run_fbpic.py",
                     auto_assign_gpus=True,
                     match_procs_to_gpus=True,
-                    extra_args="--cpu-bind=none",
+                    extra_args="--cpu-bind=none --overlap",
                     stdout="stdout.log",
                     stderr="stderr.log",
                 )
-                try:
-                    task.wait(timeout=float(executor.config.execution.get("timeout_s", 21600)))
-                except TimeoutExpired as error:
-                    task.kill()
-                    result = EvaluationResult(
-                        run_id, "timeout", {}, run_directory, str(error), time.perf_counter() - started
-                    )
-                else:
-                    result = None
-            if result is not None:
-                pass
-            elif task.state == "FINISHED":
+                task.wait(timeout=simulation_timeout_s)
+            if task.state == "FINISHED":
                 features = executor.extract_features(run_directory)
-                result = EvaluationResult(run_id, "ok", features, run_directory, wall_s=time.perf_counter() - started)
+                result = EvaluationResult(
+                    run_id,
+                    "ok",
+                    features,
+                    run_directory,
+                    wall_s=time.perf_counter() - started,
+                )
             else:
                 result = EvaluationResult(
                     run_id,
@@ -81,12 +82,26 @@ def run_fbpic_simulation(
                     f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
                     time.perf_counter() - started,
                 )
+        except TimeoutExpired as error:
+            task.kill()
+            result = EvaluationResult(
+                run_id,
+                "timeout",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except Exception as error:
             result = EvaluationResult(
-                run_id, "error", {}, run_directory, repr(error), time.perf_counter() - started
+                run_id,
+                "error",
+                {},
+                run_directory,
+                repr(error),
+                time.perf_counter() - started,
             )
         executor.finalize(run_directory, manifest, result)
-        store.append(result)
         out["status_code"][index] = 0 if result.status == "ok" else 1
         for feature in result.features:
             if feature in out.dtype.names:

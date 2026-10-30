@@ -45,26 +45,101 @@ def test_stage_one_keeps_all_physical_parameters() -> None:
     manifest = campaign.make_manifest(
         "sim_000001",
         "stage_1",
-        {"laser_energy_J": 3.0},
+        {"laser_energy_J": 2.6},
     )
 
     assert len(manifest.parameters) == len(campaign.config.parameters)
-    assert manifest.parameters["laser_energy_J"] == 3.0
+    assert manifest.parameters["laser_energy_J"] == 2.6
+    assert manifest.parameters["laser_super_gaussian_order"] == 3.0
     assert manifest.parameters["zernike_coma_5_x"] == 0.0
     assert manifest.parameters["laser_spectral_bandwidth_rad_s"] == "auto"
-    assert manifest.stage_settings.gpus_per_simulation == 8
-    assert manifest.stage_settings.concurrent_simulations == 4
+    assert manifest.stage_settings.gpus_per_simulation == 4
+    assert manifest.stage_settings.concurrent_simulations == 32
+
+
+def test_campaign_derives_independent_right_ramp_inputs() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    hyperparameters = campaign.config.template_hyperparameters()
+
+    assert hyperparameters["right_ramp_percent_fwhm_range_m"] == [0.8e-3, 5.0e-3]
+    assert hyperparameters["right_ramp_percent_min_low_fwhm"] == 0.05
 
 
 def test_stage_resource_settings_are_consistent() -> None:
     campaign = Campaign.from_file(CONFIG)
-    settings = campaign.config.stage_settings("stage_1")
+    settings = campaign.config.stage_settings("stage_0")
 
-    assert settings.max_evaluations == 200
+    assert settings.max_evaluations == 24
     assert settings.initial_design_size == 24
     assert (
         settings.total_gpus
         == settings.gpus_per_simulation * settings.concurrent_simulations
+    )
+
+
+def test_laser_super_gaussian_order_is_reserved_for_stage_two() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["laser_super_gaussian_order"]
+    assert (parameter.nominal, parameter.lower, parameter.upper) == (3.0, 2.0, 4.0)
+    assert parameter.variable
+    assert (
+        "laser_super_gaussian_order"
+        not in campaign.config.stage_settings("stage_1").active_parameters
+    )
+    assert (
+        "laser_super_gaussian_order"
+        in campaign.config.stage_settings("stage_2").active_parameters
+    )
+
+
+def test_production_density_geometry_is_fixed_to_the_simulation_domain() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    parameters = campaign.config.parameters
+    hyperparameters = campaign.config.execution["hyperparameters"]
+
+    assert parameters["density_center_location_m"].nominal == 4.0e-3
+    assert not parameters["density_center_location_m"].variable
+    assert (
+        "density_center_location_m"
+        not in campaign.config.stage_settings("stage_1").active_parameters
+    )
+    assert (
+        "density_center_location_m"
+        not in campaign.config.stage_settings("stage_2").active_parameters
+    )
+    assert hyperparameters["zmin"] == -100.0e-6
+    assert hyperparameters["zmax"] == 0.0
+    assert hyperparameters["nz"] == 2048
+    assert hyperparameters["rmax"] == 400.0e-6
+    assert hyperparameters["nr"] == 1080
+    assert hyperparameters["rmax"] / hyperparameters["nr"] <= 480.0e-6 / 1280
+    assert hyperparameters["p_rmax"] == 150.0e-6
+    assert hyperparameters["n_azimuthal_modes"] == 5
+    assert hyperparameters["diagnostic_select"] == {"uz": [20.0, None]}
+    assert hyperparameters["laser_peak_delay_from_file_start_s"] == 120.0e-15
+    assert hyperparameters["p_zmin"] == 0.0
+    assert hyperparameters["p_zmax"] == 9.0e-3
+    assert hyperparameters["simulation_length"] == 9.0e-3
+
+
+def test_production_spectral_phase_ranges_match_the_selected_scan() -> None:
+    campaign = Campaign.from_file(CONFIG)
+    parameters = campaign.config.parameters
+
+    assert (
+        parameters["laser_gdd_relative"].lower,
+        parameters["laser_gdd_relative"].upper,
+    ) == (
+        -0.4,
+        0.4,
+    )
+    assert (
+        parameters["laser_tod_relative"].lower,
+        parameters["laser_tod_relative"].upper,
+    ) == (
+        -0.4,
+        0.4,
     )
 
 
@@ -77,6 +152,30 @@ def test_stage_one_rejects_inactive_parameters() -> None:
         assert "inactive" in str(error)
     else:
         raise AssertionError("expected an inactive parameter to be rejected")
+
+
+def test_production_nitrogen_dopant_fraction_is_fixed() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["nitrogen_dopant_fraction"]
+    assert parameter.nominal == 0.005
+    assert not parameter.variable
+    with pytest.raises(ValueError, match="inactive or unknown"):
+        campaign.make_manifest(
+            "sim_000001", "stage_2", {"nitrogen_dopant_fraction": 0.01}
+        )
+
+
+def test_production_spherical_aberration_is_fixed() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    parameter = campaign.config.parameters["zernike_spherical_3"]
+    assert parameter.nominal == 0.0
+    assert not parameter.variable
+    assert (
+        "zernike_spherical_3"
+        not in campaign.config.stage_settings("stage_2").active_parameters
+    )
 
 
 def test_fingerprint_is_independent_of_template_checkout_path(tmp_path: Path) -> None:

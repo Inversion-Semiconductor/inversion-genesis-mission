@@ -8,13 +8,13 @@ repos:
       - id: record-git-hash
         name: record Git revision for serialized configs
         entry: python tools/record_git_hash.py
-        language: system
+        language: python
         stages: [post-commit, post-checkout, post-merge, post-rewrite]
         always_run: true
         pass_filenames: false
       - id: sync-config-docstrings
         name: sync config docstring stubs
-        entry: python lpa/Simulation_FBPIC/tools/sync_config_docstrings.py
+        entry: lpa/Simulation_FBPIC/tools/run_sync_config_docstrings.sh
         language: system
         files: ^lpa/Simulation_FBPIC/(inversion_fbpic/lib/(_doc_management/.*|_[a-z]+_implementations/.*\.py|(serializable_config|density_core|density_profiles|density_modifiers|laser|simulation|datapoint|diagnostics|config_container)\.py)|tools/sync_config_docstrings\.py)$
         pass_filenames: false

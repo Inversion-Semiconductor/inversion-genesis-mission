@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import Future, ThreadPoolExecutor
 import itertools
 import logging
+from math import exp, isfinite, log
 from pathlib import Path
 from typing import Any, Mapping, Optional, Literal
 
@@ -35,8 +36,9 @@ class IonizationInjectionSimulation:
     ``hyperparameters`` holds FBPIC grid, particle-loading, diagnostic, and
     execution settings. Laser-prefixed physical parameters are passed directly
     to :class:`HighOrderLasyLaser`. Helium and nitrogen share the bilateral
-    density profile specified by ``density_fwhm_left_m``,
-    ``density_fwhm_right_m``, ``density_beta_left``, and ``density_beta_right``.
+    density profile specified by independent left/right FWHMs and fractional
+    locations of each side's 1% point. Both super-Gaussian beta values are
+    derived from the corresponding ramp geometry.
     """
 
     movie_future: Future[None] | None = None
@@ -47,8 +49,8 @@ class IonizationInjectionSimulation:
             "nitrogen_dopant_fraction",
             "density_fwhm_left_m",
             "density_fwhm_right_m",
-            "density_beta_left",
-            "density_beta_right",
+            "density_left_ramp_edge_percent",
+            "density_right_ramp_edge_percent",
             "density_center_location_m",
             *HighOrderLasyLaser.PHYSICAL_PARAMETER_KEYS,
         }
@@ -64,13 +66,17 @@ class IonizationInjectionSimulation:
         "zmax": 0.0,
         "zmin": -100.0e-6,
         "rmax": 140.0e-6,
+        "simulation_length": None,
         "n_azimuthal_modes": 5,
         "p_zmin": 0.0,
         "p_rmax": 90e-6,
         "p_nz": 4,
         "p_nr": 4,
         "p_nt": 30,
+        "helium_p_nz": None,
+        "helium_p_nt": None,
         "r_boundary": "reflective",
+        "p_zmax": None,
         "diagnostic_select": {"uz": [10.0, None]},  # which particles are recorded
         "analysis_select": {"uz": [10.0, None]},  # which particles are analyzed
         "analysis_central_fraction": 0.95,
@@ -96,6 +102,11 @@ class IonizationInjectionSimulation:
         "laser_hi_range": 8.0,
         "laser_center_and_remove_tilt": True,
         "laser_centering_angles": 72,
+        "left_ramp_percent_fwhm_range_m": None,
+        "left_ramp_percent_min_low_fwhm": None,
+        "right_ramp_percent_fwhm_range_m": None,
+        "right_ramp_percent_min_low_fwhm": None,
+        "ramp_percent_min_high_fwhm": 0.55,
     }
 
     def __init__(
@@ -206,25 +217,126 @@ class IonizationInjectionSimulation:
             save_path = simulation.working_directory / save_path
         return _MOVIE_EXECUTOR.submit(self._plot_movies, movie_simulation, save_path)
 
-    def run(self) -> None:
-        """Run and save the simulation, then queue optional background movies."""
+    def _resolved_density_ramp_parameters(
+        self, side: Literal["left", "right"]
+    ) -> dict[str, float]:
+        """Return one side's FWHM and beta from its remapped 1% point geometry."""
+        fwhm_m = float(self.physical_parameters[f"density_fwhm_{side}_m"])
+        center_m = float(self.physical_parameters["density_center_location_m"])
+        requested_ramp_edge_percent = float(
+            self.physical_parameters[f"density_{side}_ramp_edge_percent"]
+        )
+        if not 0.0 < requested_ramp_edge_percent <= 1.0:
+            raise ValueError(f"density_{side}_ramp_edge_percent must be in (0, 1]")
+        fwhm_range_m = self.hyperparameters[f"{side}_ramp_percent_fwhm_range_m"]
+        percent_min_low_fwhm = self.hyperparameters[f"{side}_ramp_percent_min_low_fwhm"]
+        percent_min_high_fwhm = self.hyperparameters["ramp_percent_min_high_fwhm"]
+        if fwhm_range_m is None or percent_min_low_fwhm is None:
+            ramp_edge_percent = requested_ramp_edge_percent
+        else:
+            fwhm_min_m, fwhm_max_m = fwhm_range_m
+            if not 0.0 < fwhm_min_m < fwhm_max_m:
+                raise ValueError(f"{side}_ramp_percent_fwhm_range_m must be increasing")
+            if not 0.0 < percent_min_low_fwhm <= percent_min_high_fwhm < 1.0:
+                raise ValueError(
+                    "ramp percent minimum anchors must be in (0, 1) and increasing"
+                )
+            fwhm_progress = min(
+                1.0, max(0.0, (fwhm_m - fwhm_min_m) / (fwhm_max_m - fwhm_min_m))
+            )
+            effective_percent_min = percent_min_low_fwhm + fwhm_progress * (
+                percent_min_high_fwhm - percent_min_low_fwhm
+            )
+            ramp_edge_percent = effective_percent_min + (
+                requested_ramp_edge_percent - percent_min_low_fwhm
+            ) * (1.0 - effective_percent_min) / (1.0 - percent_min_low_fwhm)
+        half_fwhm_m = fwhm_m / 2.0
+        particle_zmin = self.hyperparameters["p_zmin"]
+        particle_zmax = self.hyperparameters["p_zmax"]
+        if particle_zmin is None or particle_zmax is None:
+            raise ValueError(
+                "p_zmin and p_zmax must be set to derive density ramp geometry"
+            )
+        if not particle_zmin < center_m < particle_zmax:
+            raise ValueError(
+                "density_center_location_m must lie strictly between p_zmin and p_zmax"
+            )
+        boundary_name = "p_zmin" if side == "left" else "p_zmax"
+        edge_distance_m = (
+            center_m - particle_zmin if side == "left" else particle_zmax - center_m
+        )
+        available_ramp_m = edge_distance_m - half_fwhm_m
+        if available_ramp_m <= 0.0:
+            raise ValueError(
+                f"density_fwhm_{side}_m must be less than twice the distance "
+                f"from density_center_location_m to {boundary_name} "
+                "to derive a positive beta"
+            )
+        one_percent_distance_m = half_fwhm_m + ramp_edge_percent * available_ramp_m
+        width_ratio = 2.0 * one_percent_distance_m / fwhm_m
+        beta = log(log(100.0) / log(2.0)) / log(width_ratio)
+        if not isfinite(beta) or beta <= 0.0:
+            raise ValueError(f"derived density_beta_{side} must be finite and positive")
+        one_percent_location_m = (
+            center_m - one_percent_distance_m
+            if side == "left"
+            else center_m + one_percent_distance_m
+        )
+        resolved = {
+            f"density_fwhm_{side}_m": fwhm_m,
+            f"density_beta_{side}": beta,
+            "density_center_location_m": center_m,
+            f"density_{side}_ramp_edge_percent_requested": requested_ramp_edge_percent,
+            f"density_{side}_ramp_edge_percent": ramp_edge_percent,
+            f"density_{side}_one_percent_location_m": one_percent_location_m,
+            f"density_{side}_edge_fraction": exp(
+                -log(2.0) * (2.0 * edge_distance_m / fwhm_m) ** beta
+            ),
+        }
+        _LOGGER.info(
+            "%s density ramp: FWHM = %.6g m, beta = %.6g, "
+            "requested/effective ramp edge = %.6g/%.6g, "
+            "1%% at z = %.6g m, n(%s)/n_peak = %.6g",
+            side.capitalize(),
+            fwhm_m,
+            beta,
+            requested_ramp_edge_percent,
+            ramp_edge_percent,
+            resolved[f"density_{side}_one_percent_location_m"],
+            boundary_name,
+            resolved[f"density_{side}_edge_fraction"],
+        )
+        return resolved
+
+    def build_simulation(self) -> sm.Simulation:
+        """Build the configured simulation without setting it up or running it."""
         hyperparameters = self.hyperparameters
         physical_parameters = self.physical_parameters
+        left_density_parameters = self._resolved_density_ramp_parameters("left")
+        right_density_parameters = self._resolved_density_ramp_parameters("right")
+        helium_p_nz = hyperparameters["helium_p_nz"]
+        if helium_p_nz is None:
+            helium_p_nz = hyperparameters["p_nz"]
+        helium_p_nt = hyperparameters["helium_p_nt"]
+        if helium_p_nt is None:
+            helium_p_nt = hyperparameters["p_nt"]
+        simulation_length = hyperparameters["simulation_length"]
 
         density_he = dn.BilateralSuperGaussian(
             nominal_density=physical_parameters["peak_neutral_density_cm3"]
             * 1e6
             * (1.0 - physical_parameters["nitrogen_dopant_fraction"])
             * 2.0,
-            fwhm_left=physical_parameters["density_fwhm_left_m"],
-            fwhm_right=physical_parameters["density_fwhm_right_m"],
-            beta_left=physical_parameters["density_beta_left"],
-            beta_right=physical_parameters["density_beta_right"],
+            fwhm_left=left_density_parameters["density_fwhm_left_m"],
+            fwhm_right=right_density_parameters["density_fwhm_right_m"],
+            beta_left=left_density_parameters["density_beta_left"],
+            beta_right=right_density_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
-            p_nz=hyperparameters["p_nz"],
+            p_nz=helium_p_nz,
             p_nr=hyperparameters["p_nr"],
-            p_nt=hyperparameters["p_nt"],
+            p_nt=helium_p_nt,
             p_zmin=hyperparameters["p_zmin"],
+            p_zmax=hyperparameters["p_zmax"],
             p_rmax=hyperparameters["p_rmax"],
             species="He",
             ionization=0,
@@ -237,15 +349,16 @@ class IonizationInjectionSimulation:
             * 1e6
             * physical_parameters["nitrogen_dopant_fraction"]
             * 14.0,
-            fwhm_left=physical_parameters["density_fwhm_left_m"],
-            fwhm_right=physical_parameters["density_fwhm_right_m"],
-            beta_left=physical_parameters["density_beta_left"],
-            beta_right=physical_parameters["density_beta_right"],
+            fwhm_left=left_density_parameters["density_fwhm_left_m"],
+            fwhm_right=right_density_parameters["density_fwhm_right_m"],
+            beta_left=left_density_parameters["density_beta_left"],
+            beta_right=right_density_parameters["density_beta_right"],
             center=physical_parameters["density_center_location_m"],
             p_nz=hyperparameters["p_nz"],
             p_nr=hyperparameters["p_nr"],
             p_nt=hyperparameters["p_nt"],
             p_zmin=hyperparameters["p_zmin"],
+            p_zmax=hyperparameters["p_zmax"],
             p_rmax=hyperparameters["p_rmax"],
             species="N",
             ionization=0,
@@ -301,6 +414,7 @@ class IonizationInjectionSimulation:
             nm=hyperparameters["n_azimuthal_modes"],
             use_mpi=True,
             number_dumps=hyperparameters["number_dumps_lab"],
+            simulation_length=simulation_length,
             gamma_boost=hyperparameters["gamma_boost"],
             field_diagnostics=(
                 ["rho", "E", "B"] if hyperparameters["dump_fields"] else None
@@ -320,6 +434,10 @@ class IonizationInjectionSimulation:
             configs=[
                 dp.Parameters(label="hyperparameters", data=hyperparameters),
                 dp.Parameters(label="physical_parameters", data=physical_parameters),
+                dp.Parameters(
+                    label="resolved_density_parameters",
+                    data={**left_density_parameters, **right_density_parameters},
+                ),
                 dg.MomentDescriptorDiagnostic(
                     target=("all_of_species", "e"),
                     select=hyperparameters["analysis_select"],
@@ -337,8 +455,13 @@ class IonizationInjectionSimulation:
             ]
         )
 
-        sim = sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
+        return sm.Simulation(elements=[hyp, density_he, density_n2, laser, datapoint])
 
+    def run(self) -> None:
+        """Run and save the simulation, then queue optional background movies."""
+        hyperparameters = self.hyperparameters
+        sim = self.build_simulation()
+        datapoint = cc.ConfigContainer(configs=[*sim.parameters, *sim.diagnostics])
         sim.setup_simulation()
         sim.run_simulation()
         if sim.do_write_to_disk:  # MPI guard

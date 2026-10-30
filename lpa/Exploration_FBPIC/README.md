@@ -22,6 +22,11 @@ python -m pip install -e '.[nersc,dev]'
 `libensemble` and `mpi4py` are only needed for NERSC dispatch. The base package
 includes Xopt, scalar storage, and the local single-run workflow.
 
+The package installs two commands: `explore-fbpic` for local evaluation, design,
+inspection, and plotting; and `explore-fbpic-libe` for resource-managed
+libEnsemble campaigns. Run `pytest -q` from this directory after installation to
+verify the campaign tooling and its saved-result contract.
+
 ## Campaign configuration
 
 [runs/initial_study/campaign.yaml](runs/initial_study/campaign.yaml) is the
@@ -38,6 +43,12 @@ production campaign template. It contains:
 The configuration fingerprint is written to every `run_manifest.json`. Change bounds
 or active stages as needed; do not change the frozen template, numerical settings,
 or analysis settings within a campaign. Begin a new campaign when those must change.
+
+`run_root` supports environment-variable expansion. The production configuration
+uses `${PSCRATCH}/ionization_injection_exploration`; set `PSCRATCH` before local
+commands or replace `run_root` in a copied configuration with an absolute local
+directory. Do not use the production run root for an unrelated campaign because
+existing manifests with a different fingerprint cause preflight to fail.
 
 ### Adapting a new template
 
@@ -81,20 +92,21 @@ for feature extraction.
 
 ## Stage 1
 
-Stage 1 varies eight physically important controls: plasma density, dopant fraction,
-density length/position, laser energy, duration, spot size, and focal position. It
-retains all 29 physical inputs in each manifest. The suggested first batch is nominal
-plus low/high anchors through that point and a Sobol fill:
+Stage 1 varies 11 controls: plasma density; both density widths and ramp locations;
+laser energy, duration, third-order spectral phase, spot size, and focal position;
+and fourth-order astigmatism. It retains all 33 physical inputs in each manifest.
+The production stage seeds 64 evaluations: the nominal point, low/high anchors for
+each active parameter, and a Sobol fill:
 
 ```bash
 explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 initial-design \
-  --count 24 --seed 0 --output initial_design.json
+  --count 64 --seed 0 --output initial_design.json
 ```
 
 The template's diagnostics save the fixed 33-scalar moment descriptor and mean
 kinetic energy. The executor copies these saved scalars into `result.json`, alongside
-stdout/stderr logs and an append-only `campaign_runs.parquet` record under
-`data/ionization_injection_exploration/`.
+stdout/stderr logs and an append-only `campaign_runs.parquet` record under the
+configured `run_root`.
 
 ## Local smoke evaluation
 
@@ -109,6 +121,63 @@ This creates an isolated run directory, writes the full physical vector to
 `run_manifest.json`, launches `run_fbpic.py`, and reads its saved diagnostic
 results. It is expected to consume normal FBPIC resources.
 
+Local `evaluate` does not impose an execution timeout. For NERSC/libEnsemble
+campaigns, set `execution.simulation_timeout_s` to terminate and record an
+individual simulation that exceeds its allocation.
+
+Inspect the reusable successful records and the exact feature/parameter columns
+used for the selected stage:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 status
+```
+
+Each run writes its durable `result.json` before the aggregate Parquet table is
+updated. Rebuild that table after an interrupted local run or filesystem issue:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 rebuild-store
+```
+
+The rebuild scans `sim_*/result.json` below the configured `run_root`; it does not
+rerun FBPIC. Local `evaluate` automatically chooses the next numeric `sim_` ID.
+Pass `--run-id` when an external dispatcher needs a predetermined, unique ID.
+
+## Inspecting density ramps
+
+Plot the four lower/upper combinations of `density_fwhm_left_m` and
+`density_left_ramp_edge_percent` without running FBPIC. The latter places the
+1% density point at a fraction of the available distance between the left FWHM
+point and the simulation edge; the template derives beta from it, FWHM, and the
+density center. All other physical parameters remain at their campaign nominal
+values. `--simulation-half-length` is in metres and sets
+`density_center_location_m`, so the figure spans the left half of the simulation
+from zero to the density peak:
+
+For the initial study, the requested 10% to 100% range is remapped before beta
+is derived: at the minimum FWHM it remains 10% to 100%, while at the maximum
+FWHM it becomes 55% to 100%. This suppresses overly steep large-FWHM ramps.
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml plot-density-ramps \
+  --simulation-half-length 5e-3 \
+  --output density-ramp-extremes.png
+```
+
+The command also writes `density-ramp-extremes-parameter-space.png`: 16 sampled
+boundary points from the derived FWHM/beta region, with the direct
+`beta = 1` to `4` rectangle overlaid for comparison. Use
+`--parameter-space-output` to choose a different path.
+
+Plot the nominal full density profile with lightweight random profiles sampled
+from a stage's active campaign parameters:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 \
+  plot-density-envelope --random-samples 30 --seed 7 \
+  --output density-profile-envelope.png
+```
+
 ## NERSC/libEnsemble
 
 Use a single Slurm allocation and let libEnsemble assign one GPU or GPU/MPI team per
@@ -117,11 +186,12 @@ on the libEnsemble manager and uses resource-set workers to launch FBPIC. It sta
 with the campaign's deterministic initial design, records the completed scalar
 outputs, then asks Xopt for later candidates as GPU resource sets become available.
 
-A production submission starts one manager and a configurable number of
-two-GPU simulation workers. Do not dispatch background `explore-fbpic evaluate`
+A production submission starts one manager and 32 four-GPU simulation workers. Do
+not dispatch background `explore-fbpic evaluate`
 processes from the batch script: libEnsemble's `MPIExecutor` owns the FBPIC MPI
 launch and GPU binding. The reproducible NERSC smoke fixtures live under
-`tests/smoke_campaigns/`, not under `runs/`.
+`tests/smoke_campaigns/`, and the four-GPU OOM repro lives under
+`tests/memory_stress/`; neither belongs under production `runs/`.
 
 Install the NERSC extra before running the driver:
 
@@ -134,6 +204,45 @@ Then submit from the campaign directory:
 ```bash
 sbatch submit_nersc.sh
 ```
+
+For a site-specific allocation, invoke the installed driver directly after arranging
+the required manager and worker ranks:
+
+```bash
+explore-fbpic-libe campaign.yaml --stage stage_1
+```
+
+`runs/initial_study/submit_nersc.sh` is the authoritative Perlmutter/libEnsemble
+submission format. Its node count, `SLURM_EXACT` settings, and 33-rank `srun`
+launch are coupled to one manager-hosted generator and 32 four-GPU workers; keep
+that allocation pattern intact when changing the production campaign.
+
+### Single-case NERSC checks
+
+The production campaign's nominal single-case entrypoints are grouped under
+`runs/initial_study/nominal/`. Each submission script runs the colocated
+`run_nominal.py`, which loads the parent `runs/initial_study/campaign.yaml` and
+evaluates its Stage 1 nominal point with inspection diagnostics. Submit the
+variant matching the requested GPU count:
+
+```bash
+sbatch runs/initial_study/nominal/submit_nominal_nersc.sh
+sbatch runs/initial_study/nominal/submit_nominal_2gpu_nersc.sh
+sbatch runs/initial_study/nominal/submit_nominal_4gpu_nersc.sh
+```
+
+The reproducible four-GPU memory-stress case is deliberately kept with test
+artifacts. It combines extrema observed in distinct Stage 0 OOM cases, then
+runs against the same production campaign:
+
+```bash
+sbatch tests/memory_stress/submit_memory_stress_4gpu_nersc.sh
+```
+
+All single-case scripts write scheduler output and FBPIC artifacts under
+`$PSCRATCH`; update their allocation account, QoS, wall time, and run labels as
+needed for the target NERSC environment. They are direct `srun` launches and do
+not use the production libEnsemble allocation format.
 
 ### Continuation
 

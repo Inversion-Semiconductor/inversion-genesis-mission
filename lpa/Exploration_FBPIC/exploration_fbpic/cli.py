@@ -7,30 +7,101 @@ import json
 from pathlib import Path
 
 from .campaign import Campaign
+from .density_envelope import plot_density_envelope
+from .density_ramps import plot_density_ramp_parameter_space, plot_density_ramps
 from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
 from .store import CampaignStore
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="FBPIC Bayesian exploration campaign tools")
+    parser = argparse.ArgumentParser(
+        description="FBPIC Bayesian exploration campaign tools"
+    )
     parser.add_argument("config", type=Path, help="campaign YAML configuration")
     parser.add_argument("--stage", default="stage_1")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    initial = subparsers.add_parser("initial-design", help="write a Sobol-plus-anchor initial design")
+    initial = subparsers.add_parser(
+        "initial-design", help="write a Sobol-plus-anchor initial design"
+    )
     initial.add_argument("--count", type=int, help="default: stage initial_design_size")
     initial.add_argument("--seed", type=int, default=0)
     initial.add_argument("--output", type=Path, required=True)
     evaluate = subparsers.add_parser("evaluate", help="run one FBPIC point locally")
-    evaluate.add_argument("--point", required=True, help="JSON mapping of active parameter values")
-    evaluate.add_argument("--run-id", help="explicit run ID; required for concurrent dispatch")
-    status = subparsers.add_parser("status", help="show reusable successful evaluations")
-    subparsers.add_parser("rebuild-store", help="rebuild campaign_runs.parquet from per-run result.json files")
+    evaluate.add_argument(
+        "--point", required=True, help="JSON mapping of active parameter values"
+    )
+    evaluate.add_argument(
+        "--run-id", help="explicit run ID; required for concurrent dispatch"
+    )
+    density_ramps = subparsers.add_parser(
+        "plot-density-ramps",
+        help="plot the four lower/upper left density-ramp extremes",
+    )
+    density_ramps.add_argument(
+        "--simulation-half-length",
+        type=float,
+        required=True,
+        metavar="METRES",
+        help="left plotting extent in metres; sets density_center_location_m",
+    )
+    density_ramps.add_argument("--output", type=Path, required=True)
+    density_ramps.add_argument(
+        "--parameter-space-output",
+        type=Path,
+        help="default: OUTPUT with '-parameter-space' appended to its stem",
+    )
+    density_ramps.add_argument("--samples", type=int, default=1000)
+    density_envelope = subparsers.add_parser(
+        "plot-density-envelope",
+        help="plot the nominal density profile with random campaign samples",
+    )
+    density_envelope.add_argument("--output", type=Path, required=True)
+    density_envelope.add_argument("--random-samples", type=int, default=20)
+    density_envelope.add_argument("--seed", type=int, default=0)
+    density_envelope.add_argument("--samples", type=int, default=1000)
+    subparsers.add_parser("status", help="show reusable successful evaluations")
+    subparsers.add_parser(
+        "rebuild-store",
+        help="rebuild campaign_runs.parquet from per-run result.json files",
+    )
     args = parser.parse_args()
 
     explorer = XoptFBPICExplorer(Campaign.from_file(args.config), args.stage)
-    if args.command == "initial-design":
-        count = args.count if args.count is not None else explorer.campaign.config.stage_settings(args.stage).initial_design_size
+    if args.command == "plot-density-ramps":
+        campaign = Campaign.from_file(args.config)
+        output = plot_density_ramps(
+            campaign,
+            args.simulation_half_length,
+            args.output,
+            args.samples,
+        )
+        parameter_space_output = args.parameter_space_output
+        if parameter_space_output is None:
+            parameter_space_output = args.output.with_name(
+                f"{args.output.stem}-parameter-space{args.output.suffix}"
+            )
+        plot_density_ramp_parameter_space(
+            campaign, args.simulation_half_length, parameter_space_output
+        )
+        print(f"wrote density-ramp plot to {output}")
+        print(f"wrote density-ramp parameter-space plot to {parameter_space_output}")
+    elif args.command == "plot-density-envelope":
+        output = plot_density_envelope(
+            Campaign.from_file(args.config),
+            args.stage,
+            args.output,
+            args.random_samples,
+            args.seed,
+            args.samples,
+        )
+        print(f"wrote density-profile envelope to {output}")
+    elif args.command == "initial-design":
+        count = (
+            args.count
+            if args.count is not None
+            else explorer.campaign.config.stage_settings(args.stage).initial_design_size
+        )
         points = explorer.initial_design(count, args.seed)
         args.output.write_text(json.dumps(points, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {len(points)} initial points to {args.output}")
@@ -38,11 +109,17 @@ def main() -> None:
         explorer.require_compatible_run_root()
         point = json.loads(args.point)
         if args.run_id is None:
-            result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id or f"sim_{explorer._next_run_number():06d}", args.stage, point)
+            result = FBPICRunExecutor(explorer.campaign).evaluate(
+                args.run_id or f"sim_{explorer._next_run_number():06d}",
+                args.stage,
+                point,
+            )
             CampaignStore(explorer.campaign.config.run_root).append(result)
             print(json.dumps(result.as_dict(), indent=2))
         else:
-            result = FBPICRunExecutor(explorer.campaign).evaluate(args.run_id, args.stage, point)
+            result = FBPICRunExecutor(explorer.campaign).evaluate(
+                args.run_id, args.stage, point
+            )
             CampaignStore(explorer.campaign.config.run_root).append(result)
             print(json.dumps(result.as_dict(), indent=2))
     elif args.command == "rebuild-store":
