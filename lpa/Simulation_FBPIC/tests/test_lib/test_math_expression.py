@@ -93,14 +93,53 @@ def test_general_density_profile_round_trips_and_builds_2d_function() -> None:
     )
 
 
-def test_general_density_profile_requires_z_r_function() -> None:
-    with pytest.raises(ValueError, match="exactly"):
+@pytest.mark.parametrize(
+    ("variables", "expression", "z", "r", "expected"),
+    [
+        (
+            ("z",),
+            "2 * z",
+            np.array([1.0, 2.0]),
+            np.array([4.0, 5.0]),
+            np.array([2.0, 4.0]),
+        ),
+        (
+            ("r",),
+            "r ** 2",
+            np.array([1.0, 2.0]),
+            np.array([4.0, 5.0]),
+            np.array([16.0, 25.0]),
+        ),
+    ],
+)
+def test_general_density_profile_accepts_one_dimensional_functions(
+    variables: tuple[str, ...],
+    expression: str,
+    z: np.ndarray,
+    r: np.ndarray,
+    expected: np.ndarray,
+) -> None:
+    profile = GeneralDensityProfile(
+        nominal_density=1.0e24,
+        p_nz=1,
+        p_nr=1,
+        p_nt=1,
+        function=MathExpression(expression=expression, variables=variables),
+        z_min=0.0,
+        z_max=1.0,
+    )
+
+    np.testing.assert_array_equal(profile.build_density_function()(z, r), expected)
+
+
+def test_general_density_profile_rejects_unrelated_function_variables() -> None:
+    with pytest.raises(ValueError, match="drawn"):
         GeneralDensityProfile(
             nominal_density=1.0e24,
             p_nz=1,
             p_nr=1,
             p_nt=1,
-            function=MathExpression(expression="z", variables=("z",)),
+            function=MathExpression(expression="x", variables=("x",)),
             z_min=0.0,
             z_max=1.0,
         )

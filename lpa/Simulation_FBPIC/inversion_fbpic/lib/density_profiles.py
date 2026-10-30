@@ -96,16 +96,18 @@ class ExampleDensityProfile(_DensityProfile):
 
 @attrs.define(kw_only=True, slots=False, frozen=True)
 class GeneralDensityProfile(_DensityProfile):
-    """A serializable density profile defined by a two-dimensional expression.
+    """A serializable density profile defined by a one- or two-dimensional expression.
 
-    The expression is evaluated as ``function(z, r)`` and should return the
-    relative density. Its support extents are explicit so FBPIC can create
-    particles without inferring them from user code.
+    The expression can use ``z``, ``r``, or both, and should return the
+    density relative to `nominal_density`. A one-dimensional ``z`` expression is uniform in ``r``;
+    a one-dimensional ``r`` expression is uniform in ``z``. Its support extents
+    are explicit so FBPIC can create particles without inferring them from user
+    code.
 
     Args:
-        function: A :class:`MathExpression` with variables ``("z", "r")``.
+        function: A :class:`MathExpression` whose variables are ``z``, ``r``, or both.
         z_min: (float) [m] Lower longitudinal support bound.
-        z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+        z_max: (float) [m] Upper longitudinal support bound.
         r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None.
     """
 
@@ -122,8 +124,8 @@ class GeneralDensityProfile(_DensityProfile):
 
     def __attrs_post_init__(self) -> None:
         super().__attrs_post_init__()
-        if self.function.variables != ("z", "r"):
-            raise ValueError("function variables must be exactly ('z', 'r').")
+        if not set(self.function.variables).issubset({"z", "r"}):
+            raise ValueError("function variables must be drawn from ('z', 'r').")
         if not self.z_min < self.z_max:
             raise ValueError("z_min must be less than z_max.")
 
@@ -134,7 +136,13 @@ class GeneralDensityProfile(_DensityProfile):
         return self.r_max
 
     def build_density_function(self) -> DensityCallable:
-        return self.function
+        def dens_func(z: npt.ArrayLike, r: npt.ArrayLike) -> npt.ArrayLike:
+            coordinates = {"z": z, "r": r}
+            return self.function(
+                *(coordinates[name] for name in self.function.variables)
+            )
+
+        return dens_func
 
 
 # ------------------------------------------------------------

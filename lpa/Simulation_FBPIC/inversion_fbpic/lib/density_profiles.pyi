@@ -493,11 +493,13 @@ class GaussianPlusTriangle(_DensityProfile):
         ...
 
 class GeneralDensityProfile(_DensityProfile):
-    """A serializable density profile defined by a two-dimensional expression.
+    """A serializable density profile defined by a one- or two-dimensional expression.
 
-    The expression is evaluated as ``function(z, r)`` and should return the
-    relative density. Its support extents are explicit so FBPIC can create
-    particles without inferring them from user code.
+    The expression can use ``z``, ``r``, or both, and should return the
+    density relative to `nominal_density`. A one-dimensional ``z`` expression is uniform in ``r``;
+    a one-dimensional ``r`` expression is uniform in ``z``. Its support extents
+    are explicit so FBPIC can create particles without inferring them from user
+    code.
 
     Args:
         nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
@@ -526,9 +528,9 @@ class GeneralDensityProfile(_DensityProfile):
             The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
             Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
             Defaults to None.
-        function: A :class:`MathExpression` with variables ``("z", "r")``.
+        function: A :class:`MathExpression` whose variables are ``z``, ``r``, or both.
         z_min: (float) [m] Lower longitudinal support bound.
-        z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+        z_max: (float) [m] Upper longitudinal support bound.
         r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None."""
     SUBCLASS: ClassVar[str]
     function: MathExpression
@@ -557,11 +559,13 @@ class GeneralDensityProfile(_DensityProfile):
         z_max: float,
         r_max: float | None = None,
     ) -> None:
-        """A serializable density profile defined by a two-dimensional expression.
+        """A serializable density profile defined by a one- or two-dimensional expression.
 
-        The expression is evaluated as ``function(z, r)`` and should return the
-        relative density. Its support extents are explicit so FBPIC can create
-        particles without inferring them from user code.
+        The expression can use ``z``, ``r``, or both, and should return the
+        density relative to `nominal_density`. A one-dimensional ``z`` expression is uniform in ``r``;
+        a one-dimensional ``r`` expression is uniform in ``z``. Its support extents
+        are explicit so FBPIC can create particles without inferring them from user
+        code.
 
         Args:
             nominal_density: (float) [m^-3] Baseline (nominal) plasma density in m^-3 used to scale
@@ -590,9 +594,9 @@ class GeneralDensityProfile(_DensityProfile):
                 The keys are the names of the particle attributes to filter on, and the values are the minimum and maximum values for the attribute. If None, no filter is applied.
                 Example: {"uz": [10.0, None], "z": [-1e-6, 1e-6]} will filter on the uz and z attributes, keeping only particles with uz > 10.0 and z between -1e-6 and 1e-6.
                 Defaults to None.
-            function: A :class:`MathExpression` with variables ``("z", "r")``.
+            function: A :class:`MathExpression` whose variables are ``z``, ``r``, or both.
             z_min: (float) [m] Lower longitudinal support bound.
-            z_max: (float) [m] Upper longitudinal support bound, greater than ``z_min``.
+            z_max: (float) [m] Upper longitudinal support bound.
             r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None."""
     def _get_z_extent(self) -> tuple[float, float]:
         ...
