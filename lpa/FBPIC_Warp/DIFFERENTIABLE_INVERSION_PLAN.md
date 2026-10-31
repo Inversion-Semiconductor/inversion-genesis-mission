@@ -1015,6 +1015,49 @@ Step 8, Twin-S at the nominal $\theta$ (stochastic):
 
 Acceptance: steps 4 to 7 pass. The config files are frozen.
 
+### 12.4 Phase P2. Functional stepper without ionization
+
+Run on 2026-10-30 on physical GPU 1 (RTX 6000 Ada), code on top of commit `227304f`.
+
+Files: `fbpic/autodiff/state.py` (`StepState`, `TangentState`, `StepDecisions`, `EVArrays`), `fbpic/autodiff/stepper.py` (`begin`, `step`, `stable_sort`), and `tests/test_autodiff_stepper.py` (L2). No production module changed.
+
+Design:
+
+1. The production `Simulation` owns the field arrays, the particle arrays, and the window, injection, tracking, and clock scalars. `StepState` refers to it and adds the EV arrays and the exchange bookkeeping. `step` updates the state in place and returns the same object.
+2. `step` calls the production methods in the order of `main.py:533-687`. Before each deposit, `stable_sort` computes the production key with `get_cell_idx_per_particle`, sorts it with `cupy.argsort(kind="stable")`, rebuilds the prefix sum with the production kernels, and permutes every particle array. The production sort is also a stable radix sort on the same key, so both give the same permutation.
+3. `begin` performs the prologue and the first exchange with its `rho_prev` deposit. A `step` at an exchange iteration skips the exchange if `begin` already did it at that iteration, as production does at `i_step == 0`.
+4. Production removal and injection do not expose a permutation. After each exchange, the EV arrays are realigned by tracker ID (Phase P3).
+5. `StepDecisions` records `n_move`, the injected count per species at each exchange, and the emitting parent IDs.
+
+Command, from `lpa/FBPIC_Warp`, with `CUDA_VISIBLE_DEVICES=1`:
+
+```bash
+python -m pytest tests/test_autodiff_stepper.py -q -s
+```
+
+L2 results (pre-ionized N, nominal $\theta$). The ratio is the stepper difference divided by $\max(2\cdot10^{-11}, 10\, d_{AA})$; it must be at most 1.
+
+| Case | Largest ratio | Array | Stepper difference | $d_{AA}$ |
+|---|---|---|---|---|
+| Twin-XS, 300 steps | 0.103 | electrons x | 5.5e-5 | 5.4e-5 |
+| Twin-S, 300 steps | 0.149 | spectral mode 0 `rho_prev` | 3.3e-12 | 2.2e-12 |
+| Twin-S, 1000 steps | 0.149 | spectral mode 0 Bz | 1.8e-10 | 1.2e-10 |
+
+These numbers are from the run on the committed code. An earlier run of the same test, before formatting and the EV hooks, gave largest ratios of 0.198, 0.123, and 0.143.
+
+Particle counts, tracker IDs, the iteration, and the window position are equal in all cases. L2 passes.
+
+Deviation from L2 as written. $d_{AA}$ is the largest difference over the 3 pairs of 3 production runs, not the difference of one pair. On Twin-XS ($a_0 = 4$ at $\Delta z = 0.21$ µm), one electron bifurcates between production runs. Two production runs can then differ by 7.7e-4 in the infinity norm of electron uy after 300 steps, and a different pair by 1e-5. One pair therefore underestimates the run-to-run spread. Evidence, from 7 runs in one process:
+
+1. After 50 steps, every pair (production with production, stepper with production, stepper with stepper) differs by about 1e-7 in electron uy and by about 1e-11 in the spectral fields.
+2. After 300 steps, one production run and two stepper runs take the same branch (7.7e-4 from the others), and the other runs agree within 1e-5. The stepper runs are distributed like the production runs.
+
+The suspect assumption is that one production pair bounds the run-to-run noise of Twin-XS. Twin-S stays at rounding level (about 1e-10) and passes with either definition.
+
+The 1000-step Twin-S case is an addition. At 300 steps the laser has not reached the Twin-S plasma (it reaches $z_{lo}$ after about 400 steps), so the 300-step case tests the field solver and injection only.
+
+Acceptance: L2 passes on Twin-XS and Twin-S. Production code is unchanged.
+
 ## Appendix A. Unverified claims and required probes
 
 | Claim | Probe | Phase |
