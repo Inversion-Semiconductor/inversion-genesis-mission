@@ -91,6 +91,8 @@
 
 Compute exact gradients of a beam-level objective with respect to two laser parameters, the laser energy and the focal position, through FBPIC-Warp (D21).
 Use these gradients to recover hidden parameters from synthetic data in a twin experiment.
+
+Success claim. A pass of Phase P9 shows that the inversion machinery recovers $E_L$ and $z_f$ in the compact, lab-frame, Gaussian-laser twin with the EV model. Transfer to the production stochastic model (truth variant T2) and to the production configuration is a separate result. This plan reports T2 but does not claim it.
 This is the first goal of the project statement "Laser Wakefield Accelerator Condition Reconstruction": recover 3 to 5 known synthetic parameters. This plan starts with 2. The density parameters follow in Section 11.
 
 $$
@@ -109,7 +111,7 @@ $F$ is the PIC forward model, and $H$ maps the simulated bunch to the observable
 6. A differentiable observable and loss (Section 2.4).
 7. A local identifiability study before the gradient work (Phase P1).
 8. A verification ladder from single operators to full-horizon gradients (Section 6).
-9. Recovery of $\theta^\ast$ with a bounded quasi-Newton optimizer (Phase P8).
+9. Recovery of $\theta^\ast$ with a bounded quasi-Newton optimizer (Phase P9).
 
 ### 1.3 Out of scope
 
@@ -180,8 +182,8 @@ Gradients are reported in both units: $\partial J/\partial\hat\theta_i = (\theta
 2. Generate the target $y$ from a truth run (variants below).
 3. Start the optimizer from a different $\hat\theta_0$ and recover $\hat\theta^\ast$.
 
-Gradient checks (Phases P4 to P6) use one configuration for AD and FD, because they test the derivative of one discrete map.
-Recovery runs (Phase P8) use three truth variants to avoid an inverse crime. Every variant keeps the inversion grid, $\Delta t$, $N_t$, `exchange_period`, and the `n_move` sequence, so that $H$ is evaluated at the same time. Every variant uses a different NumPy injection seed and `p_nz = 2` instead of 1.
+Gradient checks (Phases P5 to P7) use one configuration for AD and FD, because they test the derivative of one discrete map.
+Recovery runs (Phases P3 and P9) use the truth variants to avoid an inverse crime. Every variant keeps the inversion grid, $\Delta t$, $N_t$, `exchange_period`, and the `n_move` sequence, so that $H$ is evaluated at the same time. Every variant uses a different NumPy injection seed and `p_nz = 2` instead of 1.
 
 | Variant | Ionization model | Role |
 |---|---|---|
@@ -189,7 +191,7 @@ Recovery runs (Phase P8) use three truth variants to avoid an inverse crime. Eve
 | T1 | EV with immediate emission ($\epsilon = 0$), or $\epsilon = 10^{-6}$ if the births do not fit Twin-S memory | Main test. L6 applies. |
 | T2 | Production stochastic ionization (Philox, tracked ions) | Model error. Report only. |
 
-If T0 passes and T1 fails, stop. Report the recovered-parameter bias together with the emission-delay results of Phase P7, and ask the user.
+If T0 passes and T1 fails, stop. Report the recovered-parameter bias together with the emission-delay results of Phase P8, and ask the user.
 
 ### 2.3 Observable H
 
@@ -278,7 +280,7 @@ Twin-S keeps the compact physics of `ionization_script.py`: $a_0 \approx 4$, $w_
 - $n_0$ and $F_L$ are fixed at nominal values (D21).
 - Record the plasma length in units of $z_R$. Production is about 0.9. Twin-S is at most about 0.5, which weakens $z_f$ sensitivity. Phase P1 measures this.
 
-EV births add particles. Phase P5 measures their count. Section 8 scales the memory rows with it.
+EV births add particles. Phase P3 measures their count. Section 8 scales the memory rows with it.
 
 ### 3.4 Fixed choices and targets
 
@@ -368,7 +370,7 @@ Use `step` without tangents for every FD run and every EV truth run. Production 
 | Moving-window spectral shift, open-z damping | Same operator on the tangent arrays | Production or `fields.py` twins | Linearity check |
 | Gather E, B at particles | `gather_tangent` | New kernel (Section 4.7) | Dot product with the 5-mode gather VJP; `check_jvp` |
 | Vay momentum push, electrons and He | `vay_tangent` | New kernel | Dot product with `push_momenta` VJP; `check_jvp` |
-| Vay momentum push, N ions (charge $(w\bar Z - W)e/w$) | `vay_tangent` with the charge tangent | New kernel (Phase P5) | Dot product with the Warp-generated VJP of `push_ion_momenta_ev`; `check_jvp` |
+| Vay momentum push, N ions (charge $(w\bar Z - W)e/w$) | `vay_tangent` with the charge tangent | New kernel (Phase P6) | Dot product with the Warp-generated VJP of `push_ion_momenta_ev`; `check_jvp` |
 | Position half push (x2) | `position_tangent` | New kernel | Dot product with `push_positions` VJP; `check_jvp` |
 | Deposit J, `rho_next`, and the exchange-step `rho_prev` | `deposit_tangent` | New kernel (Section 4.7) | Dot product with the 5-mode deposition VJP; `check_jvp` |
 | EV ionization and emission | `ev_tangent` | New kernel (Section 5.3) | Dot product with the Warp-generated VJP of the EV kernel; `check_jvp` |
@@ -394,7 +396,7 @@ Frozen decisions also define the FD reference (Section 6.3). With the decisions 
 Every field operation in the step is linear in the field arrays, and no parameter enters its coefficients. The tangent of each operation is the same operation applied to the tangent arrays.
 
 1. Call the operator once per tangent, or once on a batched array where the operator allows it.
-2. Phase P3 checks linearity for each operator: $\lVert A(x + \alpha y) - Ax - \alpha Ay\rVert \le 10^{-13}\,(\lVert Ax\rVert + \lvert\alpha\rvert\lVert Ay\rVert)$ for 3 random draws.
+2. Phase P4 checks linearity for each operator: $\lVert A(x + \alpha y) - Ax - \alpha Ay\rVert \le 10^{-13}\,(\lVert Ax\rVert + \lvert\alpha\rvert\lVert Ay\rVert)$ for 3 random draws.
 3. The interp tangents of E and B are derived from the spectral tangents at the start of each step, like the primal.
 
 ### 4.7 Particle tangent kernels
@@ -435,7 +437,7 @@ The `rho_prev` tangent is zero because the particle tangents are zero at $t = 0$
 - $t_{E_L} = F_0/(2E_L)$. This is exact, because $\mathcal{L}$ is linear and $\mathcal{E} \propto \sqrt{E_L}$, and the initial fields hold only the laser. Store $F_0$ at init.
 - $t_{z_f} = \mathcal{L}[\partial\mathcal{E}/\partial z_f]$. For the Gaussian, the transverse profile is $T = \exp(-r^2/(w_0^2 D))/D$ with $D = 1 + i\,p\,(z - z_f)/z_R$, so $\partial T/\partial z_f = T\,(-ip/z_R)\,\big(r^2/(w_0^2 D^2) - 1/D\big)$. Write a host class `GaussianLaserDzf(LaserProfile)` whose `E_field` returns this derivative and that exposes `propag_direction`. Write a non-mutating helper `laser_initial_fields(sim, profile)` that runs steps 1 to 4 into new zero arrays. Call it with `GaussianLaserDzf`, and store the result on the device before `begin`.
 
-Probes (Phase P4):
+Probes (Phase P5):
 
 1. `laser_initial_fields(sim, GaussianLaser(theta))` equals the six arrays that `add_laser_direct` writes into zeroed fields, within $10^{-14}$ relative.
 2. $t_{z_f}$ matches a host central FD in $z_f$ of `laser_initial_fields`, for all six components and all modes, with $h \in \{10^{-2}, 10^{-3}, 10^{-4}\}$ of the normalized range, within $10^{-6}$ relative.
@@ -498,7 +500,7 @@ Status of the model:
 
 - For prescribed fields and a prescribed ion trajectory, these updates give the exact expected populations of production's one-transition-per-step process. Deterministic field-ionization models have published precedent (DiIorio et al., Appendix C).
 - In the coupled simulation, the fields respond to the electrons. Ionization, trajectories, and trapping then become correlated. The complete simulation is therefore a deterministic rate-equation PIC model, not the exact expectation of stochastic PIC. L5 measures the difference.
-- Mean-charge closure: $P_5, P_6, P_7$ share one position and momentum, and the ion is pushed with the mean charge $w_\text{tl}$. Different charge states feel different forces, and the pending weight changes the charge used for the force. Phase P5 checks this closure with an immobile-ion comparison.
+- Mean-charge closure: $P_5, P_6, P_7$ share one position and momentum, and the ion is pushed with the mean charge $w_\text{tl}$. Different charge states feel different forces, and the pending weight changes the charge used for the force. Phase P3 checks this closure with an immobile-ion comparison.
 
 ### 5.2 Emission and charge neutrality
 
@@ -532,7 +534,7 @@ $$
 
 ### 5.4 Stochastic referee
 
-EV replaces macroparticle shot noise with its mean. Phase P7 measures how much this changes the gradient.
+EV replaces macroparticle shot noise with its mean. Phase P8 measures how much this changes the gradient.
 
 1. For each parameter $i$, use $h_i \in \{0.05, 0.1\}$ of the normalized range. Do not use the Section 6 steps ($10^{-2}$ to $10^{-4}$): they are noise-dominated for a discrete-birth model.
 2. For seeds $j = 1..M$, run production stochastic ionization (`ions.track()`, `rng_seed`, `rng_stream`) at $\theta \pm h_i e_i$ with the same seed (CRN). Record $D_{ij} = J_s(\theta + h, j) - J_s(\theta - h, j)$.
@@ -563,7 +565,7 @@ Run each level on GPU. Run each test file in its own process (`CLAUDE.md` rule 5
 | L1 | Tangent kernels, EV kernels, ion push, field-operator linearity, loss terms, laser helper | Tangent kernels: dot product with the reference VJP, $e \le 10^{-12}$ for 3 random draws (Section 4.7), and `check_jvp` with the normalization and adjacent-epsilon pair rule of `check_vjp` (`verification.py:157-173`). Field operators: linearity within $10^{-13}$ (Section 4.6), at the Twin-S shape and at 2912 x 1080, modes $m = 0, 1$, all three DHT orders. Loss terms: `check_vjp` on the analytic gradient. |
 | L2 | `step` parity with production | Twin-XS and Twin-S, pre-ionized N (no EV): `begin` plus 300 `step` calls without tangents against production `sim.step(300)` in one call from the same initial state. Fields within $\max(2\cdot10^{-11}, 10 d_{AA})$ relative in the infinity norm, where $d_{AA}$ is the difference of two production runs. Particle counts and IDs equal; particle arrays matched by ID within the same bound. |
 | L2t | Primal unchanged by tangents | `step` with and without tangents, 300 steps on Twin-XS. Primal arrays within $\max(2\cdot10^{-11}, 10 d_{AA})$; counts and IDs equal. |
-| L3 | One full step | Random direction on all of $s_n$. Tangent of `step` against central FD of `step` with frozen decisions. `check_jvp` normalization and pair rule at $10^{-6}$. Steps: one ordinary step, one exchange step, one step with emissions (Phase P5). Harness rules in Section 6.3. |
+| L3 | One full step | Random direction on all of $s_n$. Tangent of `step` against central FD of `step` with frozen decisions. `check_jvp` normalization and pair rule at $10^{-6}$. Steps: one ordinary step, one exchange step, one step with emissions (Phase P6). Harness rules in Section 6.3. |
 | L4 | Parameter gradient, horizon sweep | Error definition and pass rule in Section 6.4. Horizons in Section 6.4. |
 | L4w | Linear-wakefield derivative (physics check, no FD) | Section 6.5. Analytic: within the tolerances of the upstream test (8% of max for Ez, 11% for Er). Self-consistency: within $10^{-3}$ of max. |
 | L5 | EV vs stochastic | Section 5.4. Report only. The user decides acceptance. |
@@ -571,7 +573,7 @@ Run each level on GPU. Run each test file in its own process (`CLAUDE.md` rule 5
 
 ### 6.2 Check functional for L3 and L4
 
-Until the loss is built (Phase P6), and whenever `elec_from_N` holds fewer than 1000 selected macroparticles, use
+Until the full loss is built (Phase P7), and whenever `elec_from_N` holds fewer than 1000 selected macroparticles, use
 
 $$
 J_{chk}(s) = \sum_{s} \sum_i w_i\, T(z_i - z_{win})\, \big(a_s\cdot\xi_i + (b_s\cdot\xi_i)^2\big) + \sum_m \lVert P \odot \hat E_m \rVert^2 .
@@ -589,9 +591,9 @@ $$
 2. In the base run, record the `n_move` sequence and the injected count of every species at every injection event. Each $\pm h$ run asserts that both are equal. A count mismatch shifts the NumPy stream and invalidates the FD value.
 3. Frozen-decision FD is the AD reference. In the base run, record the emitting parent IDs at each step. In each $\pm h$ run, pass them as `emit_mask` and skip the threshold test. Key the set by tracker ID.
 4. Free FD keeps the thresholds active. Report free minus frozen as the jump contribution. It is not a small correction with a fixed size. Each emission threshold that crosses inside $[\theta - h, \theta + h]$ adds $\Delta J_k/(2h)$, where $\Delta J_k$ is the jump of $J$ at that crossing. One crossing therefore contributes $O(\epsilon w/h)$, which grows as $h$ decreases. Example: for $q(\theta) = w(\epsilon + \theta)\,\mathbb{1}_{\theta > 0}$ at $\theta = 0$, frozen AD gives 0 and free central FD gives $w/2 + \epsilon w/(2h)$. Away from crossings, free and frozen FD agree once $h$ is small enough. AD claims only the conditional derivative with the decisions fixed.
-5. Threshold checks (Phase P5 and Phase P7):
+5. Threshold checks (Phase P6 and Phase P8):
    - Crossing probe: build a one-ion fixture with a prescribed field ramp, so that the emission threshold crosses at a known $\theta_c$. Confirm that free FD minus frozen FD equals $\Delta J/(2h)$ when $\theta_c$ is inside $[\theta - h, \theta + h]$, and is zero otherwise.
-   - $\epsilon$ convergence: Phase P7 step 2 compares the full loss and its forward-mode gradient with the immediate-emission reference as $\epsilon$ decreases (Section 5.5).
+   - $\epsilon$ convergence: Phase P8 step 2 compares the full loss and its forward-mode gradient with the immediate-emission reference as $\epsilon$ decreases (Section 5.5).
 6. L3 harness:
    - Run the base step once and store its decisions.
    - Use a fixture with even `p_nz` and `p_nr`. The cell coordinate is $z_{cell} = (z - z_{min})/\Delta z - 0.5$ (`cuda_sorting.py:72-73`). With `p_nz = 1`, particles are loaded at $z_{min} + (i + 0.5)\Delta z$, so $z_{cell}$ is an integer and every resting particle sits on a shape boundary. The same holds in r for `p_nr = 1`. With an even count, $z_{cell} = i/2 - 1/4$.
@@ -606,11 +608,11 @@ $$
 - Pass: two adjacent $h$ give $e_j \le 10^{-4}$ for every $j$. A component also passes when $\lvert g^{AD}_j\rvert$ and $\lvert g^{FD}_j\rvert$ are both below $10^{-6}\lVert g\rVert_\infty$.
 - Report $e_j(h)$ for every $h$ and horizon, the growth of $\lVert\dot s_n[j]\rVert$ for each tangent, and 1D slices of $J$ over $\pm 0.05$ in each $\hat\theta_i$.
 - Horizons: $N_t \in \{1, 10, 50\}$ and $\{n_c + 10, n_c + 50, n_c + 200\}$ must pass. $\{1000, \text{full}\}$ are reported. $n_c$ is the first step at which the laser peak reaches the position where $S(z) = 0.1$, at the nominal $\theta$. On Twin-XS, $n_c \le 20$.
-- Agreement between batched and single tangents (Phase P6 step 2) shows that the driver is consistent. It does not show that the derivative is correct.
-- Recovery gate. At the end of Phase P6, the user chooses one branch for Phase P8 and records it in Section 12:
-  1. Verified: L4 passes at the full horizon on Twin-S, for $J_{chk}$ and for the loss. Phase P8 results carry the exact-gradient claim.
-  2. FD fallback: the user approves central-FD gradients (4 forward runs per gradient) or a shorter horizon at which L4 passes. Phase P8 results state which one.
-  3. Exploratory: Phase P8 uses AD gradients that did not pass L4 at the full horizon. Phase P8 results make no exact-gradient claim and are labeled exploratory.
+- Agreement between batched and single tangents (Phase P7 step 2) shows that the driver is consistent. It does not show that the derivative is correct.
+- Recovery gate. At the end of Phase P7, the user chooses one branch for Phase P9 and records it in Section 12:
+  1. Verified: L4 passes at the full horizon on Twin-S, for $J_{chk}$ and for the loss. Phase P9 results carry the exact-gradient claim.
+  2. FD fallback: the user approves central-FD gradients (4 forward runs per gradient) or a shorter horizon at which L4 passes. Phase P9 results state which one.
+  3. Exploratory: Phase P9 uses AD gradients that did not pass L4 at the full horizon. Phase P9 results make no exact-gradient claim and are labeled exploratory.
 
 ### 6.5 Linear-wakefield derivative check (L4w)
 
@@ -631,7 +633,13 @@ The check differentiates the full PIC cycle with respect to the laser amplitude 
 
 ## 7. Rollout plan
 
-Effort estimates are agent working days, with large uncertainty because the long-horizon behavior is unknown.
+Effort estimates are agent working days, with large uncertainty because the long-horizon behavior is unknown. The phases total about 38 to 56 days.
+
+Milestones. Stop and report to the user after each one.
+
+1. M1, Phases P0 to P3 (about 13 to 20 days): one frozen Twin-S configuration, identifiability, the forward EV model, and an FD recovery from a displaced start. M1 shows that the problem can be solved.
+2. M2, Phases P4 and P5 (about 11 to 15 days): a verified short-horizon tangent gradient on Twin-XS, including L4w. M2 shows that the gradient is exact.
+3. Plan Phases P6 to P9 again with the measurements of M1 and M2.
 
 ### Phase P0. Baseline (0.5 day)
 
@@ -671,7 +679,32 @@ Acceptance: steps 4 to 7 pass, or the user has decided how to proceed. The confi
 
 Acceptance: L2 passes. Production code is unchanged.
 
-### Phase P3. Tangent kernels (6 to 8 days)
+### Phase P3. Forward EV model, minimal loss, and FD recovery gate (5 to 8 days)
+
+This phase shows that the inversion problem can be solved before any tangent code exists. It uses forward runs only.
+
+1. Implement the EV primal in `fbpic/autodiff/ionization.py`: populations, ADK, emission, `emit_mask`, and the N-ion push with the charge $w_\text{tl}$ (Section 5). Add EV to `step` and its arrays to `StepState`.
+2. Open-loop parity: freeze the gathered fields and ion momenta of a set of ions over 200 steps. Give each ion a prescribed field so that $p_5$ and $p_6$ each cover about $10^{-3}$ to 0.3 over the set. Run the EV kernel and 32 Philox seeds of the production kernel. Pass if $\sum_i w_i P_\ell$ for $\ell = 5,6,7$ and the cumulative birth weight each satisfy $\lvert EV - \text{mean}\rvert \le 3\,\mathrm{SE}$.
+3. Charge test: deposit rho from the N ions and `elec_from_N` before and after the EV call. The difference must be below $10^{-12}$ relative, on emission steps and on steps without emission.
+4. Invariant tests on Twin-S with EV. Production removes each species at the window back independently, so a trapped electron can outlive its parent ion. Test the closed cohort first, then the open window:
+   1. Closed cohort: take the N ions of the first injection event and the electrons whose recorded parent is one of them. Before any of these particles reaches the left window edge, check $P_5 + P_6 + P_7 = 1$ to $10^{-14}$ and $\sum_{e} w_e + \sum_i W_i = \sum_i w_i(\bar Z_i - 5)$ over the cohort, to $10^{-12}$ relative.
+   2. Open window, after 3 exchange periods: keep test-only cumulative ledgers from the recorded removal ranges, per species: the removed electron weight, and the removed ions' $\sum w(\bar Z - 5)$ and $\sum W$. Let $B$ be the cumulative emitted weight. Check $B = \sum_{\text{live}} w_e + \sum_{\text{removed}} w_e$ and $B + \sum_{\text{live}} W + \sum_{\text{removed}} W = \sum_{\text{live}} w(\bar Z - 5) + \sum_{\text{removed}} w(\bar Z - 5)$, each to $10^{-12}$ relative.
+   3. Each ion's populations follow its tracker ID through sorts.
+5. Run Twin-S forward with EV at the nominal $\theta$ and at two opposite corners. Record the `elec_from_N` count and peak memory. Update Section 8.
+6. Immediate-emission feasibility: run the reference of Section 5.5 forward on Twin-XS and on the reduced Twin-S. Record the birth count and peak memory.
+7. Minimal loss: implement the charge and moment terms of Section 2.4 with $\alpha_D = 0$, forward only, and `inversion/make_target.py`. Confirm a finite loss on an empty and a nearly empty selection.
+8. Mean-charge closure: run Twin-XS with EV twice, with the N ions mobile and immobile. Compare $Q$, every $m_k$, and the minimal loss. Report the differences in units of the SE from 16 stochastic seeds. If any difference exceeds 2 SE, ask the user.
+9. Generate the T0 target at $\theta^\ast$ on Twin-S (Section 2.2).
+10. Slices: evaluate the minimal loss on 13 points over $\hat\theta^\ast_i \pm 0.3$ for each parameter (26 runs). Record the basin shape and any plateaus or jumps.
+11. FD recovery gate:
+    - Start from the optimizer start of Section 3.4, item 4, that is farthest from $\hat\theta^\ast$.
+    - Run `scipy.optimize.minimize(method="L-BFGS-B")` on $\hat\theta$, bounds $[0, 1]$, with central-FD gradients at $h = 0.02$ in $\hat\theta$ and the thresholds active (4 forward runs per gradient).
+    - If L-BFGS-B stops on a line-search failure, restart once from its last point with Powell (derivative-free).
+    - Record iterations, forward runs, wall time, the path of $\hat\theta$, $J$, and the FD gradients along the path.
+
+Acceptance (gate): the recovery from the displaced start reaches $\hat\theta^\ast$ within 0.02 in every component, with the T0 target and the minimal loss. If the gate fails, stop and ask the user before Phase P4. Options: a different observable, narrower bounds, a longer plasma, or one parameter.
+
+### Phase P4. Tangent kernels (6 to 8 days)
 
 1. Add `check_jvp` to `fbpic/autodiff/verification.py`. It mirrors `check_vjp`: central FD of the primal kernel along a random direction, with the same normalization and adjacent-epsilon pair rule.
 2. Implement `gather_tangent`, `vay_tangent`, `position_tangent`, and `deposit_tangent` in `fbpic/autodiff/tangent.py`, generic over $N_m$ (Section 4.7).
@@ -680,7 +713,7 @@ Acceptance: L2 passes. Production code is unchanged.
 
 Acceptance: L1 passes for every kernel and operator.
 
-### Phase P4. Tangent step and driver, without ionization (5 to 7 days)
+### Phase P5. Tangent step and driver, without ionization (5 to 7 days)
 
 1. Add tangents to `step` for `ionization="none"`, with the stash and the permutation of tangent arrays (Sections 4.3 to 4.5).
 2. Implement the structural events (Section 4.9).
@@ -694,76 +727,65 @@ Acceptance: L1 passes for every kernel and operator.
 
 Acceptance: probes, L2t, L3, L4w, and L4 (pass horizons) pass on Twin-XS without ionization.
 
-### Phase P5. Expected-value ionization (6 to 9 days)
+### Phase P6. EV tangents (3 to 5 days)
 
-1. Implement the EV state, the ADK kernel, emission, `emit_mask`, and `push_ion_momenta_ev` (Section 5) in `fbpic/autodiff/ionization.py`. Add EV to `step` and its arrays to `StepState` and `TangentState`.
-2. Open-loop parity: freeze the gathered fields and ion momenta of a set of ions over 200 steps. Give each ion a prescribed field so that $p_5$ and $p_6$ each cover about $10^{-3}$ to 0.3 over the set. Run the EV kernel and 32 Philox seeds of the production kernel. Pass if $\sum_i w_i P_\ell$ for $\ell = 5,6,7$ and the cumulative birth weight each satisfy $\lvert EV - \text{mean}\rvert \le 3\,\mathrm{SE}$.
-3. Charge test: deposit rho from the N ions and `elec_from_N` before and after the EV call. The difference must be below $10^{-12}$ relative, on emission steps and on steps without emission.
-4. Invariant tests on Twin-S with EV. Production removes each species at the window back independently, so a trapped electron can outlive its parent ion. Test the closed cohort first, then the open window:
-   1. Closed cohort: take the N ions of the first injection event and the electrons whose recorded parent is one of them. Before any of these particles reaches the left window edge, check $P_5 + P_6 + P_7 = 1$ to $10^{-14}$ and $\sum_{e} w_e + \sum_i W_i = \sum_i w_i(\bar Z_i - 5)$ over the cohort, to $10^{-12}$ relative.
-   2. Open window, after 3 exchange periods: keep test-only cumulative ledgers from the recorded removal ranges, per species: the removed electron weight, and the removed ions' $\sum w(\bar Z - 5)$ and $\sum W$. Let $B$ be the cumulative emitted weight. Check $B = \sum_{\text{live}} w_e + \sum_{\text{removed}} w_e$ and $B + \sum_{\text{live}} W + \sum_{\text{removed}} W = \sum_{\text{live}} w(\bar Z - 5) + \sum_{\text{removed}} w(\bar Z - 5)$, each to $10^{-12}$ relative.
-   3. Each ion's populations follow its tracker ID through sorts.
-5. Implement the tangents of Section 5.3 and the Warp-generated reference VJPs. Run L1 on each kernel, with `ux, uy, uz` and the gathered fields as inputs.
-6. Add the EV tangents to `step`. Run L3 on an emission step and L4 on Twin-XS at the pass horizons.
-6a. Run the crossing probe of Section 6.3, rule 5.
-7. Run Twin-S forward with EV at the nominal $\theta$ and at two opposite corners. Record the `elec_from_N` count and peak memory. Update Section 8.
-8. Immediate-emission feasibility: run the reference of Section 5.5 forward on Twin-XS and on the reduced Twin-S. Record the birth count and peak memory.
-9. Mean-charge closure: run Twin-XS with EV twice, with the N ions mobile and immobile. Compare $Q$, every $m_k$, $\mathrm{MMD}^2_{\mathrm{RFF}}$, and $J$. Report the differences in units of the SE from 16 stochastic seeds. If any difference exceeds 2 SE, ask the user.
+1. Implement the tangents of Section 5.3, the N-ion push tangent, and the Warp-generated reference VJPs. Run L1 on each kernel, with `ux, uy, uz` and the gathered fields as inputs.
+2. Add the EV tangents to `step`. Run L3 on an emission step and L4 on Twin-XS at the pass horizons.
+3. Run the crossing probe of Section 6.3, rule 5.
 
-Acceptance: steps 2 to 6a pass.
+Acceptance: steps 1 to 3 pass.
 
-### Phase P6. Loss and the full horizon sweep (5 to 7 days)
+### Phase P7. Full loss and the full horizon sweep (4 to 6 days)
 
-1. Implement the loss module and `inversion/make_target.py` (Sections 2.4 and 3.4). Run L1 on each loss term, including the empty and nearly empty selections.
+1. Add the MMD term and the analytic state gradient of every loss term (Section 2.4). Extend the targets with `rff_mean`. Run L1 on each loss term, including the empty and nearly empty selections.
 2. Run `value_and_grad` on Twin-XS at $N_t = 200$ once with $K = 2$ tangents and twice with one tangent each. The gradients must agree within $10^{-12}$ relative.
-3. Measure peak GPU memory, host memory, and time per gradient on Twin-S. Update Section 8.
+3. Measure peak GPU memory, host memory, and time per gradient on Twin-S. Record the cost of one gradient in forward-run equivalents next to the 4 runs of central FD. Update Section 8.
 4. Run the full L4 sweep on Twin-S with $J_{chk}$, and with the loss where the selected beam has at least 1000 macroparticles at every FD point.
 
 Acceptance: step 2 passes. L4 results for all horizons are reported to the user, and the user has chosen a recovery branch (Section 6.4).
 
-### Phase P7. Model checks (3 to 4 days)
+### Phase P8. Model checks (3 to 4 days)
 
 1. Run L5 (Section 5.4) on Twin-S at the nominal $\theta$.
 2. Emission-delay check: run the comparison of Section 5.5 against the immediate-emission reference.
-3. Optional: add the weighted SWD term.
 
 Acceptance: L5 and the emission-delay check are reported to the user.
 
-### Phase P8. Twin recovery (3 to 5 days)
+### Phase P9. Twin recovery (3 to 5 days)
 
-0. Confirm the recovery branch chosen at the end of Phase P6 (Section 6.4). Label every result with it.
+0. Confirm the recovery branch chosen at the end of Phase P7 (Section 6.4). Label every result with it.
 1. Write `inversion/recover.py` with `scipy.optimize.minimize(method="L-BFGS-B")` on $\hat\theta$, bounds $[0, 1]$, and `value_and_grad(...).grad_hat`.
-2. Generate targets for T0, T1, and T2 (Section 2.2).
-3. Run L6 noise-free on Twin-S for T0 and T1 from the 5 starts. Record iterations, gradient evaluations, and wall time. Report T2.
+2. Generate the T1 and T2 targets (Section 2.2). T0 exists from Phase P3.
+3. Run L6 noise-free on Twin-S for T0 and T1 from the 5 starts. Record iterations, gradient evaluations, and wall time. Compare them with the FD recovery of Phase P3. Report T2.
 
 Acceptance: L6 passes on Twin-S for T0 and T1. Results are recorded.
 
-### Phase P9. Documentation (1 day)
+### Phase P10. Documentation (1 day)
 
 1. Add `docs/warp-porting-guide/09-differentiable-step-and-inversion.md` with contracts, measured memory, and gradient accuracy.
 2. Update the next steps in doc 08 and Section 12 of this plan.
 
-### Phase P10. Reverse-mode engine (optional, deferred)
+### Phase P11. Reverse-mode engine (optional, deferred)
 
 Implement reverse mode only when the parameter count grows beyond about 5 to 10 (Section 11), or if the user asks. Start from the design at commit `07dcc6c` of this file: checkpointing with a one-step tape, the layout check, and the FFT and DHT adjoints. The tangent kernels of this plan then serve as an exact reference for the new VJPs.
 
 ## 8. Memory and performance budget
 
-Estimates. Phases P1, P5, and P6 replace them with measurements.
+Estimates. Phases P1, P3, and P7 replace them with measurements.
 
 | Quantity | Formula or source | Twin-S ($N_m = 2$, `p_nt = 8`) |
 |---|---|---|
 | Field array | $16 N_z^a N_r$ B | about 0.9 MB |
 | Primal state | 7 field arrays x $N_m$, plus about 90 B per particle (plus 32 B per N ion) | about 0.42 GB |
-| EV births | measured in Phase P5 | up to about 1.7 x background (estimate) |
+| EV births | measured in Phase P3 | up to about 1.7 x background (estimate) |
 | Tangent state, $K = 2$ | 2 x (7 field arrays x $N_m$, plus 64 B per particle, plus 32 B per N ion) | about 0.6 GB |
 | Per-step stash | inputs of in-place primal operations | below one primal state, about 0.4 GB |
-| Device peak | primal + tangents + stash + production workspace | about 1.5 to 3 GB, plus the forward workspace. Phase P6 measures it. |
+| Device peak | primal + tangents + stash + production workspace | about 1.5 to 3 GB, plus the forward workspace. Phase P7 measures it. |
 | Forward time per step | doc 07: 0.31 s for 1852 x 300 x 5 with about 57 M particles | well below 0.1 s |
 | Gradient cost | 1 primal + 2 tangents in one pass | about 3 to 4 forward runs (estimate) |
 | Central FD, for comparison | 2 runs per parameter | 4 forward runs |
 
-At 2 parameters, forward mode costs about as much as central FD. Its value is exactness: it has no step-size error and no threshold jumps, and L4 checks it against FD.
+At 2 parameters, forward mode costs about as much as central FD, subject to the Phase P7 measurement. Forward mode removes the FD step-size truncation error. It does not remove the emission-threshold discontinuities: its derivatives are conditional on the discrete decisions (Section 4.5). L4 checks it against frozen-decision FD.
 
 The host has two NVIDIA RTX 6000 Ada GPUs with 49140 MiB each (`nvidia-smi`, 2026-10-30). The plan uses one. Memory is not a constraint for Twin-S in forward mode.
 The CuPy pool and the Warp allocator compete for device memory. Measure the peak of both.
@@ -772,7 +794,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Weak identifiability ($z_f$ against $E_L$, the two inverted parameters) | Recovery is ill-posed | Phase P1 step 7 before any gradient work. User decides. |
+| Weak identifiability ($z_f$ against $E_L$, the two inverted parameters) | Recovery is ill-posed | Phase P1 step 7 and the FD recovery gate of Phase P3, before any tangent work. User decides. |
 | Gradient growth over long horizons (trapping sensitivity) | AD disagrees with FD at long horizons | L4 sweep, $\lVert\dot s_n\rVert$ report. User decides. |
 | Forward map of AD differs from the map that made the states | Consistent but wrong gradient | One shared stepper (D17). L2 against production. |
 | Hand-written tangent kernels are wrong | Wrong gradient without error | Dot product with existing or generated VJPs, `check_jvp`, L3 |
@@ -780,8 +802,8 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | Tangents not permuted with the primal | Tangents attached to the wrong particles | One permutation for primal and tangents (Section 4.5), L3 on an exchange step |
 | EV model bias | Gradient of a different model than the stochastic code | L5, T2 truth. User decides. |
 | Delayed emission changes the birth history | Wrong trapped charge, emittance, or sensitivities | Immediate-emission reference (Section 5.5) |
-| Mean-charge ion closure | Wrong ion trajectories | Immobile-ion comparison (Phase P5) |
-| Charge non-conservation from pending births | Spurious fields at the injection point | Neutral pending deposit (Section 5.2), charge test in Phase P5 |
+| Mean-charge ion closure | Wrong ion trajectories | Immobile-ion comparison (Phase P3) |
+| Charge non-conservation from pending births | Spurious fields at the injection point | Neutral pending deposit (Section 5.2), charge test in Phase P3 |
 | Azimuthal aliasing at low `p_nt` | Spurious mode-1 fields | `p_nt = 8 = 4 N_m`, aliasing check in Phase P1 |
 | Inverse crime | Over-optimistic recovery | Truth variants T0, T1, T2 |
 | Emission-threshold jumps | Free FD differs from AD by $O(\epsilon w/h)$ per crossing | Frozen-decision FD as the reference, crossing probe, $\epsilon$ convergence (Section 6.3) |
@@ -802,7 +824,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D9 | Eager differentiable path. No CUDA graphs. | Planner default |
 | D10 | Frozen-decision central FD is the reference for every gradient. | Planner default |
 | D11 | No new Python dependency. Loss in CuPy or Warp. | Global work rules |
-| D12 | EV emission per parent ion each step: $K_e = 1$, $\epsilon = 10^{-4}$, neutral pending deposit. | Planner default, validated against immediate emission in Phase P7 |
+| D12 | EV emission per parent ion each step: $K_e = 1$, $\epsilon = 10^{-4}$, neutral pending deposit. | Planner default, validated against immediate emission in Phase P8 |
 | D13 | Hand-written tangent kernels. Existing and Warp-generated VJPs serve as references in dot-product tests. | Planner default after D25 |
 | D14 | L-BFGS-B on the 2 normalized parameters, 5 Latin-hypercube starts. | Planner default |
 | D15 | He as fixed-charge 2+ ions without an ionizer. | Planner default |
@@ -825,10 +847,11 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 4. Reverse-time reconstruction of particle trajectories within short segments, with logs of irreversible operations.
 5. Experimental realism: drop z from $H$, GPSR reconstructions as targets with their uncertainty, and multi-shot jitter.
 6. Hybrid ML: gradient-enhanced surrogate training, and simulation-based inference as a warm start.
-7. More parameters, with reverse mode (Phase P10) once forward cost grows too large: $n_0$ and $F_L$ first (Section 2.1, injection-weight terms of Section 4.9), then pulse duration, spot size, Zernike terms, and a free-form density lineout.
+7. More parameters, with reverse mode (Phase P11) once forward cost grows too large: $n_0$ and $F_L$ first (Section 2.1, injection-weight terms of Section 4.9), then pulse duration, spot size, Zernike terms, and a free-form density lineout.
 8. Noisy recovery: matched likelihood $r^T\Sigma_n^{-1}r$, a Gaussian prior with its direct gradient returned by the objective, and a sandwich covariance $C = H^{-1} S^T \Sigma_n^{-1} S H^{-1}$ with $H = S^T\Sigma_n^{-1}S + \Lambda$ for the predicted spread.
 9. Twin-M, a larger twin closer to production physics.
 10. Five azimuthal modes, to keep the $m = 2$ content of a linearly polarized laser.
+11. A weighted sliced-Wasserstein (SWD) loss term.
 
 ## 12. Execution results
 
@@ -867,6 +890,10 @@ Switch to forward mode by the user on 2026-10-30 (D25). With 2 parameters, forwa
 
 A Section 5 review on 2026-10-30 (Sol) supported the population model and challenged the delayed emission. This revision applies it: the model is called a deterministic rate-equation PIC model; the threshold delay is stated; an immediate-emission reference replaces the $\epsilon = 10^{-6}$ reference (Section 5.5); an immobile-ion check tests the mean-charge closure; and $1 - p_\ell$ is evaluated as $\exp(-x_\ell)$.
 
+A scope review on 2026-10-30 (Sol) recommended an inversion baseline before the derivative work. This revision adds the FD recovery gate (Phase P3) with the forward EV model and a minimal loss, moves the tangent phases after it (P4 to P6), adds milestones M1 and M2 and a narrow success claim, corrects the Section 8 wording on threshold discontinuities, and moves the SWD term to future work.
+
+Phase numbers in the review records above refer to the plan at the time of each review.
+
 _No implementation phase has run yet._
 
 ## Appendix A. Unverified claims and required probes
@@ -874,12 +901,12 @@ _No implementation phase has run yet._
 | Claim | Probe | Phase |
 |---|---|---|
 | The $k=0$ columns of the $p=m$ and $p=m+1$ components stay zero for $m \ge 1$ | Compare spect with `interp2spect(spect2interp(spect))` after 500 steps | P2 |
-| Every field operator used by `step` is linear in the field arrays | Linearity check (Section 4.6) | P3 |
-| Tangent kernels generic over $N_m$ agree with the 5-mode VJP clones | Dot-product test (Section 4.7) | P3 |
+| Every field operator used by `step` is linear in the field arrays | Linearity check (Section 4.6) | P4 |
+| Tangent kernels generic over $N_m$ agree with the 5-mode VJP clones | Dot-product test (Section 4.7) | P4 |
 | `elec_from_N` traps a beam in Twin-S with 2 modes, `p_nt = 8`, at all checked points | Phase P1 steps 5 and 6 | P1 |
 | $E_L$ and $z_f$ are locally identifiable in Twin-S | Phase P1 step 7 | P1 |
-| EV births match the stochastic marginals in open loop | Phase P5 step 2 | P5 |
-| The device peak of Twin-S stays below about 3 GB plus the forward workspace | Measure in `value_and_grad` | P6 |
+| EV births match the stochastic marginals in open loop | Phase P3 step 2 | P3 |
+| The device peak of Twin-S stays below about 3 GB plus the forward workspace | Measure in `value_and_grad` | P7 |
 
 ## Appendix B. File map
 
@@ -911,7 +938,7 @@ _No implementation phase has run yet._
 |---|---|---|
 | Phase-space reconstruction with differentiable transport | Roussel et al., PRL 130, 145001 (2023); PRAB 27, 094601 (2024) | Problem framing; later GPSR targets |
 | Reverse-mode memory in accelerator PIC | Dhamrait et al., PASC '26, arXiv:2605.27282 | A full tape does not fit; reason for forward mode at small $K$ |
-| Checkpointing | Griewank and Walther, ACM TOMS 26 (2000); Aupy et al., SISC 38 (2016) | Future reverse mode (Phase P10) |
+| Checkpointing | Griewank and Walther, ACM TOMS 26 (2000); Aupy et al., SISC 38 (2016) | Future reverse mode (Phase P11) |
 | Reverse-time reconstruction | Li et al., ApJS 270, 36 (2024); Greener, PNAS 122 (2025) | Future work; segment length limits |
 | Discrete events in adjoint Monte Carlo | Yang, Silantyev, Caflisch, JCP 488 (2023); Caflisch and Yang (2024) | Score terms; EV rationale |
 | Deterministic ionization in PIC | DiIorio et al., arXiv:2603.17885 (2026) | EV populations |
