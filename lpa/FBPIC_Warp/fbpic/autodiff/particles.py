@@ -141,6 +141,57 @@ def push_ion_momenta(
         inv_gamma_out[particle] = inverse_gamma_new
 
 
+@wp.kernel(enable_backward=True, module="unique")
+def push_ion_momenta_ev(
+    ux: wp.array(dtype=wp.float64),
+    uy: wp.array(dtype=wp.float64),
+    uz: wp.array(dtype=wp.float64),
+    inv_gamma: wp.array(dtype=wp.float64),
+    electric_x: wp.array(dtype=wp.float64),
+    electric_y: wp.array(dtype=wp.float64),
+    electric_z: wp.array(dtype=wp.float64),
+    magnetic_x: wp.array(dtype=wp.float64),
+    magnetic_y: wp.array(dtype=wp.float64),
+    magnetic_z: wp.array(dtype=wp.float64),
+    w: wp.array(dtype=wp.float64),
+    w_times_level: wp.array(dtype=wp.float64),
+    mass: wp.float64,
+    dt: wp.float64,
+    ux_out: wp.array(dtype=wp.float64),
+    uy_out: wp.array(dtype=wp.float64),
+    uz_out: wp.array(dtype=wp.float64),
+    inv_gamma_out: wp.array(dtype=wp.float64),
+):
+    """Write the Vay push of EV ions with the mean charge e w_tl / w.
+
+    w_times_level is w Zbar - W (inversion plan Section 5.2), so the charge
+    used for the force matches the charge that the ion deposits.
+    """
+    particle = wp.tid()
+    if particle < ux.shape[0]:
+        charge = ELEMENTARY_CHARGE * w_times_level[particle] / w[particle]
+        electric_coefficient = charge * dt / (mass * LIGHT_SPEED)
+        magnetic_coefficient = wp.float64(0.5) * charge * dt / mass
+        ux_new, uy_new, uz_new, inverse_gamma_new = push_p_vay(
+            ux[particle],
+            uy[particle],
+            uz[particle],
+            inv_gamma[particle],
+            electric_x[particle],
+            electric_y[particle],
+            electric_z[particle],
+            magnetic_x[particle],
+            magnetic_y[particle],
+            magnetic_z[particle],
+            electric_coefficient,
+            magnetic_coefficient,
+        )
+        ux_out[particle] = ux_new
+        uy_out[particle] = uy_new
+        uz_out[particle] = uz_new
+        inv_gamma_out[particle] = inverse_gamma_new
+
+
 @cache
 def get_gather_kernel() -> wp.Kernel:
     """Return an eager differentiable clone of the five-mode linear gather.

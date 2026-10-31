@@ -6,6 +6,8 @@ Usage (from `lpa/FBPIC_Warp/inversion`, one GPU):
     python identifiability.py trapping      # nominal, 4 corners, 5 starts
     python identifiability.py sensitivity   # theta* +- 0.05 e_i, 4 seeds; T2
     python identifiability.py report        # G, cond(G), sqrt(diag G^-1)
+    python identifiability.py report_loss   # the same with the Section 2.4
+                                            # observables (Phase P3 step 11)
 
 Each forward run is cached in `runs/p1/` (not committed). The `selection`
 stage writes `u_c`, `delta_u`, `theta_star_hat`, and the optimizer starts
@@ -23,7 +25,11 @@ import numpy as np
 from forward import run_production
 from observable import (
     MOMENT_NAMES,
+    LOSS_MEANS,
+    RESIDUAL_NAMES,
     beam_statistics,
+    loss_floors,
+    loss_observables,
     moment_scales,
     observable_vector,
 )
@@ -267,12 +273,106 @@ def stage_report():
         print(f"  {n:8s} {srow[0] / np.sqrt(s2):9.3f} {srow[1] / np.sqrt(s2):9.3f}")
 
 
+def stage_report_loss():
+    """The P1 report with the 11 observables of Section 2.4 (P3 step 11).
+
+    Same runs, FD step, seeds, and sigma2 rule as `stage_report`. The floors
+    come from the mean of the 4 theta* runs. The 2 % floor of sigma2 uses
+    the target standard deviation for a first moment and unit scale for a
+    log term. G_whitened uses the Sigma of `target_covariance.py` instead.
+    """
+    from target_covariance import load_whitening
+
+    config = load_config(SIZE)
+    star = np.asarray(config["theta_star_hat"])
+    sel = config["selection"]
+    star_runs = [_run(f"star_s{s}", star, config, rng_seed=s) for s in IDENT_SEEDS]
+    Q_y = np.mean([_stats(r, config)["Q"] for r in star_runs])
+    Q_f = 1e-3 * Q_y
+    mean_stats = {
+        "Q": Q_y,
+        "moments": np.mean(
+            [_stats(r, config, Q_f)["moments"] for r in star_runs], axis=0
+        ),
+    }
+    floors = loss_floors(mean_stats)
+    s_k = np.mean(
+        [
+            moment_scales(r["elec"], r["z_win"], sel["u_c"], sel["delta_u"])
+            for r in star_runs
+        ],
+        axis=0,
+    )
+    scales = np.concatenate([[1.0], s_k[list(LOSS_MEANS)], np.ones(6)])
+
+    def v_of(res):
+        return loss_observables(_stats(res, config, Q_f), Q_f, floors)
+
+    v_star = np.array([v_of(r) for r in star_runs])
+    S_seeds = np.zeros((len(IDENT_SEEDS), v_star.shape[1], 2))
+    for k, seed in enumerate(IDENT_SEEDS):
+        for i in range(2):
+            hp, hm = star.copy(), star.copy()
+            hp[i] += H_IDENT
+            hm[i] -= H_IDENT
+            vp = v_of(_run(f"d{i}p_s{seed}", hp, config, rng_seed=seed))
+            vm = v_of(_run(f"d{i}m_s{seed}", hm, config, rng_seed=seed))
+            S_seeds[k, :, i] = (vp - vm) / (2 * H_IDENT)
+    S = S_seeds.mean(axis=0)
+    t2 = _run(
+        "t2_truth", star, config, seed=T2_NUMPY_SEED, rng_seed=T2_RNG_SEED, p_nz=2
+    )
+    v_truth = v_of(t2)
+    sigma2 = np.maximum(
+        v_star.var(axis=0, ddof=1) + (v_truth - v_star.mean(axis=0)) ** 2,
+        (0.02 * scales) ** 2,
+    )
+
+    def summary(G):
+        evals = np.linalg.eigvalsh(G)
+        sd = np.sqrt(np.diag(np.linalg.inv(G)))
+        return {
+            "G": G.tolist(),
+            "eigenvalues": evals.tolist(),
+            "cond_G": float(evals[-1] / evals[0]),
+            "sqrt_diag_Ginv": sd.tolist(),
+            "gate_pass": bool(evals[-1] / evals[0] <= 1e4 and np.all(sd <= 0.02)),
+        }
+
+    Linv_S = np.linalg.solve(load_whitening(config)["L"], S)
+    report = {
+        "names": list(RESIDUAL_NAMES),
+        "S": S.tolist(),
+        "sigma2": sigma2.tolist(),
+        "diagonal_P1_rule": summary(S.T @ (S / sigma2[:, None])),
+        "whitened_Sigma": summary(Linv_S.T @ Linv_S),
+        "config_sha256": config_sha256(config),
+    }
+    results = _load_results()
+    results["identifiability_loss_observables"] = report
+    _save_results(results)
+    for key in ("diagonal_P1_rule", "whitened_Sigma"):
+        r = report[key]
+        print(
+            key,
+            "cond",
+            r["cond_G"],
+            "sqrt_diag_Ginv",
+            r["sqrt_diag_Ginv"],
+            r["gate_pass"],
+        )
+    print("per-observable S / sqrt(sigma2):")
+    for n, srow, s2 in zip(RESIDUAL_NAMES, S, sigma2):
+        print(f"  {n:20s} {srow[0] / np.sqrt(s2):9.3f} {srow[1] / np.sqrt(s2):9.3f}")
+
+
 if __name__ == "__main__":
     stages = {
         "selection": stage_selection,
         "trapping": stage_trapping,
         "sensitivity": stage_sensitivity,
         "report": stage_report,
+        "report_loss": stage_report_loss,
     }
     for arg in sys.argv[1:]:
         stages[arg]()

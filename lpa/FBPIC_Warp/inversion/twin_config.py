@@ -255,9 +255,23 @@ def build_twin(
         "p_zmax": plasma["z_hi"],
         "p_rmax": plasma["p_rmax"],
     }
-    electrons = sim.add_new_species(q=-e, m=m_e, n=dens["e"], **load)
+    n_load, e_load = load, load
+    n_range = plasma.get("nitrogen_z_range")
+    if n_range is not None:
+        # Reduced variant (Phase P3 step 6): nitrogen only inside n_range.
+        # The electron density follows, so that the plasma stays neutral.
+        def in_range(z):
+            return (np.asarray(z) >= n_range[0]) & (np.asarray(z) <= n_range[1])
+
+        f_n = 5.0 * dens["N"] / dens["e"]
+        n_load = {**load, "dens_func": lambda z, r: dens_func(z, r) * in_range(z)}
+        e_load = {
+            **load,
+            "dens_func": lambda z, r: dens_func(z, r) * (1.0 - f_n + f_n * in_range(z)),
+        }
+    electrons = sim.add_new_species(q=-e, m=m_e, n=dens["e"], **e_load)
     helium = sim.add_new_species(q=2 * e, m=4.0 * m_p, n=dens["He"], **load)
-    nitrogen = sim.add_new_species(q=5 * e, m=14.0 * m_p, n=dens["N"], **load)
+    nitrogen = sim.add_new_species(q=5 * e, m=14.0 * m_p, n=dens["N"], **n_load)
     elec_from_N = sim.add_new_species(q=-e, m=m_e)
     for species in (electrons, helium, nitrogen, elec_from_N):
         species.track(sim.comm)

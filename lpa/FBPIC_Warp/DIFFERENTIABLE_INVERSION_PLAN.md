@@ -2,13 +2,13 @@
 
 | Item | Value |
 |---|---|
-| Status | Draft, revised after two reviews, a scope change, and the switch to forward mode (Section 12.1). Nothing is implemented. |
+| Status | Phases P0 to P3 done; milestone M1 reached with the Stage A gate (Section 12.5). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
-| Scope | One GPU. Lab frame. Two parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
+| Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
 | Owner | The implementing agent writes all code: kernels, tangents, algorithms, scaffolding, and tests. |
 | Production code | Unchanged. The differentiable path is a separate stepper in `fbpic/autodiff` (D17). |
-| Decisions | D1 to D25 in Section 10. D1, D2, and D21 to D25 are user decisions. The others are planner defaults that the user can change. |
+| Decisions | D1 to D28 in Section 10. D1, D2, and D21 to D28 are user decisions. The others are planner defaults that the user can change. |
 
 ## How to use this plan
 
@@ -111,7 +111,7 @@ $F$ is the PIC forward model, and $H$ maps the simulated bunch to the observable
 6. A differentiable observable and loss (Section 2.4).
 7. A local identifiability study before the gradient work (Phase P1).
 8. A verification ladder from single operators to full-horizon gradients (Section 6).
-9. Recovery of $\theta^\ast$ with a bounded quasi-Newton optimizer (Phase P9).
+9. Recovery of $\theta^\ast$ with a bounded trust-region least-squares solver (Section 2.5, Phase P9), first for one parameter (Stage A, Section 2.6).
 
 ### 1.3 Out of scope
 
@@ -183,15 +183,16 @@ Gradients are reported in both units: $\partial J/\partial\hat\theta_i = (\theta
 3. Start the optimizer from a different $\hat\theta_0$ and recover $\hat\theta^\ast$.
 
 Gradient checks (Phases P5 to P7) use one configuration for AD and FD, because they test the derivative of one discrete map.
-Recovery runs (Phases P3 and P9) use the truth variants to avoid an inverse crime. Every variant keeps the inversion grid, $\Delta t$, $N_t$, `exchange_period`, and the `n_move` sequence, so that $H$ is evaluated at the same time. Every variant uses a different NumPy injection seed and `p_nz = 2` instead of 1.
+Recovery runs (Phases P3 and P9) use the truth variants to avoid an inverse crime. Every variant keeps the inversion grid, $\Delta t$, $N_t$, `exchange_period`, and the `n_move` sequence, so that $H$ is evaluated at the same time. Every variant except T0′ uses a different NumPy injection seed and `p_nz = 2` instead of 1. T0′ uses exactly the inversion settings, so $J(\theta^\ast)$ is at round-off level: a recovery on T0′ tests convergence alone, without model bias.
 
 | Variant | Ionization model | Role |
 |---|---|---|
-| T0 | EV with the inversion settings ($K_e$, $\epsilon$) | Control. L6 applies. |
-| T1 | EV with immediate emission ($\epsilon = 0$), or $\epsilon = 10^{-6}$ if the births do not fit Twin-S memory | Main test. L6 applies. |
+| T0′ | EV with exactly the inversion settings (seed, `p_nz = 1`, $K_e$, $\epsilon$) | Convergence control. L6 applies. |
+| T0 | EV with the inversion settings ($K_e$, $\epsilon$) | Bias report: the `p_nz` model error. Report the offset from $\hat\theta^\ast$. |
+| T1 | EV with immediate emission ($\epsilon = 0$). If the $\epsilon = 0$ births do not fit in memory (Phase P8 step 3), use the reduced Twin-S for T1 and for its T0 control. | Main test. Report the offset from $\hat\theta^\ast$ (L6). |
 | T2 | Production stochastic ionization (Philox, tracked ions) | Model error. Report only. |
 
-If T0 passes and T1 fails, stop. Report the recovered-parameter bias together with the emission-delay results of Phase P8, and ask the user.
+If T0′ and T0 pass and the T1 offset exceeds 0.02 in a component, stop. Report the recovered-parameter bias together with the emission-delay results of Phase P8, and ask the user.
 
 ### 2.3 Observable H
 
@@ -208,23 +209,62 @@ with $S_5 = 0$ for $t \le 0$ and $S_5 = 1$ for $t \ge 1$. $\sigma_i$ is exactly 
 
 ### 2.4 Loss
 
+The loss is a whitened nonlinear least-squares objective over 11 residuals, plus an optional distribution term:
+
 $$
-J(\theta) = \alpha_Q \big(\log(Q + Q_f) - \log(Q_y + Q_f)\big)^2 + \alpha_M \sum_k \frac{(m_k - m_{k,y})^2}{s_k^2} + \alpha_D\, \mathrm{MMD}^2_{\mathrm{RFF}}.
+J(\theta) = \lVert r_w \rVert^2 + \alpha_D\, \mathrm{MMD}^2_{\mathrm{RFF}}, \qquad r_w = L^{-1}\big(v(\theta) - v_y\big), \qquad \Sigma = L L^T .
 $$
 
-- $Q = e \sum_i w_i \sigma_i$ is the selected charge. $Q_f = 10^{-3} Q_y$.
-- $m_k = \sum_i w_i\sigma_i f_k(\xi_i) / (\sum_i w_i \sigma_i + Q_f/e)$ are the weighted first and second moments of $\xi = (x, u_x, y, u_y, z - z_{win}, u_z)$.
-- $s_k$ are fixed scales from the target: the target standard deviation for first moments and its square for second moments.
-- $\mathrm{MMD}^2_{\mathrm{RFF}} = \lVert \mu - \mu_y \rVert^2$, with $\mu = \sum_i w_i\sigma_i \phi(\tilde\xi_i) / (\sum_i w_i\sigma_i + Q_f/e)$. The denominator has the same floor as the moments. $\phi$ has $D = 512$ random Fourier features, seed 1234, bandwidth 1.0. $\tilde\xi$ is $\xi$ standardized with the frozen target mean and standard deviation, never with statistics of the current sample.
+The observables $v$ are:
+
+1. $\log(Q + Q_f)$. $Q = e \sum_i w_i \sigma_i$ is the selected charge, and $Q_f = 10^{-3} Q_y$.
+2. The 4 weighted first moments $\langle\xi_k\rangle = \sum_i w_i\sigma_i \xi_{k,i} / (\sum_i w_i \sigma_i + Q_f/e)$ of $x$, $u_x$, $z - z_{win}$, and $u_z$, with $\xi = (x, u_x, y, u_y, z - z_{win}, u_z)$. The loss leaves out $\langle y\rangle$ and $\langle u_y\rangle$: by symmetry they carry no information on $\theta$ (sensitivity near 0), and they jitter by up to 4 model-error units when $\hat\theta$ changes by 0.003. In Phase P3 that jitter stalled the trust-region solver (Section 12.5).
+3. $\log(\sigma_k + f_k)$ for $x$, $u_x$, $y$, $u_y$, and $z - z_{win}$. $\sigma_k^2 = \langle\xi_k^2\rangle - \langle\xi_k\rangle^2$ is the central second moment, with the same weights and floor. The floor $f_k = 10^{-3}$ times the target spread keeps $v$ finite when the selected beam vanishes.
+4. The log relative energy spread, $\log\big((\sigma_{u_z} + f_{u_z}) / (\langle u_z\rangle + f_\mu)\big)$, with $f_\mu = 10^{-3} \langle u_z\rangle_y$.
+
+Central moments replace the raw second moments $\langle\xi_k^2\rangle$ of the first draft. A raw second moment equals $\sigma_k^2 + \langle\xi_k\rangle^2$, so it counted the means of $z - z_{win}$ and $u_z$ again, by factors of about 170 and 40 (Section 12.5). Log scales make the spreads and the charge dimensionless and treat relative changes equally.
+
+Whitening. $\Sigma$ is the residual covariance. In the twin, $\Sigma = \mathrm{diag}(\Delta^2)$, a model-error term: the mean over the nominal $\theta$ and the 4 corners of $(v_{truth} - v_{model})^2$, with the truth settings against the inversion settings. These points keep knowledge of $\theta^\ast$ out of the weights. One point is not enough: at the nominal point alone, $\Delta$ of the relative energy spread was 70 times smaller than the model error at $\theta^\ast$, and that one residual made up 99.6% of $J(\theta^\ast)$ (Section 12.5). The EV twin is deterministic, so no sampling term is needed. For experimental data, $\Sigma$ comes from shot-to-shot scatter plus a model-error term (Section 11).
+
+- $\mathrm{MMD}^2_{\mathrm{RFF}} = \lVert \mu - \mu_y \rVert^2$, with $\mu = \sum_i w_i\sigma_i \phi(\tilde\xi_i) / (\sum_i w_i\sigma_i + Q_f/e)$. The denominator has the same floor as the moments. $\phi$ has $D = 512$ random Fourier features, seed 1234, bandwidth 1.0. $\tilde\xi$ is $\xi$ standardized with the frozen target mean and standard deviation, never with statistics of the current sample. Use it only in a fine stage after the moment fit (Section 2.5).
 - The weight gradient is
   $$
   \frac{\partial\, \mathrm{MMD}^2}{\partial (w_i\sigma_i)} = \frac{2\,\langle \mu - \mu_y,\; \phi(\tilde\xi_i) - \mu\rangle}{\sum_k w_k \sigma_k + Q_f/e}.
   $$
-- Empty and nearly empty beams. If every $\sigma_i = 0$, then $\mu = 0$, $m_k = 0$, $\mathrm{MMD}^2 = \lVert\mu_y\rVert^2$, and the charge term is $\alpha_Q(\log Q_f - \log(Q_y + Q_f))^2$. The loss and every gradient stay finite. The trapping checks of Section 3.4 do not cover every point that the optimizer can visit, so the loss must not rely on a positive selected charge.
+- Empty and nearly empty beams. If every $\sigma_i = 0$, then the first moments and $\sigma_k$ are 0, every $\log$ term takes its floor value, and $\mathrm{MMD}^2 = \lVert\mu_y\rVert^2$. The loss and every gradient stay finite. The trapping checks of Section 3.4 do not cover every point that the optimizer can visit, so the loss must not rely on a positive selected charge.
 - No prior term. The targets are noise-free (D22). A prior, as in noisy recovery (Section 11), depends on $\hat\theta$ directly; the objective must then also return that direct gradient.
-- Defaults: $\alpha_Q = 1$, $\alpha_M = 1/K$ for $K$ moments, $\alpha_D = 1$.
+- Defaults: $\alpha_D = 0$ until Phase P7.
 
 Implement the loss and its analytic gradient in CuPy or Warp (D11). Test every term with FD on random particle sets (L1). Also test the loss and its gradient on an empty selection (all $\sigma_i = 0$) and on a nearly empty selection (one particle with $\sigma_i = 10^{-6}$). Both must be finite and match FD.
+
+### 2.5 Optimizer
+
+The optimizer follows the literature note `inversion/notes/optimizer-literature-2026-10-30.md` (D26). It uses 5 techniques:
+
+1. Trust-region Gauss-Newton or Levenberg-Marquardt on the residual vector $r_w$, not a quasi-Newton method on the scalar $J$: `scipy.optimize.least_squares(method="dogbox")` with bounds $[0, 1]^2$. The model Hessian $J_r^T J_r$ exists from the first iteration, and the trust radius bounds every step. L-BFGS-B failed here in Phase P3: its first step crossed the box, and a secant pair from a flat region sent the next step to the opposite corner (Section 12.5).
+2. A global design, then a local solve. Evaluate a 25-point grid or Sobol design over $[0, 1]^2$. Start the local solver from the 2 or 3 best design points that are well separated. A bounded local method cannot leave a boundary local minimum, and the design shows whether one exists.
+3. Loss design (Section 2.4): central moments, log scales, and whitened residuals.
+4. FD steps. Use fixed steps, $h = 0.02$ for $E_L$ and $h = 0.05$ for $z_f$; the FD Jacobian is temporary until the JVP Jacobian of item 5. Use one-sided second-order stencils $(x, x + h, x + 2h)$ within $h$ of a bound. Keep $h$ above the width of the jumps that emission thresholds and cell crossings cause. Removing jumps in the model (zero-weight creation, window-edge tapering) is a separate decision for Phase P6.
+5. JVP Jacobians in the same driver. After the JVP gate of the note (Section 3.2 there: comparison with central FD at several $h$ and with a smoothed Jacobian), the `jac` callable becomes 1 primal run with $K$ tangents, $K = 1$ in Stage A and $K = 2$ in Stage B (Sections 2.6 and 4.10). Before that gate, the driver uses the batched FD Jacobian, which reuses the cached center run.
+
+### 2.6 Staged scope: one parameter first
+
+The work runs in two stages. Stage A takes one scalar parameter through every milestone, end to end. Stage B adds the second parameter after Stage A works.
+
+Stage A (D28):
+
+1. Parameter: $E_L$. $z_f$ stays at $z_f^\ast$ in the model and in every target. The tangent seed of $E_L$ is exact and simple: every initial field scales as $\sqrt{E_L}$, so the seed is $F_0 / (2E_L)$ (Section 4.8). The $z_f$ seed needs the profile derivative and `GaussianLaserDzf`, which move to Stage B.
+2. Phases P3 to P9 apply with one tangent ($K = 1$). Write the tangent kernels and the driver generic over $K$ (Section 4.7), but run the Stage A tests, the L4 sweeps, and the recovery with the $E_L$ tangent only.
+3. The loss, the weights $\Sigma$, the targets (T0′, T0, T1, T2), and the optimizer of Sections 2.2 to 2.5 do not change. The optimizer works on one coordinate, with a 10-point design in place of the 25-point design.
+4. Milestones: M1 ends with the Stage A FD gate (Phase P3 step 15). M2 is the $K = 1$ tangent gradient. Phases P6 to P9 follow for $E_L$, and P9 compares the JVP recovery with the FD recovery of P3.
+
+Stage B starts after Stage A passes Phase P9:
+
+1. Add the $z_f$ tangent (Section 4.8) and run the $K = 2$ checks.
+2. Solve the global search problem first. The two-parameter FD gate of Phase P3 failed because the basin of $\theta^\ast$ has a radius of about 0.04 in $\hat\theta$, while the 25-point design has a spacing of 0.2 (Section 12.5). Options: a denser design near the valley, narrower bounds, or observables with a wider basin.
+3. Then repeat the P3 two-parameter gate and P9 with both parameters.
+
+Reason: in Phase P3 the 2-D landscape had a false local minimum at $\hat\theta \approx (0.51, 0.28)$ next to a narrow true basin. Exact gradients do not remove a false minimum. One parameter separates the gradient work from the global-search problem.
 
 ## 3. Twin configuration
 
@@ -454,7 +494,7 @@ Exchange iterations remove particles at the back of the window, inject new parti
 
 ### 4.10 Driver
 
-`fbpic/autodiff/driver.py` runs one pass of `step` with $K = 2$ tangents (D25).
+`fbpic/autodiff/driver.py` runs one pass of `step` with $K$ tangents, one per parameter (D25): $K = 1$ in Stage A and $K = 2$ in Stage B (Section 2.6).
 
 1. Build the tangent seeds (Section 4.8).
 2. Run $N_t$ steps. Keep only the current primal state, the current tangents, and the per-step stash.
@@ -465,10 +505,12 @@ Driver API:
 ```python
 result = value_and_grad(theta, objective, config)
 # result.J: float
-# result.grad: dJ/dtheta, shape (2,), float64, host
+# result.grad: dJ/dtheta, shape (K,), float64, host
 # result.grad_hat: dJ/dtheta_hat = diag(theta_hi - theta_lo) @ grad
 # result.info: GPU and host memory peaks, timings, per-step norms of each tangent
 # objective(state) -> (J, g_s); the Section 2.4 loss or a Section 6.2 functional
+# objective may instead return (r_w, dr_w/ds): residuals and their state gradients,
+# so that result.jacobian = dr_w/dtheta_hat feeds the Section 2.5 driver
 
 state, tangents = jvp(theta, config, seeds, n_steps)
 # full tangent state for field-level checks such as L4w
@@ -569,7 +611,7 @@ Run each level on GPU. Run each test file in its own process (`CLAUDE.md` rule 5
 | L4 | Parameter gradient, horizon sweep | Error definition and pass rule in Section 6.4. Horizons in Section 6.4. |
 | L4w | Linear-wakefield derivative (physics check, no FD) | Section 6.5. Analytic: within the tolerances of the upstream test (8% of max for Ez, 11% for Er). Self-consistency: within $10^{-3}$ of max. |
 | L5 | EV vs stochastic | Section 5.4. Report only. The user decides acceptance. |
-| L6 | Twin recovery | From the 5 starts, recover $\hat\theta^\ast$ within 0.02 in every component. Targets are noise-free (D22). |
+| L6 | Twin recovery | From the design-based starts and the 5 Latin-hypercube starts (Section 2.5), recover $\hat\theta^\ast$ within 0.02 in every free component on T0′ and T0: $\hat E_L$ in Stage A, both components in Stage B. On T0′, also report convergence diagnostics that are free of model bias: the spread of the multistart final points ($\le 2\cdot10^{-3}$), the final $\lVert\hat g\rVert_\infty$, and $\hat\theta - \hat\theta^\ast$ in units of $\sqrt{\mathrm{diag}\,G^{-1}}$. On T1, report the offset. Targets are noise-free (D22). |
 
 ### 6.2 Check functional for L3 and L4
 
@@ -695,14 +737,22 @@ This phase shows that the inversion problem can be solved before any tangent cod
 7. Minimal loss: implement the charge and moment terms of Section 2.4 with $\alpha_D = 0$, forward only, and `inversion/make_target.py`. Confirm a finite loss on an empty and a nearly empty selection.
 8. Mean-charge closure: run Twin-XS with EV twice, with the N ions mobile and immobile. Compare $Q$, every $m_k$, and the minimal loss. Report the differences in units of the SE from 16 stochastic seeds. If any difference exceeds 2 SE, ask the user.
 9. Generate the T0 target at $\theta^\ast$ on Twin-S (Section 2.2).
-10. Slices: evaluate the minimal loss on 13 points over $\hat\theta^\ast_i \pm 0.3$ for each parameter (26 runs). Record the basin shape and any plateaus or jumps.
-11. FD recovery gate:
-    - Start from the optimizer start of Section 3.4, item 4, that is farthest from $\hat\theta^\ast$.
-    - Run `scipy.optimize.minimize(method="L-BFGS-B")` on $\hat\theta$, bounds $[0, 1]$, with central-FD gradients at $h = 0.02$ in $\hat\theta$ and the thresholds active (4 forward runs per gradient).
-    - If L-BFGS-B stops on a line-search failure, restart once from its last point with Powell (derivative-free).
-    - Record iterations, forward runs, wall time, the path of $\hat\theta$, $J$, and the FD gradients along the path.
+10. Slices: evaluate the loss on 13 points over $\hat\theta^\ast_i \pm 0.3$ for each parameter (26 runs). Record the basin shape and any plateaus or jumps.
+11. Recovery gate prerequisites (Sections 2.4 and 2.5):
+    - Switch to the loss of Section 2.4. Recompute $\mathrm{cond}(G)$ and $\sqrt{\mathrm{diag}\,G^{-1}}$ at $\theta^\ast$ with the new observables and the Phase P1 method, and check them against the P1 limits.
+    - Use the FD steps $h = 0.02$ for $E_L$ and $h = 0.05$ for $z_f$, with one-sided stencils within $h$ of a bound (Section 2.5).
+12. Generate the T0′ target (Section 2.2) and confirm that $J(\theta^\ast)$ on T0′ is at round-off level. Gate part (a), landscape:
+    - $z_f$ edge test: at the point where L-BFGS-B stopped on the $z_f$ bound, evaluate the one-sided FD derivative in $z_f$ at $h = 0.02$ and $h = 0.1$, with the old and the new loss.
+    - Evaluate a 25-point grid or Sobol design over $[0, 1]^2$. The design runs do not depend on the target, so evaluate the loss on T0′ and on T0 from the same runs.
+    - Pass if the best design point lies in the $\theta^\ast$ basin, and the loss of every other basin is well above the loss floor at $\theta^\ast$.
+13. Gate part (b), recovery on T0′: first take fine slices at $\hat\theta^\ast_i \pm 0.05$ on T0′ and confirm that the minimum is at $\hat\theta^\ast$. Then run `least_squares(method="dogbox")` with the batched FD Jacobian, which reuses the cached center run. Start from the 2 or 3 best well-separated design points. Use the stopping rule of the note (step norm, cost reduction, evaluation budget). Pass if the best result is within 0.02 of $\hat\theta^\ast$ in every component.
+14. Report the final loss, the parameter error, $G^{-1}$ at the solution, and a run on T0′ from the optimizer start farthest from $\hat\theta^\ast$. Also run the T0 recovery from the best design start, and report its offset from $\hat\theta^\ast$ as the model bias of `p_nz`. The farthest-start run and the T0 recovery are reported only; they are not part of the gate.
 
-Acceptance (gate): the recovery from the displaced start reaches $\hat\theta^\ast$ within 0.02 in every component, with the T0 target and the minimal loss. If the gate fails, stop and ask the user before Phase P4. Options: a different observable, narrower bounds, a longer plasma, or one parameter.
+15. Stage A gate (Section 2.6): the one-parameter recovery of $\hat E_L$ with $\hat z_f = \hat z_f^\ast$ (`python fd_recovery.py --target T0p one_E_L`). Use a 10-point design at 0.05, 0.15, ..., 0.95, then dogbox from the 2 best design points that are at least 0.2 apart. Pass if the best result is within 0.02 of $\hat E_L^\ast$. Also run $z_f$ alone, and the T0 recoveries of both as the bias report.
+
+Acceptance (gate): the Stage A gate (step 15) passes on T0′. The two-parameter gate of steps 12 and 13 belongs to Stage B. Its first result (Section 12.5) is recorded: the 25-point design does not resolve the basin of $\theta^\ast$. The previous text of this acceptance was: parts (a) and (b) pass with the T0′ target and the Section 2.4 loss. If the gate fails, stop and ask the user before Phase P4. Options: a different observable, narrower bounds, a longer plasma, or one parameter.
+
+The first version of this gate (one L-BFGS-B run from the farthest start, raw moments) failed in its design, not in the problem: see Section 12.5.
 
 ### Phase P4. Tangent kernels (6 to 8 days)
 
@@ -753,12 +803,16 @@ Acceptance: L5 and the emission-delay check are reported to the user.
 
 ### Phase P9. Twin recovery (3 to 5 days)
 
-0. Confirm the recovery branch chosen at the end of Phase P7 (Section 6.4). Label every result with it.
-1. Write `inversion/recover.py` with `scipy.optimize.minimize(method="L-BFGS-B")` on $\hat\theta$, bounds $[0, 1]$, and `value_and_grad(...).grad_hat`.
-2. Generate the T1 and T2 targets (Section 2.2). T0 exists from Phase P3.
-3. Run L6 noise-free on Twin-S for T0 and T1 from the 5 starts. Record iterations, gradient evaluations, and wall time. Compare them with the FD recovery of Phase P3. Report T2.
+Stage A runs this phase for $E_L$ alone, with $\hat z_f = \hat z_f^\ast$ (Section 2.6). Steps 1 and 3 give the Stage A form first. Stage B uses the two-parameter form in the same steps.
 
-Acceptance: L6 passes on Twin-S for T0 and T1. Results are recorded.
+0. Confirm the recovery branch chosen at the end of Phase P7 (Section 6.4). Label every result with it.
+1. Write `inversion/recover.py` with the Section 2.5 driver.
+   - Stage A: the 10-point 1-D design in $\hat E_L$ of Phase P3 step 15, then `least_squares(method="dogbox")` on $r_w$ from the 2 best design points that are at least 0.2 apart, bounds $[0, 1]$. The JVP Jacobian (1 primal run and 1 tangent) replaces the FD Jacobian after it passes the JVP gate of Section 2.5, item 5.
+   - Stage B: the 25-point design, then dogbox from the 2 or 3 best design points, with 1 primal run and 2 tangents, after the global-search decision of Section 2.6.
+2. Generate the T1 and T2 targets (Section 2.2). T0′ and T0 exist from Phase P3.
+3. Run L6 noise-free on Twin-S or on the reduced Twin-S, as Phase P8 step 3 decides. Stage A starts: the design-based starts and the $\hat E_L$ coordinates of the 5 starts of Section 3.4, with $\hat z_f = \hat z_f^\ast$. Stage B starts: the design-based starts and the 5 Latin-hypercube starts. T0′ is the tight convergence check, with the diagnostics of the L6 row. T0 must pass within 0.02. Run the same recoveries on T1 and report its offset from $\hat\theta^\ast$ as model bias. Record iterations, gradient evaluations, and wall time. Compare them with the FD recovery of Phase P3. Report T2.
+
+Acceptance: L6 passes for T0′ and T0. The T1 offset is recorded and reported to the user, together with the emission-delay results of Phase P8.
 
 ### Phase P10. Documentation (1 day)
 
@@ -826,7 +880,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D11 | No new Python dependency. Loss in CuPy or Warp. | Global work rules |
 | D12 | EV emission per parent ion each step: $K_e = 1$, $\epsilon = 10^{-4}$, neutral pending deposit. | Planner default, validated against immediate emission in Phase P8 |
 | D13 | Hand-written tangent kernels. Existing and Warp-generated VJPs serve as references in dot-product tests. | Planner default after D25 |
-| D14 | L-BFGS-B on the 2 normalized parameters, 5 Latin-hypercube starts. | Planner default |
+| D14 | L-BFGS-B on the 2 normalized parameters, 5 Latin-hypercube starts. | Superseded by D26 on 2026-10-30 |
 | D15 | He as fixed-charge 2+ ions without an ionizer. | Planner default |
 | D16 | `p_nt = 8` for every species. | FBPIC rule `p_nt >= 4 Nm` with $N_m = 2$ |
 | D17 | Production stepping is unchanged. The differentiable path uses its own functional stepper for gradients, FD, and EV truth runs. | Planner default after review |
@@ -838,6 +892,9 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D23 | Two azimuthal modes ($m = 0, 1$). | User, 2026-10-30 |
 | D24 | Defer Twin-M. | User, 2026-10-30 |
 | D25 | Forward mode is the main engine, with one tangent per parameter. Reverse mode is future work. | User, 2026-10-30 |
+| D26 | Bounded trust-region `least_squares(method="dogbox")` on the whitened residuals, from a 25-point global design, with multistart (Section 2.5). Supersedes D14. | User, 2026-10-30 |
+| D27 | Add the T0′ control target with exactly the inversion settings. Gate (b) and L6 test convergence on T0′; T0 and T1 recoveries report model bias. Drop ECNoise (fixed FD steps) and the bootstrap term of $\Sigma$. Drop $\langle y\rangle$ and $\langle u_y\rangle$ from the loss (11 observables). | User, 2026-10-30 |
+| D28 | Stage A: take one parameter ($E_L$, $z_f$ fixed at $z_f^\ast$) through Phases P3 to P9 with one tangent, then add $z_f$ in Stage B (Section 2.6). | User, 2026-10-30 |
 
 ## 11. Future work
 
@@ -891,6 +948,8 @@ Switch to forward mode by the user on 2026-10-30 (D25). With 2 parameters, forwa
 A Section 5 review on 2026-10-30 (Sol) supported the population model and challenged the delayed emission. This revision applies it: the model is called a deterministic rate-equation PIC model; the threshold delay is stated; an immediate-emission reference replaces the $\epsilon = 10^{-6}$ reference (Section 5.5); an immobile-ion check tests the mean-charge closure; and $1 - p_\ell$ is evaluated as $\exp(-x_\ell)$.
 
 A scope review on 2026-10-30 (Sol) recommended an inversion baseline before the derivative work. This revision adds the FD recovery gate (Phase P3) with the forward EV model and a minimal loss, moves the tangent phases after it (P4 to P6), adds milestones M1 and M2 and a narrow success claim, corrects the Section 8 wording on threshold discontinuities, and moves the SWD term to future work.
+
+An adversarial plan review on 2026-10-30 (Fable) had 35 candidate findings: 33 survived verification, 0 were refuted, 2 were partly refuted, and 8 were downgraded. Finding R1 (the T0 target mixes `p_nz` model bias with convergence) is applied in this revision as the T0′ control target (D27). The other fixes go into a separate plan commit after Phase P3.
 
 Phase numbers in the review records above refer to the plan at the time of each review.
 
@@ -1058,6 +1117,229 @@ The 1000-step Twin-S case is an addition. At 300 steps the laser has not reached
 
 Acceptance: L2 passes on Twin-XS and Twin-S. Production code is unchanged.
 
+### 12.5 Phase P3. Forward EV model, minimal loss, and FD recovery gate
+
+Run on 2026-10-30 on physical GPU 1 (RTX 6000 Ada), code on top of commit `1d9272e`.
+
+Files: `fbpic/autodiff/ionization.py` (EV kernels `ev_ionize` and `copy_ev_electrons`, state management), `push_ion_momenta_ev` in `fbpic/autodiff/particles.py`, the EV hooks of `fbpic/autodiff/stepper.py`, and in `inversion/`: `verify_ev_open_loop.py`, `verify_ev_invariants.py`, `ev_runs.py`, `make_target.py`, `verify_loss_minimal.py`, `verify_ev_closure.py`, `fd_recovery.py`, `ev_point.py`, `target_covariance.py`, `notes/optimizer-literature-2026-10-30.md`.
+
+Implementation notes:
+
+1. Warp 1.18 has no `expm1`. `ev_ionize` computes $p_\ell = -\mathrm{expm1}(-x_\ell)$ with Kahan's form $(u-1)\,x/\log u$, $u = e^{x}$, which is accurate to a few ulp. The ADK coefficients come from the production `Ionizer.initialize_ADK_parameters`.
+2. Emission slots are the exclusive `cumsum` of the emission flags in parent order. The new electrons take their tracker IDs from the production `generate_new_ids`, so electron $k$ of a step has the parent `emitted_parent_ids[k]`.
+3. For each deposit, the N ions temporarily take the weight $w\bar Z - W$ and the charge $e$. The ion push uses the charge $e\,(w\bar Z - W)/w$.
+4. After each production exchange, the EV arrays are realigned by tracker ID. Injected ions start at $P = (1, 0, 0)$, $W = 0$.
+
+Step 1: implemented (see the files above).
+
+Step 2, open loop (`python verify_ev_open_loop.py`): 2400 ions in 60 field groups, 200 steps, Twin-S $\Delta t$, 32 Philox seeds. Over the set, $p_5$ covers 1.0e-3 to 0.90 and $p_6$ covers 1.1e-5 to 0.30.
+
+| Quantity | EV | Seed mean | SE | (EV - mean)/SE |
+|---|---|---|---|---|
+| $\sum w P_5$ | 1.5606e7 | 1.5518e7 | 8.9e4 | +0.99 |
+| $\sum w P_6$ | 4.2095e7 | 4.2029e7 | 1.4e5 | +0.48 |
+| $\sum w P_7$ | 6.7963e7 | 6.8117e7 | 1.1e5 | -1.42 |
+| Birth weight (emitted + pending) | 1.78020e8 | 1.78262e8 | 1.4e5 | -1.69 |
+
+Pass (limit 3 SE). Also: $\max|P_5 + P_6 + P_7 - 1| = 1.6\cdot10^{-15}$, and $\max W/w = 8.9\cdot10^{-5} \le \epsilon$.
+
+Steps 3 and 4 (`python verify_ev_invariants.py`, Twin-S at $\theta^\ast$, 2000 steps):
+
+| Check | Result | Limit |
+|---|---|---|
+| Charge before and after the EV call, 8 steps (2 without emission, 6 with 10447 to 12893 emissions) | at most 7.0e-16 relative | 1e-12 |
+| Closed cohort: the 76000 ions of the first injection (iteration 14) and their electrons, at iterations 450 to 750; no cohort particle removed | $\max|P_5+P_6+P_7-1| = 2.2\cdot10^{-15}$; weight balance at most 8.3e-16 relative | 1e-14; 1e-12 |
+| Open window with removal ledgers, iterations 450 to 2000 | emitted-weight balance at most 6.0e-16; total balance at most 8.9e-16 | 1e-12 |
+| Populations follow IDs through 2 sorts and 2 exchanges (11200 ions injected at each, 11184 removed at iteration 1008) | equal; injected ions start at (1, 0, 0, 0) | exact |
+
+Pass. The cohort emitted 1.24M electrons from 76000 ions, about 16 per ion: with $\epsilon = 10^{-4}$, an ion emits again each time its pending weight passes $\epsilon w$.
+
+Step 5, EV runs of Twin-S (`python ev_runs.py twin_s <point>`, $\epsilon = 10^{-4}$, $K_e = 1$):
+
+| Point | Births | `elec_from_N` at $N_t$ | $Q$ EV [pC] | $Q$ stochastic [pC] (P1) | Run time | Mempool peak used / reserved |
+|---|---|---|---|---|---|---|
+| nominal (0.5, 0.5) | 13.16M | 6.66M | 15.50 | 15.51 | 88.8 s | 2.62 / 3.96 GB |
+| corner (0, 0) | 11.88M | 6.43M | 9.45 | 9.40 | 87.6 s | 2.50 / 3.59 GB |
+| corner (1, 1) | 16.30M | 7.52M | 28.03 | 28.01 | 101.4 s | 3.02 / 4.46 GB |
+
+The EV births are about 6 times the loaded background (2.69M macroparticles over the run), not up to 1.7 times as Section 8 estimated. The stochastic run leaves 0.17M `elec_from_N`; EV leaves 40 times more. An EV run takes about 4 times as long as a production stochastic run (22 s). Memory is not a constraint: the peak stays below 5 GB of 48 GB.
+
+Step 6, immediate emission ($\epsilon = 0$):
+
+| Case | Births | `elec_from_N` at $N_t$ | Run time | Mempool peak used / reserved |
+|---|---|---|---|---|
+| Twin-XS, nominal | 2.53M | 0.49M | 6.7 s | 0.64 / 0.77 GB |
+| Reduced Twin-S (N only in $z_c \pm 2$ µm), nominal | 13.75M | 5.97M | 224 s | 3.27 / 4.97 GB |
+
+Both fit in memory. The reduced Twin-S keeps the plasma neutral: its electron density drops by the nitrogen share outside the nitrogen region. Its selected charge is 4.81 pC. The device-memory reading of that run (13.3 GB) includes a concurrent process, so the mempool marks are the relevant numbers.
+
+Step 7, minimal loss (`python verify_loss_minimal.py`, host only): on an empty selection the loss equals the closed form $\alpha_Q(\log Q_f - \log(Q_y+Q_f))^2 + \alpha_M\sum_k m_{k,y}^2/s_k^2$ (48.297, relative error below 1e-12). On one particle with $\sigma = 10^{-6}$, the loss (48.297) and the moments are finite. Pass. `make_target.py` writes the target with the keys of Section 3.4; `load_target` refuses a target whose `config_sha256` or $N_t$ does not match.
+
+Step 8, mean-charge closure (`python verify_ev_closure.py <size>`). The SE is that of the mean of 16 Philox seeds of production stochastic ionization. Twin-XS runs at the nominal $\theta$ against a target made from its mobile EV beam; Twin-S runs at $\theta^\ast$ against T0 and reuses the P1 seeds 101 to 104.
+
+| Quantity | Twin-XS: (mobile - immobile)/SE | Twin-XS: (EV mobile - seed mean)/SE | Twin-XS: (EV immobile - seed mean)/SE |
+|---|---|---|---|
+| Q_pC | -3.45 | -0.23 | +3.22 |
+| <x> | +0.64 | -0.48 | -1.12 |
+| <ux> | +0.52 | -0.26 | -0.78 |
+| <y> | -0.62 | -1.90 | -1.28 |
+| <uy> | -0.57 | -2.03 | -1.45 |
+| <zeta> | +3.15 | +0.74 | -2.41 |
+| <uz> | +4.34 | +0.66 | -3.68 |
+| <x^2> | +1.70 | -1.95 | -3.65 |
+| <ux^2> | +2.37 | -2.58 | -4.95 |
+| <y^2> | -0.68 | +0.91 | +1.60 |
+| <uy^2> | -0.42 | +0.78 | +1.21 |
+| <zeta^2> | -2.75 | -0.65 | +2.11 |
+| <uz^2> | +4.07 | +0.54 | -3.53 |
+| loss | -3.02 | -3.74 | -0.72 |
+
+| Quantity | Twin-S: (mobile - immobile)/SE | Twin-S: (EV mobile - seed mean)/SE | Twin-S: (EV immobile - seed mean)/SE |
+|---|---|---|---|
+| Q_pC | -1.40 | +0.87 | +2.27 |
+| <x> | -0.12 | +0.02 | +0.14 |
+| <ux> | -0.25 | -0.35 | -0.09 |
+| <y> | +0.33 | -0.81 | -1.14 |
+| <uy> | +0.06 | -0.61 | -0.67 |
+| <zeta> | +1.09 | +0.49 | -0.59 |
+| <uz> | +0.02 | +0.88 | +0.86 |
+| <x^2> | -0.28 | -1.65 | -1.37 |
+| <ux^2> | -0.07 | -0.62 | -0.55 |
+| <y^2> | -0.51 | +1.09 | +1.60 |
+| <uy^2> | -0.10 | +0.37 | +0.47 |
+| <zeta^2> | +1.36 | +0.52 | -0.84 |
+| <uz^2> | -0.10 | +0.99 | +1.09 |
+| loss | -1.40 | -1.83 | -0.43 |
+
+Result: Twin-S passes (largest difference 1.40 SE). Twin-XS fails the 2 SE rule: mobile and immobile ions differ by up to 4.34 SE (in $\langle u_z\rangle$, $\langle u_z^2\rangle$, $Q$, $\langle\zeta\rangle$, and the loss), with relative differences of 1 to 3%. The loss row of Twin-XS compares against a target made from the mobile EV beam, so its EV-mobile entry is not meaningful.
+
+Interpretation. The mobile-against-immobile difference measures the effect of ion motion, not the error of the mean-charge closure. On Twin-XS, EV with mobile ions agrees with the stochastic seed mean in $Q$, $\langle\zeta\rangle$, $\langle u_z\rangle$, and $\langle u_z^2\rangle$ within 0.74 SE; EV with immobile ions does not (2.4 to 4.9 SE). Two Twin-XS moments of EV-mobile, $\langle u_y\rangle$ and $\langle u_x^2\rangle$, are 2.0 and 2.6 SE from the seed mean. The plan asks the user to decide when a difference exceeds 2 SE. Status: reported to the user on 2026-10-30. The user judged that the FD recovery gate does not depend on this result, because the T0 target and the model use the same EV closure. The closure question stays open for the T2 recovery of Phase P9.
+
+Step 9, T0 target (`python make_target.py twin_s T0`): `inversion/targets/twin_s_T0_Nt2000.npz`. EV at $\theta^\ast$ with NumPy seed 7 and `p_nz = 2`. $Q_y = 14.80$ pC, $Q_f = 1.48\cdot10^{-2}$ pC, 3.43M macroparticles with $\sigma > 0.5$, 25.3M births, 283 s, mempool peak 5.17 GB used and 7.42 GB reserved. The target was made from the working tree on top of commit `1d9272e`; its `git_hash` key records `1d9272e`, which does not yet hold the EV code. The P3 commit holds that code unchanged.
+
+Noise floor (`python fd_recovery.py noise`): 3 EV runs at $\theta^\ast$ give $J = 1.5116\cdot10^{-3}$ with a standard deviation of $2.1\cdot10^{-12}$. The EV twin is deterministic to round-off; the nonzero $J$ at $\theta^\ast$ is the model error of `p_nz = 1` against the `p_nz = 2` target.
+
+Step 10, slices (`python fd_recovery.py slices`, 26 runs, minimal loss). $J$ at $\hat\theta^\ast_i + d$, $d = -0.30, -0.25, \dots, +0.30$:
+
+| Loss | Coordinate | $J$ |
+|---|---|---|
+| Raw second moments | $E_L$ | 2.299, 1.541, 0.917, 0.415, 0.227, 0.019, **0.002**, 0.050, 0.206, 0.483, 0.708, 1.115, 1.586 |
+| Raw second moments | $z_f$ | 0.076, 0.037, 0.051, 0.060, 0.016, 0.019, **0.002**, 0.008, 0.022, 0.064, 0.105, 0.224, 0.376 |
+| Central second moments | $E_L$ | 0.107, 0.077, 0.041, 0.021, 0.017, **0.0008**, 0.0013, 0.0015, 0.006, 0.018, 0.024, 0.047, 0.060 |
+| Central second moments | $z_f$ | 0.065, 0.031, 0.042, 0.032, 0.008, 0.004, **0.0013**, 0.008, 0.025, 0.044, 0.060, 0.117, 0.190 |
+
+Both slices have one basin around $\hat\theta^\ast$. The $z_f$ slice is flat and not monotone below $\hat z_f = 0.25$ with both losses. With central moments, the $E_L$ minimum moves to $\hat E_L \approx 0.55$: the model error of `p_nz = 1` shifts the minimum. The raw-moment loss is larger in $E_L$ because the raw terms count the means of $\zeta$ and $u_z$ again. $Q$ rises monotonically from 12.6 to 19.3 pC over the $z_f$ slice and from 14.0 to 15.6 pC over the $E_L$ slice.
+
+First gate attempt (plan as written: L-BFGS-B, raw-moment loss, central FD with $h = 0.02$, from the farthest start). It failed in its design. The evaluations were:
+
+| Evaluation | $\hat\theta$ | $J$ | FD gradient |
+|---|---|---|---|
+| 1 | (0.164, 0.323) | 5.274 | (-37.8, +4.5) |
+| 2 | (1, 0) | 1.433 | (+6.4, +1.3) |
+| 3 | (0.889, 0) | 0.915 | (+5.8, +2.1) |
+| 4 | (0, 0) | 10.37 | (-61.3, +0.2) |
+| 5 | (0.603, 0) | 0.072 | (+0.67, +0.29) |
+| 6 | (0, 0) | 10.37 | (-61.3, +0.2) |
+| 7 | (0.521, 0) | 0.157 | (-2.08, -0.39) |
+
+The first step went to the corner (1, 0). L-BFGS-B scales its first step by the gradient only, and the projection onto the box moved $z_f$ to its bound. A secant pair from the flat region then sent the step to the opposite corner. At $\hat z_f = 0$ the $z_f$ derivative is positive, so the bounded method stays at the bound. The run was stopped after 7 evaluations (`results/p3_fd_recovery.json`, key `recovery_lbfgsb_stopped`). A trust-region `least_squares` run (method `trf`, central moments, not whitened) from the same start reached (0.432, 0.231) with $J = 0.023$ after 3 accepted steps; it was stopped when the user approved the new gate (key `recovery_trf_central_stopped`). A literature review (`inversion/notes/optimizer-literature-2026-10-30.md`) gave the optimizer of Section 2.5 and the loss of Section 2.4 (D26).
+
+Step 11, prerequisites of the new gate:
+
+1. Weights (`python target_covariance.py run <point>` for the nominal point and the 4 corners, then `build`). $\Sigma = \mathrm{diag}(\Delta^2)$, with $\Delta$ the RMS over the 5 points of the truth-setting run minus the model run (Section 2.4). The 4 corner runs at `p_nz = 2` take 345 to 351 s each. The RMS model error per observable:
+
+| Observable | RMS $\Delta$ | Observable | RMS $\Delta$ |
+|---|---|---|---|
+| $\log(Q+Q_f)$ | 4.46e-2 | $\log\sigma_x$ | 2.71e-2 |
+| $\langle x\rangle$ [m] | 6.52e-8 | $\log\sigma_{u_x}$ | 2.11e-2 |
+| $\langle u_x\rangle$ | 1.74e-2 | $\log\sigma_y$ | 4.47e-2 |
+| $\langle \zeta\rangle$ [m] | 2.65e-8 | $\log\sigma_{u_y}$ | 3.28e-2 |
+| $\langle u_z\rangle$ | 1.83e-1 | $\log\sigma_\zeta$ | 4.12e-2 |
+| | | $\log(\sigma_{u_z}/\langle u_z\rangle)$ | 1.46e-2 |
+
+   The first build used the nominal point alone, plus a Poisson bootstrap ($B = 256$) of the T0 rerun. With it, $J(\theta^\ast) = 1128$ on T0, and 1124 of that came from one residual: the log relative energy spread, with a whitened value of $-33.5$. Its $\Delta$ at the nominal point was $3.8\cdot10^{-4}$, but the model error at $\theta^\ast$ is $2.5\cdot10^{-2}$. The bootstrap term was 3 to 30 times smaller than $\Delta$ for 10 of the 13 observables. The user removed the bootstrap and the ECNoise step (D27). With the 5-point $\Delta$, $J(\theta^\ast) = 6.8$ on T0, and every whitened residual is within $\pm 1.7$. The T0 rerun reproduces the target observables to $2\cdot10^{-11}$ (relative), so the code of this commit reproduces T0. File: `inversion/targets/twin_s_T0_Nt2000_whitening.npz`.
+2. Identifiability with the Section 2.4 observables (`python identifiability.py report_loss`, the P1 runs and method):
+
+| Weights | cond(G) | $\sqrt{\mathrm{diag}\,G^{-1}}$ ($E_L$, $z_f$) | P1 limits (1e4; 0.02) |
+|---|---|---|---|
+| Diagonal P1 rule (seed variance plus $(v_{T2} - v)^2$, 2% floor) | 2.21 | (0.0125, 0.0089) | pass |
+| Weights $\Sigma$ of item 1 | 1.41 | (0.0123, 0.0110) | pass |
+
+   Both rows use the final 11 observables (item 3).
+3. Observables $\langle y\rangle$ and $\langle u_y\rangle$ removed (D27). Their P1 sensitivities are small: at most 0.3 for $\langle y\rangle$ and 1.0 for $\langle u_y\rangle$ in units of the P1 noise per unit $\hat\theta$, against 13 to 59 (in at least one parameter) for the other observables, and their jitter is 1.14 and 0.72 model-error units (RMS of the residual about a quadratic fit along the fine slices). In the 13-observable dogbox run, the rejected trial step at (0.5150, 0.2735) had $J = 43.6$: $\langle y\rangle$ gave 16.2 and $\langle u_y\rangle$ gave 3.3, while the other 11 terms stayed at 24.0. Each of the other 11 observables changes by 1.5 to 9 jitter units over $\Delta\hat\theta = 0.02$ in at least one parameter.
+
+Step 12, T0′ and gate part (a):
+
+1. T0′ (`python make_target.py twin_s T0p`): EV at $\theta^\ast$ with the config seed and `p_nz = 1`, 381 s, $Q = 15.06$ pC. The cached FD run at $\hat\theta^\ast$ matches it to $1.7\cdot10^{-12}$ in $Q$ and to $1.7\cdot10^{-9}$ in the observables, after the moments are rescaled to the $Q_f$ of T0′ (`ev_point.py` forms them with the $Q_f$ of T0; the rescale is exact). $J(\theta^\ast) = 4.7\cdot10^{-15}$ on T0′.
+2. $z_f$ edge test at (0.603082, 0), one-sided second-order stencil (`python fd_recovery.py edge`):
+
+| $h$ | $J$ at $\hat z_f = 0, h, 2h$ (new loss, T0) | $dJ/d\hat z_f$ new loss | $dJ/d\hat z_f$ old loss |
+|---|---|---|---|
+| 0.02 | 116.5, 132.5, 142.7 | +948 | +0.318 |
+| 0.1 | 116.5, 110.8, 86.6 | +34.5 | +0.123 |
+
+   At $h = 0.02$ the bound is a local minimum in $z_f$ with both losses. At $h = 0.1$ the values fall from 0.1 to 0.2, but the quadratic stencil still gives a positive slope. The point has $J = 116.5$, against 6.8 at $\theta^\ast$ (T0).
+3. 25-point design (`python fd_recovery.py --target T0p design`), $J$ on T0′; rows $\hat E_L$, columns $\hat z_f$ = 0.1, 0.3, 0.5, 0.7, 0.9:
+
+| $\hat E_L$ | 0.1 | 0.3 | 0.5 | 0.7 | 0.9 |
+|---|---|---|---|---|---|
+| 0.1 | 1195 | 1986 | 3490 | 4332 | 6103 |
+| 0.3 | 237 | 335 | 1296 | 2411 | 3570 |
+| 0.5 | 107 | **25.7** | 172 | 1113 | 2131 |
+| 0.7 | 190 | 115 | **35.1** | 180 | 1388 |
+| 0.9 | 330 | 453 | 275 | 153 | 645 |
+
+   The grid minima are (0.5, 0.3), (0.7, 0.5), and (0.9, 0.7), along one diagonal valley. On T0 the values differ by less than 10% away from $\theta^\ast$. The script scored part (a) as a pass, because the best grid point lies within one grid step of $\theta^\ast$. That score is wrong: step 13 shows that (0.5, 0.3) lies in a different basin.
+4. Fine slices on T0′ (`python fd_recovery.py --target T0p fine`), $J$ at offsets $-0.05, -0.04, -0.02, -0.01, 0, +0.01, +0.02, +0.04, +0.05$:
+   - $E_L$: 15.1, 21.2, 11.9, 2.7, 0, 1.4, 5.3, 18.4, 26.5.
+   - $z_f$: 28.1, 23.7, 7.8, 1.8, 0, 1.2, 4.8, 15.1, 18.3.
+
+   The minimum is at $\hat\theta^\ast$ in both coordinates. The $E_L$ slice has a second dip at $-0.05$.
+
+Step 13, gate part (b) with two parameters, on T0′: failed.
+
+1. 13 observables, FD steps (0.02, 0.05). From (0.5, 0.3): $J$ = 29.9, 27.9, 27.0 at (0.5117, 0.2810), then `xtol` stop after 7 residual and 3 Jacobian evaluations, error (0.088, 0.119). From (0.9, 0.7): stop at (0.898, 0.689) with $J = 157$. The third start was stopped. Cause: the $\langle y\rangle$ and $\langle u_y\rangle$ jitter of step 11, item 3.
+2. 11 observables. From (0.5, 0.3): $J$ = 25.7, then 23.73 at (0.5062, 0.2860), a rejected step to (0.5112, 0.2853) with 23.86, then 23.79 at (0.5075, 0.2859). The run was stopped when the user chose Stage A (D28).
+3. False minimum. The cached runs near (0.512, 0.281) give $J$ = 23.7 to 23.9 over a patch of size 0.01. $J$ rises on every side: 28.2 and 39.3 at $\hat E_L \mp 0.02$, and 38.2 and 27.8 at $\hat z_f \mp 0.05$. The residuals there do not jitter. $\langle x\rangle$, $\langle u_x\rangle$, and $\langle\zeta\rangle$ change sign at points other than those where the spread terms do, and the spreads have a minimum in $E_L$ near $\theta^\ast$.
+4. Basin radius. The radius is the distance from $\hat\theta^\ast$ at which $J$ on T0′ reaches the level of the false minimum, about 24. On the fine slices and the step 10 slices this happens at an offset of about 0.04 in each coordinate: $J$ = 18.4 to 21.2 at $\pm 0.04$ in $E_L$, 15.1 and 23.7 at $\pm 0.04$ in $z_f$, and 32.4 at $(0.6, 0.3)$. The 25-point design has a spacing of 0.2, so no design point lies in this basin.
+
+Step 15, Stage A gate (one parameter, the other at $\hat\theta^\ast$; `python fd_recovery.py --target T0p one_E_L one_z_f`). The 10-point designs on T0′:
+
+- $E_L$: 3249, 1850, 974, 456, 105, **15.1**, 26.5, 126, 291, 346 at 0.05, 0.15, ..., 0.95.
+- $z_f$: 192, 70.3, 100, 28.1, **18.3**, 96.8, 307, 971, 1465, 1819.
+
+| Target, parameter | Start | Final | Error | $J$ final | Evaluations (residual, Jacobian) | $\sqrt{G^{-1}}$ at the solution | Wall time |
+|---|---|---|---|---|---|---|---|
+| T0′, $E_L$ | 0.55 (design) | 0.5453 | 0.055 | 12.6 | 3, 3 | 0.0044 | 723 s |
+| T0′, $E_L$ | 0.85 (design) | **0.60000** | **1.5e-5** | 1.6e-5 | 5, 5 | 0.0081 | 1251 s |
+| T0′, $E_L$ | 0.164 (farthest, report) | 0.60013 | 1.3e-4 | 5.3e-4 | 6, 6 | 0.0081 | 1645 s |
+| T0′, $z_f$ | 0.45 (design) | 0.40009 | 8.8e-5 | 2.7e-4 | 5, 5 | 0.0107 | 1080 s |
+| T0′, $z_f$ | 0.15 (design) | 0.40013 | 1.3e-4 | 8.6e-4 | 8, 8 | 0.0107 | 1615 s |
+| T0′, $z_f$ | 0.795 (farthest, report) | 0.40007 | 6.8e-5 | 1.7e-4 | 6, 6 | 0.0107 | 1648 s |
+| T0, $E_L$ | 0.55 (design) | 0.5541 | 0.046 | 9.5 | 3, 2 | 0.0060 | 360 s |
+| T0, $E_L$ | 0.164 (farthest) | 0.5878 | 0.012 | 3.8 | 6, 5 | 0.0074 | 895 s |
+| T0, $z_f$ | 0.35 (design) | 0.3843 | 0.016 | 2.6 | 7, 7 | 0.0115 | 1611 s |
+| T0, $z_f$ | 0.795 (farthest) | 0.3854 | 0.015 | 2.6 | 7, 6 | 0.0114 | 1431 s |
+
+Result: the Stage A gate passes. The best $E_L$ recovery on T0′ ends at $\hat E_L = 0.60000$ (error $1.5\cdot10^{-5}$, limit 0.02). The $z_f$ recovery also passes from all three starts. The best design point of $E_L$, 0.55, lies in a 1-D false minimum at $\hat E_L \approx 0.545$ ($J = 12.6$); the second design start avoids it, so the multistart is necessary. On T0, the `p_nz` model bias is $-0.012$ in $\hat E_L$ and $-0.015$ to $-0.016$ in $\hat z_f$, within 0.02. The T0 bias run with one design start stopped in the same 1-D false minimum, so the T0 $E_L$ bias comes from the farthest start. At the solution, $\sqrt{G^{-1}}$ = 0.0081 in $\hat E_L$ and 0.0107 in $\hat z_f$ (normalized units), against the 0.02 tolerance. Each gradient-based solve took 5 to 8 Jacobians, about 15 to 27 min on one GPU (3 runs of about 90 s per iteration).
+
+Provenance. The targets and the weights are not committed (`*.npz` is ignored). SHA-256 prefixes: T0 `90ee4adeb6e6`, T0′ `88783bf73c69`, weights `719cbc0e9ce2`. All 311 cached FD runs in `inversion/runs/p3` carry the simulation-code hash `804032cdc3e2`, which is the hash of `forward.py`, `twin_config.py`, `ionization.py`, `stepper.py`, and `particles.py` in this commit. T0′ was made with that code. The T0 rerun with that code reproduces T0 to $2\cdot10^{-11}$, although the `git_hash` key of T0 records `1d9272e`.
+
+Two-parameter conclusion (Stage B input, Section 2.6): the FD gradient and the trust-region solver converge inside a basin. The 2-D failure comes from the global search, which exact gradients do not fix.
+
+Independent code review (a workflow of 3 reviewers with distinct lenses and 1 adversarial verifier per finding, 14 agents): 11 findings, 6 confirmed (all minor after verification), 5 refuted.
+
+| Finding (confirmed) | Disposition |
+|---|---|
+| `ev_ionize` forms $P_5' = P_5 - P_5 p_5$, not $P_5 e^{-x_5}$ as Section 5.1 requires. The difference is at ulp level in absolute terms, but it is a relative error near saturation, and the P6 tangent will use $e^{-x}$. | Fix after the gate, so that all gate runs use one model. |
+| The emission record keeps one device array of parent IDs per emitting step (8 B per birth), which inflates the reported mempool peaks by up to about 4%. | Fix after the gate: make the record optional. |
+| The minimal loss uses raw second moments $\langle\xi_k^2\rangle$ scaled by the target variance. For $\zeta$ and $u_z$, whose means are large, these terms weigh the mean residual again, by factors of about 173 and 40. The loss is still minimal at the target. | Reported to the user. Central second moments are the better reading of Section 2.4. The slices are also evaluated offline with central moments, from the stored moments. |
+| The FD cache key holds only $\hat\theta$, so a stale entry could be reused. | Fixed: each run records hashes of the config, the target, and the EV code, and a mismatch raises. |
+| The target `git_hash` records HEAD without a dirty marker. | Recorded above; fix with a dirty marker after the gate. |
+| The Powell fallback evaluated the full 5-point FD stencil for each function value. | Fixed before the recovery run: Powell uses 1 run per point. |
+
+Refuted findings: missing checks in `_check_supported` for features the twin does not use; the deposit weight swap is not exception-safe (a failed step leaves the state invalid anyway); the open-loop check covers only ions at rest; and the FD stencil leaves $[0, 1]$ by $h$ at a bound (the plan prescribes this setup, and the loss stays finite). A third finding, a NaN in the generated VJP at zero field, was first refuted because no P3 caller differentiates there. It is real for Phase P6: `ev_tangent` runs on every ion at every step, so Section 5.3 gets a guard for $x_\ell = 0$.
+
 ## Appendix A. Unverified claims and required probes
 
 | Claim | Probe | Phase |
@@ -1068,7 +1350,8 @@ Acceptance: L2 passes on Twin-XS and Twin-S. Production code is unchanged.
 | `elec_from_N` traps a beam in Twin-S with 2 modes, `p_nt = 8`, at all checked points | Phase P1 steps 5 and 6 | P1 |
 | $E_L$ and $z_f$ are locally identifiable in Twin-S | Phase P1 step 7 | P1 |
 | EV births match the stochastic marginals in open loop | Phase P3 step 2 | P3 |
-| The device peak of Twin-S stays below about 3 GB plus the forward workspace | Measure in `value_and_grad` | P7 |
+| The device peak of `value_and_grad` on Twin-S stays near the Section 8 estimate (about 5 GB used, 7.5 to 8 GB reserved), well below 48 GB. The earlier "below about 3 GB" is already false for the primal (T0: 5.17 GB used, 7.42 GB reserved). | Measure in `value_and_grad` | P7 |
+| The raw second moments of the first loss draft give a well-conditioned loss | Closed on 2026-10-30: false. They counted the means of $z - z_{win}$ and $u_z$ again (factors 170 and 40). Section 2.4 now uses central moments and log scales. | P3 |
 
 ## Appendix B. File map
 
@@ -1088,7 +1371,7 @@ Acceptance: L2 passes on Twin-XS and Twin-S. Production code is unchanged.
 | `inversion/make_target.py` | New: target generation (T0, T1, T2) |
 | `inversion/identifiability.py` | New: Phase P1 step 7 |
 | `inversion/verify_param_gradient.py` | New: AD vs FD harness, horizon sweep |
-| `inversion/recover.py` | New: L-BFGS-B recovery driver |
+| `inversion/recover.py` | New: Section 2.5 recovery driver (design, then `least_squares` dogbox; FD Jacobian, then the JVP Jacobian) |
 | `tests/test_autodiff_tangent.py`, `test_autodiff_ionization.py`, `test_autodiff_stepper.py`, `test_autodiff_laser.py`, `test_autodiff_loss.py` | New tests (L1 to L3) |
 | `docs/warp-porting-guide/09-differentiable-step-and-inversion.md` | New chapter |
 

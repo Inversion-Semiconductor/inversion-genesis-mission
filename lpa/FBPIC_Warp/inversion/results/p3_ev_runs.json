@@ -1,0 +1,127 @@
+{
+  "twin_xs:immediate": {
+    "size": "twin_xs",
+    "point": "immediate",
+    "theta_hat": [
+      0.5,
+      0.5
+    ],
+    "epsilon": 0.0,
+    "births": 2530030,
+    "counts": {
+      "electrons": 1956,
+      "helium": 0,
+      "nitrogen": 0,
+      "elec_from_N": 492712
+    },
+    "emitted_weight": 49534379.98079977,
+    "Q_pC": 0.38076793595748964,
+    "n_selected": 168956,
+    "wall_s": 6.706140380119905,
+    "memory": {
+      "device_used": 1259929600,
+      "pool_used_high": 636085970,
+      "pool_reserved_high": 771751936
+    }
+  },
+  "twin_s:nominal": {
+    "size": "twin_s",
+    "point": "nominal",
+    "theta_hat": [
+      0.5,
+      0.5
+    ],
+    "epsilon": 0.0001,
+    "births": 13155459,
+    "counts": {
+      "electrons": 44371,
+      "helium": 24000,
+      "nitrogen": 24000,
+      "elec_from_N": 6662184
+    },
+    "emitted_weight": 378665158.1155105,
+    "Q_pC": 15.497665118640228,
+    "n_selected": 1860120,
+    "wall_s": 88.79942249902524,
+    "memory": {
+      "device_used": 4447600640,
+      "pool_used_high": 2617571862,
+      "pool_reserved_high": 3959422976
+    }
+  },
+  "twin_s:corner00": {
+    "size": "twin_s",
+    "point": "corner00",
+    "theta_hat": [
+      0.0,
+      0.0
+    ],
+    "epsilon": 0.0001,
+    "births": 11878078,
+    "counts": {
+      "electrons": 38365,
+      "helium": 24000,
+      "nitrogen": 24000,
+      "elec_from_N": 6427127
+    },
+    "emitted_weight": 230449653.9280457,
+    "Q_pC": 9.445094922657898,
+    "n_selected": 1525092,
+    "wall_s": 87.63256151112728,
+    "memory": {
+      "device_used": 4078501888,
+      "pool_used_high": 2502829282,
+      "pool_reserved_high": 3590324224
+    }
+  },
+  "twin_s:corner11": {
+    "size": "twin_s",
+    "point": "corner11",
+    "theta_hat": [
+      1.0,
+      1.0
+    ],
+    "epsilon": 0.0001,
+    "births": 16299907,
+    "counts": {
+      "electrons": 46380,
+      "helium": 24000,
+      "nitrogen": 24000,
+      "elec_from_N": 7518592
+    },
+    "emitted_weight": 530289491.24777853,
+    "Q_pC": 28.025128769723036,
+    "n_selected": 2798900,
+    "wall_s": 101.42368256114423,
+    "memory": {
+      "device_used": 4950917120,
+      "pool_used_high": 3021285010,
+      "pool_reserved_high": 4462739456
+    }
+  },
+  "twin_s_reduced:immediate": {
+    "size": "twin_s_reduced",
+    "point": "immediate",
+    "theta_hat": [
+      0.5,
+      0.5
+    ],
+    "epsilon": 0.0,
+    "births": 13752669,
+    "counts": {
+      "electrons": 46528,
+      "helium": 24000,
+      "nitrogen": 0,
+      "elec_from_N": 5967883
+    },
+    "emitted_weight": 52021668.849138126,
+    "Q_pC": 4.807564310856711,
+    "n_selected": 3219402,
+    "wall_s": 224.07199265691452,
+    "memory": {
+      "device_used": 13338804224,
+      "pool_used_high": 3274127542,
+      "pool_reserved_high": 4966055936
+    }
+  }
+}
