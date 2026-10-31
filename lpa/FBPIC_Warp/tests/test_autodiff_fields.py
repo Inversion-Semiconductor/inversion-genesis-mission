@@ -109,6 +109,7 @@ def _case(name):
             ),
         }
         original, source, output = copies[name]
+        tiled = name in ("copy_2d_to_1d", "copy_1d_to_2d")
         return _Case(
             getattr(ad, name),
             original,
@@ -117,6 +118,7 @@ def _case(name):
             ("source",),
             ("result",),
             {"result": output},
+            dimensions=ad.copy_1d_2d_dim(SHAPE) if tiled else SHAPE,
             inplace=False,
         )
     if name in ("rt_to_pm", "pm_to_rt"):
@@ -141,7 +143,7 @@ def _case(name):
         )
         arrays = {
             "source": source,
-            "permutation": rng.permutation(count).astype(np.int64),
+            "permutation": rng.permutation(count).astype(np.int32),
         }
         return _Case(
             getattr(ad, name),
@@ -337,7 +339,7 @@ def _device_array(value, device, requires_grad=False):
         data, dtype = np.stack((value.real, value.imag), axis=-1), wp.vec2d
     else:
         data = value
-        dtype = wp.int64 if value.dtype == np.int64 else wp.float64
+        dtype = wp.int32 if value.dtype == np.int32 else wp.float64
     return wp.array(data, dtype=dtype, device=device, requires_grad=requires_grad)
 
 
@@ -414,6 +416,37 @@ def test_field_forward_parity(device, case_name):
         np.testing.assert_array_equal(
             value.numpy(), _device_array(case.arrays[name], device).numpy()
         )
+
+
+@pytest.mark.parametrize("shape", [(1, 1), (7, 5), (8, 4), (17, 3), (3, 13)])
+@pytest.mark.parametrize("to_1d", [True, False])
+def test_transposing_copy_matches_numpy(device, shape, to_1d):
+    # The parity test shares the tiled body with production; check the layout
+    # and its adjoint against an independent z-contiguous reference instead.
+    rng = np.random.default_rng(611)
+    field = _complex(rng, shape)
+    flat = field.T.ravel()
+    source, expected = (field, flat) if to_1d else (flat, field)
+    seed = _complex(rng, expected.shape)
+    seed_source = seed.reshape(shape[::-1]).T if to_1d else seed.T.ravel()
+    values = _device_array(source, device, requires_grad=True)
+    result = wp.zeros_like(_device_array(expected, device), requires_grad=True)
+    tape = wp.Tape()
+    with tape:
+        wp.launch(
+            ad.copy_2d_to_1d if to_1d else ad.copy_1d_to_2d,
+            dim=ad.copy_1d_2d_dim(shape),
+            inputs=[values],
+            outputs=[result],
+            device=device,
+        )
+    tape.backward(grads={result: _device_array(seed, device)})
+    np.testing.assert_array_equal(
+        result.numpy(), _device_array(expected, device).numpy()
+    )
+    np.testing.assert_array_equal(
+        values.grad.numpy(), _device_array(seed_source, device).numpy()
+    )
 
 
 @pytest.mark.parametrize("case_name", CASE_NAMES)

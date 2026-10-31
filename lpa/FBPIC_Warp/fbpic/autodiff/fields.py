@@ -40,10 +40,27 @@ pm_to_rt = wp.kernel(
 )
 
 
+def copy_1d_2d_dim(shape):
+    """Return the 1D launch dimension of `copy_2d_to_1d` and `copy_1d_to_2d`.
+
+    These clones keep the production warp micro-tiles, so each thread maps its
+    linear index to one (iz, ir) cell. A 2D launch over `shape` copies only the
+    ir = 0 column.
+
+    Args:
+        shape: The (Nz, Nr) shape of the 2D array.
+
+    Returns:
+        The thread count to pass as ``dim`` to ``wp.launch``.
+    """
+    blocks, threads = _layout.cuda_copy_1d_2d_launch(*shape)
+    return blocks * threads
+
+
 @wp.kernel(enable_backward=True, module="unique")
 def permute_float64(
     source: wp.array(dtype=wp.float64),
-    permutation: wp.array(dtype=wp.int64),
+    permutation: wp.array(dtype=wp.int32),
     result: wp.array(dtype=wp.float64),
 ):
     """Copy scalar payloads through a fixed, valid particle permutation."""
@@ -55,7 +72,7 @@ def permute_float64(
 @wp.kernel(enable_backward=True, module="unique")
 def permute_vec2d(
     source: wp.array(dtype=wp.vec2d),
-    permutation: wp.array(dtype=wp.int64),
+    permutation: wp.array(dtype=wp.int32),
     result: wp.array(dtype=wp.vec2d),
 ):
     """Copy complex payloads through a fixed, valid particle permutation."""
