@@ -15,6 +15,13 @@ methods for every operation, with three differences:
    model of `fbpic.autodiff.ionization` (Section 5).
 3. It does not reproduce the step-0 diagnostic J deposit (Section 4.3, rule 4).
 
+With a `TangentState`, `step` applies the tangent of each primal operation
+right after it (forward mode, Sections 4.3 to 4.9). The particle tangents use
+the kernels of `fbpic.autodiff.tangent`; the field tangents run the production
+linear field operators on swapped tangent arrays (`FieldTangents.apply`).
+Tangents follow every primal decision and never change it. EV tangents arrive
+in Phase P6.
+
 Production `Simulation.step` stays unchanged (D17). The stepper requires
 `sim.use_cuda_graphs` to be False and reads `sim.iteration` and `sim.time`.
 """
@@ -24,7 +31,14 @@ from __future__ import annotations
 import cupy
 import numpy as np
 
-from fbpic.autodiff.state import EV_ARRAY_NAMES, StepDecisions, StepState
+from fbpic.autodiff import tangent as tg
+from fbpic.autodiff.state import (
+    EV_ARRAY_NAMES,
+    TANGENT_PARTICLE_NAMES,
+    StepDecisions,
+    StepState,
+    TangentState,
+)
 from fbpic.particles.utilities.cuda_sorting import (
     get_cell_idx_per_particle,
     incl_prefix_sum,
@@ -121,13 +135,25 @@ def _data_pairs(species):
         yield from ((species, n) for n in GATHERED_NAMES)
 
 
-def sort_all(state: StepState):
-    """Stable-sort every species; the EV arrays follow their ions."""
+def sort_all(state: StepState, tangents: TangentState | None = None) -> dict:
+    """Stable-sort every species; the EV arrays and the tangents follow.
+
+    Returns:
+        The permutation of each species by name (Section 4.5, rule 1).
+    """
+    perms = {}
     for name, species in state.species_by_object():
         extra = []
         if state.ev is not None and name == state.ev_species:
             extra = [(state.ev, n) for n in EV_ARRAY_NAMES]
-        stable_sort(species, state.sim.fld, extra)
+        perms[name] = stable_sort(species, state.sim.fld, extra)
+    if tangents is not None:
+        _hook(state, "tangent_sort:before")
+        for name, perm in perms.items():
+            for array in tangents.particles[name].values():
+                array[...] = array[:, perm]
+        _hook(state, "tangent_sort:after")
+    return perms
 
 
 # Prologue
@@ -187,7 +213,7 @@ def begin(
         ev.attach(state, **(ev_options or {}))
     elif ionization != "none":
         raise ValueError(f"Unknown ionization model: {ionization}")
-    _exchange(state, StepDecisions(state.iteration))
+    _exchange(state, StepDecisions(state.iteration), check_sorted=False)
     return state
 
 
@@ -195,55 +221,106 @@ def begin(
 # --------
 
 
-def _exchange(state: StepState, decisions: StepDecisions):
+def _exchange(
+    state: StepState,
+    decisions: StepDecisions,
+    tangents: TangentState | None = None,
+    check_sorted: bool = True,
+):
     """Particle exchange, `rho_prev` deposit, and memory housekeeping.
 
     Mirrors `main.py:540-563`. Removal and injection happen in production
-    code, which does not permute the EV arrays; they are realigned by
-    tracker ID afterwards.
+    code, which does not expose a permutation; the EV arrays and the
+    particle tangents are realigned by tracker ID afterwards (Section 4.9).
+    Injected particles get zero tangents.
+
+    Args:
+        check_sorted: Assert `sp.sorted` for every species first. Otherwise
+            `get_stay_range_gpu` runs the production radix sort with a
+            permutation that the tangents never see (Section 4.5, rule 1).
+            `begin` exchanges unsorted particles with zero tangents.
     """
     sim = state.sim
+    if check_sorted:
+        unsorted = [name for name, sp in state.species.items() if not sp.sorted]
+        assert not unsorted, f"Species not sorted before the exchange: {unsorted}"
     before = {
-        name: int(sp.tracker.next_attributed_id) for name, sp in state.species.items()
+        name: (int(sp.Ntot), int(sp.tracker.next_attributed_id))
+        for name, sp in state.species.items()
     }
     ev_snapshot = None
     if state.ev is not None:
         from fbpic.autodiff import ionization as ev
 
         ev_snapshot = ev.snapshot(state)
+    tangent_snapshot = None
+    if tangents is not None:
+        tangent_snapshot = {
+            name: sp.tracker.id[: int(sp.Ntot)].copy()
+            for name, sp in state.species.items()
+        }
     sim.comm.exchange_all_particles(sim.ptcl, sim.fld, sim.time)
     if ev_snapshot is not None:
         ev.realign(state, ev_snapshot)
-    sort_all(state)
+    decisions.injected = {}
+    decisions.removed = {}
+    for name, sp in state.species.items():
+        n_before, next_id = before[name]
+        injected = int(sp.tracker.next_attributed_id) - next_id
+        decisions.injected[name] = injected
+        decisions.removed[name] = n_before - (int(sp.Ntot) - injected)
+    if tangents is not None:
+        _hook(state, "tangent_realign:before")
+        _realign_tangents(state, tangents, tangent_snapshot, before)
+        _hook(state, "tangent_realign:after")
+    sort_all(state, tangents)
     if state.ev is not None:
         ev.set_deposit_charge(state)
+    _hook(state, "stage:rho_prev")
     sim.deposit("rho_prev", exchange=False)
     if state.ev is not None:
         ev.restore_charge(state)
+    if tangents is not None:
+        _deposit_tangents(state, tangents, "rho_prev")
     release_unused_device_memory()
     for sp in sim.ptcl:
         sp.reserve_step_workspaces()
     decisions.exchanged = True
-    decisions.injected = {
-        name: int(sp.tracker.next_attributed_id) - before[name]
-        for name, sp in state.species.items()
-    }
     state.last_exchange = state.iteration
 
 
-def step(state: StepState, tangents=None):
+def _realign_tangents(state, tangents, old_ids, before):
+    """Carry each kept particle's tangents to its new slot by tracker ID."""
+    from fbpic.autodiff.ionization import _match
+
+    for name, sp in state.species.items():
+        n = int(sp.Ntot)
+        new_ids = sp.tracker.id[:n]
+        idx, found = _match(old_ids[name], new_ids)
+        if not bool(cupy.all(found | (new_ids >= before[name][1]))):
+            raise RuntimeError(f"An exchange created {name} with old tracker IDs.")
+        arrays = tangents.particles[name]
+        for comp in TANGENT_PARTICLE_NAMES:
+            old = arrays[comp]
+            if old.shape[1] == 0:
+                arrays[comp] = cupy.zeros((tangents.K, n))
+            else:
+                arrays[comp] = cupy.where(found[None, :], old[:, idx], 0.0)
+
+
+def step(state: StepState, tangents: TangentState | None = None):
     """Advance the state by one PIC cycle (`main.py:533-687`).
 
     Args:
         state: State from `begin` or a previous `step`; updated in place.
-        tangents: Must be None. Tangents arrive in Phase P5.
+        tangents: K tangents of the state, updated in place, or None for the
+            plain forward step. The primal result does not depend on them
+            (L2t).
 
     Returns:
-        (state, tangents, decisions): the same state object, None, and the
+        (state, tangents, decisions): the same objects, and the
         `StepDecisions` of this step.
     """
-    if tangents is not None:
-        raise NotImplementedError("Tangents are not implemented (Phase P5).")
     sim = state.sim
     fld, comm, dt = sim.fld, sim.comm, sim.dt
     decisions = StepDecisions(state.iteration)
@@ -251,26 +328,43 @@ def step(state: StepState, tangents=None):
     if state.ev is not None:
         from fbpic.autodiff import ionization as ev
 
+        if tangents is not None:
+            raise NotImplementedError("EV tangents arrive in Phase P6.")
+
     # 1. Exchange iteration: removal, injection, rho_prev deposit
     if (
         state.iteration % comm.exchange_period == 0
         and state.last_exchange != state.iteration
     ):
-        _exchange(state, decisions)
+        _exchange(state, decisions, tangents)
 
     # 2. Gather at t = n dt (interp E and B were updated by the last step)
     for sp in sim.ptcl:
         sp.keep_fields_sorted = True
+    _hook(state, "stage:gather")
     for sp in sim.ptcl:
         sp.gather(fld.interp, comm)
+    gathered = None
+    if tangents is not None:
+        gathered = _gather_tangents(state, tangents)
 
-    # 3. Momentum push, then the first half position push
+    # 3. Momentum push, then the first half position push. The Vay tangent
+    # needs the momenta before the push (Section 4.3, rule 2).
+    stash = None
+    if tangents is not None:
+        stash = {
+            name: tuple(getattr(sp, n)[: int(sp.Ntot)].copy() for n in MOMENTUM_NAMES)
+            for name, sp in state.species_by_object()
+        }
     for name, sp in state.species_by_object():
         if ev is not None and name == state.ev_species:
             ev.push_ion_momenta(state)
         else:
             sp.push_p(sim.time + 0.5 * dt)
-    _push_positions(state)
+    if tangents is not None:
+        _vay_tangents(state, tangents, stash, gathered)
+        del stash, gathered
+    _push_positions(state, tangents)
     _hook(state, "before_ionization")
 
     # 4. Ionization and emission at t = (n + 1/2) dt
@@ -281,52 +375,194 @@ def step(state: StepState, tangents=None):
         sp.keep_fields_sorted = False
 
     # 5. Sort, J deposit, second half position push, sort, rho_next deposit
-    sort_all(state)
+    sort_all(state, tangents)
     if ev is not None:
         ev.set_deposit_charge(state)
+    _hook(state, "stage:J")
     sim.deposit("J", exchange=False)
     if ev is not None:
         ev.restore_charge(state)
-    _push_positions(state)
-    sort_all(state)
+    if tangents is not None:
+        _deposit_tangents(state, tangents, "J")
+    _push_positions(state, tangents)
+    sort_all(state, tangents)
     if ev is not None:
         ev.set_deposit_charge(state)
+    _hook(state, "stage:rho_next")
     sim.deposit("rho_next", exchange=False)
     if ev is not None:
         ev.restore_charge(state)
+    if tangents is not None:
+        _deposit_tangents(state, tangents, "rho_next")
 
     # 6. Curl-free current correction, PSATD push (with push_rho)
     fld.correct_currents(check_exchanges=False)
     fld.exchanged_source["J"] = True
     fld.push(False, check_exchanges=False)
+    if tangents is not None:
+
+        def push_fields():
+            fld.correct_currents(check_exchanges=False)
+            fld.push(False, check_exchanges=False)
+
+        _field_section(state, tangents, "push", push_fields)
 
     # 7. Moving window and open-z damping, then interp E and B for step n+1
     zmin_before = comm._zmin_global_domain
     comm.move_grids(fld, sim.ptcl, dt, sim.time)
     decisions.n_move = round((comm._zmin_global_domain - zmin_before) / comm.dz)
     sim.exchange_and_damp_EB()
+    if tangents is not None:
+        n_move = decisions.n_move
+
+        def shift_and_damp():
+            if n_move != 0:
+                for grid in fld.spect:
+                    comm.moving_win.shift_spect_grid(grid, n_move)
+            sim.exchange_and_damp_EB()
+
+        _field_section(state, tangents, "window", shift_and_damp)
 
     sim.time += dt
     sim.iteration += 1
-    return state, None, decisions
+    return state, tangents, decisions
 
 
-def _push_positions(state: StepState):
+MOMENTUM_NAMES = ("ux", "uy", "uz", "inv_gamma")
+GATHERED_TANGENT_NAMES = ("Ex", "Ey", "Ez", "Bx", "By", "Bz")
+DEPOSIT_TANGENT_NAMES = ("x", "y", "z", "w", "ux", "uy", "uz", "inv_gamma")
+
+
+def _particle_tangents(tangents, name, names):
+    return [tangents.particles[name][n] for n in names]
+
+
+def _field_section(state, tangents, label, operation):
+    """Run a linear field operation on every tangent (Section 4.6)."""
+    _hook(state, f"tangent_{label}:before")
+    tangents.fields.apply(state.sim.fld, operation)
+    _hook(state, f"tangent_{label}:after")
+
+
+def _gather_tangents(state, tangents):
+    """Gathered E and B tangents per species, (K, N) each (a work buffer)."""
+    _hook(state, "tangent_gather:before")
+    sim = state.sim
+    rmax_gather = sim.comm.get_rmax(with_damp=False)
+    field_view = tangents.fields.gather_view()
+    gathered = {}
+    for name, sp in state.species_by_object():
+        n = int(sp.Ntot)
+        outputs = [cupy.zeros((tangents.K, n)) for _ in GATHERED_TANGENT_NAMES]
+        if sp.q != 0 and n > 0:
+            tg.gather_tangent(
+                sp.x[:n],
+                sp.y[:n],
+                sp.z[:n],
+                _particle_tangents(tangents, name, ("x", "y", "z")),
+                sim.fld.interp,
+                field_view,
+                rmax_gather,
+                outputs,
+            )
+        gathered[name] = outputs
+    _hook(state, "tangent_gather:after")
+    return gathered
+
+
+def _vay_tangents(state, tangents, stash, gathered):
+    """Vay push tangent of every pushed species (Section 4.7)."""
+    _hook(state, "tangent_vay:before")
+    sim = state.sim
+    for name, sp in state.species_by_object():
+        n = int(sp.Ntot)
+        if sp.q == 0 or n == 0:
+            continue
+        tg.vay_tangent(
+            stash[name],
+            [getattr(sp, f)[:n] for f in GATHERED_TANGENT_NAMES],
+            sp.q,
+            sp.m,
+            sim.dt,
+            _particle_tangents(tangents, name, MOMENTUM_NAMES),
+            gathered[name],
+        )
+    _hook(state, "tangent_vay:after")
+
+
+def _deposit_tangents(state, tangents, fieldtype):
+    """Tangent of `sim.deposit(fieldtype)`: kernels, then the linear post-ops.
+
+    Mirrors `main.py::deposit`: erase, deposit every charged species, divide
+    by the cell volume, interp2spect, and the spectral filter.
+    """
+    _hook(state, f"tangent_deposit_{fieldtype}:before")
+    sim = state.sim
+    fld = sim.fld
+    kind = "J" if fieldtype == "J" else "rho"
+    outputs = tangents.fields.deposit_view(kind)
+    for array in outputs:
+        array[...] = 0
+    for name, sp in state.species_by_object():
+        n = int(sp.Ntot)
+        if sp.q == 0 or sp.is_tracer or n == 0:
+            continue
+        if sp.ionizer is not None:
+            raise NotImplementedError("Production ionizers have no tangent.")
+        tg.deposit_tangent(
+            [getattr(sp, c)[:n] for c in DEPOSIT_TANGENT_NAMES],
+            _particle_tangents(tangents, name, DEPOSIT_TANGENT_NAMES),
+            sp.q,
+            fld.interp,
+            sp.prefix_sum,
+            outputs,
+            current=kind == "J",
+        )
+
+    def post():
+        fld.divide_by_volume(kind)
+        fld.interp2spect(fieldtype)
+        if sim.filter_currents:
+            fld.filter_spect(fieldtype)
+
+    tangents.fields.apply(fld, post)
+    _hook(state, f"tangent_deposit_{fieldtype}:after")
+
+
+def _push_positions(state: StepState, tangents: TangentState | None = None):
     """Half position push of every species; immobile EV ions stay in place."""
     immobile = state.ev_params is not None and state.ev_params.get("immobile", False)
     for name, sp in state.species_by_object():
         if immobile and name == state.ev_species:
             continue
         sp.push_x(0.5 * state.sim.dt)
+    if tangents is None:
+        return
+    _hook(state, "tangent_position:before")
+    for name, sp in state.species_by_object():
+        n = int(sp.Ntot)
+        if (immobile and name == state.ev_species) or n == 0:
+            continue
+        tg.position_tangent(
+            [getattr(sp, c)[:n] for c in MOMENTUM_NAMES],
+            _particle_tangents(tangents, name, MOMENTUM_NAMES),
+            0.5 * state.sim.dt,
+            _particle_tangents(tangents, name, ("x", "y", "z")),
+        )
+    _hook(state, "tangent_position:after")
 
 
 def _hook(state: StepState, name: str):
-    """Call a test hook `state.hooks[name](state)` if one is registered."""
-    hook = getattr(state, "hooks", {}).get(name)
+    """Call the test hooks `state.hooks[name](state)` and `state.hooks["*"](state, name)`."""
+    hooks = getattr(state, "hooks", {})
+    hook = hooks.get(name)
     if hook is not None:
         hook(state)
+    every = hooks.get("*")
+    if every is not None:
+        every(state, name)
 
 
-def run(state: StepState, n_steps: int):
+def run(state: StepState, n_steps: int, tangents: TangentState | None = None):
     """Call `step` n_steps times and return the list of decisions."""
-    return [step(state)[2] for _ in range(n_steps)]
+    return [step(state, tangents)[2] for _ in range(n_steps)]

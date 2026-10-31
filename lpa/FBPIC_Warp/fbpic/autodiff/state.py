@@ -46,6 +46,8 @@ class StepDecisions:
         iteration: Iteration at the start of the step.
         exchanged: Whether the step began with a particle exchange.
         injected: Injected macroparticles per species name at that exchange.
+        removed: Removed macroparticles per species name at that exchange
+            (particles before, minus particles kept).
         n_move: Cells by which the moving window moved in this step.
         emitted_parent_ids: Device array of the tracker IDs of the ions that
             emitted an EV electron in this step, or None.
@@ -54,6 +56,7 @@ class StepDecisions:
     iteration: int
     exchanged: bool = False
     injected: dict = field(default_factory=dict)
+    removed: dict = field(default_factory=dict)
     n_move: int = 0
     emitted_parent_ids: object = None
 
@@ -99,14 +102,42 @@ class StepState:
         ]
 
 
+TANGENT_PARTICLE_NAMES = ("x", "y", "z", "ux", "uy", "uz", "inv_gamma", "w")
+
+
 @dataclass
 class TangentState:
-    """Tangents of the differentiable arrays, leading dimension K (Phase P5)."""
+    """K tangents of the differentiable state (plan Section 4.2).
+
+    Attributes:
+        K: Number of tangents, one per parameter.
+        fields: `FieldTangents` of every spectral and interp field array.
+        particles: Species name -> component name -> CuPy (K, Ntot) array,
+            for x, y, z, ux, uy, uz, inv_gamma, w. Row k is tangent k.
+            The arrays follow the primal order: every sort permutes them,
+            and every exchange realigns them by tracker ID.
+        ev: EV tangents (Phase P6).
+    """
 
     K: int
-    fields: dict = field(default_factory=dict)
+    fields: object = None
     particles: dict = field(default_factory=dict)
     ev: dict = field(default_factory=dict)
+
+    @classmethod
+    def zeros(cls, state: "StepState", K: int) -> "TangentState":
+        """Zero tangents with the shapes of the current primal state."""
+        import cupy
+
+        from fbpic.autodiff.field_tangents import FieldTangents
+
+        particles = {}
+        for name, sp in state.species_by_object():
+            n = int(sp.Ntot)
+            particles[name] = {
+                comp: cupy.zeros((K, n)) for comp in TANGENT_PARTICLE_NAMES
+            }
+        return cls(K=K, fields=FieldTangents(state.sim.fld, K), particles=particles)
 
 
 def host(array) -> np.ndarray:

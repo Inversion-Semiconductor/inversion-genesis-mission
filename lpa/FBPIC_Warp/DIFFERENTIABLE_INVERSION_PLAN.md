@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P4 done; milestone M1 reached with the Stage A gate (Section 12.5); Phase P4 L1 in Section 12.6. Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
@@ -139,7 +139,7 @@ Appendix C lists the sources.
 |---|---|
 | Per-operator VJPs for push, gather, deposition, and pointwise field operators | Verified: 122 tests on GPU, 118 on CPU with 4 skipped, commit `24fb4c7` |
 | Tangent kernels for gather, push, and deposition | Verified (L1): Phase P4, Section 12.6 |
-| One-step, horizon, and parameter gradients | Not measured |
+| One-step, horizon, and parameter gradients | L3 verified on Twin-XS; L4 verified for $N_t \le 30$ on Twin-XS with small $h$ (Section 12.7) |
 | Memory and run time of a forward-mode gradient pass | Not measured |
 | Expected-value ionization | Not implemented |
 | Identifiability of the two parameters in the twin | Not measured |
@@ -1428,6 +1428,121 @@ $k = 0$ round-trip probe (Appendix A, row 1). Twin-S, nominal $\theta$, `ionizat
 2. For $m = 1$, the $k_r$ index 0 column of `Ep`, `Ez`, `Bp`, and `Bz` is exactly 0. The `Em` and `Bm` columns are not zero, and their round-trip error is $9\cdot10^{-16}$. The claim of Appendix A holds.
 
 Acceptance: L1 passes for every kernel and operator. The existing L0 particle tests pass with the extended gather fixture (17 tests). Production code is unchanged.
+
+### 12.7 Phase P5. Tangent step and driver, without ionization
+
+Run on 2026-10-31 on physical GPU 1 (RTX 6000 Ada), code on top of commit `7c5aa8f`. Stage A: one tangent ($K = 1$, $E_L$), `ionization="none"`.
+
+Status: the probes, L2t, L3, and the J_chk L1 pass. L4 on Twin-XS fails at the plan steps $h \in \{10^{-2}, 10^{-3}, 10^{-4}\}$ from $N_t = 10$. L4w passes the analytic and self-consistency checks, but the $E_r$ residual ratio (2.67) is outside 3 to 5. The user accepted Phase P5 with these deviations on 2026-10-31 (see the end of this section).
+
+Files:
+
+1. `fbpic/autodiff/stepper.py`: `step(state, tangents)`. `sort_all` returns its permutations and applies them to the tangents. `_exchange` asserts `sp.sorted` for every species (not in `begin`), realigns the tangents by tracker ID, and records the removed count. Hooks `stage:*` and `tangent_*:before/after`; `state.hooks["*"]` receives every hook name.
+2. `fbpic/autodiff/state.py`: `TangentState.zeros`, `StepDecisions.removed`.
+3. `fbpic/autodiff/driver.py`: `jvp`, `value_and_grad`, `seed_tangents`, `contract`. `fbpic/autodiff/laser.py`: `laser_initial_fields`, the $E_L$ and $a_0$ seeds. `fbpic/autodiff/loss.py`: $J_{chk}$ with its analytic state gradient.
+4. `inversion/builders.py`, `inversion/state_snapshot.py`, `inversion/verify_one_step.py` (L3), `inversion/verify_param_gradient.py` (L4, $n_c$), `inversion/verify_linear_wakefield.py` (L4w), and three diagnostics (`diag_tangent_growth.py`, `diag_tangent_cost.py`, `diag_l4w_noise.py`).
+5. Tests: `tests/test_autodiff_laser.py` (probes 1 and 3), `tests/test_autodiff_loss.py` (J_chk L1), `tests/test_autodiff_tangent_step.py` (L2t).
+
+Design:
+
+1. After each primal operation, `step` applies its tangent: gather tangent, Vay tangent (from a stash of $u$ and `inv_gamma` taken before the push), position tangent, the sort permutation, and the deposit tangents. Each deposit tangent runs the kernel of Section 12.6 and then the production post-operations (divide by volume, `interp2spect`, filter) on the swapped tangent arrays. The field push, the window shift with the recorded `n_move`, and `exchange_and_damp_EB` also run on the swapped tangent arrays.
+2. Exchange: production removal and injection do not expose a permutation. The tangents of kept particles move to their new slots by tracker ID; injected particles get zero tangents. The removed count is (particles before) minus (particles after minus injected).
+3. Seeds (Section 4.8): the $E_L$ seed $F_0/(2E_L)$ goes into the interp tangents, and the prologue field operations of `begin` (damping, `interp2spect`) run on it.
+4. API deviation: `value_and_grad(theta, objective, build, n_steps, seeds, bounds)` and `jvp(theta, build, seeds, n_steps)` take a builder `build(theta) -> (sim, species, profile)` in place of `config`. The builder keeps `fbpic.autodiff` independent of `inversion/`. The objective may return a dict of terms; the residual-Jacobian form is not implemented (Phases P7 and P9 need it).
+
+Commands, from `lpa/FBPIC_Warp`, with `CUDA_VISIBLE_DEVICES=1`:
+
+```bash
+python -m pytest tests/test_autodiff_laser.py -q -s
+python -m pytest tests/test_autodiff_loss.py -q -s
+python -m pytest tests/test_autodiff_tangent_step.py -q -s
+python inversion/verify_one_step.py
+python inversion/verify_param_gradient.py nc twin_xs
+python inversion/verify_param_gradient.py l4 twin_xs
+python inversion/verify_param_gradient.py l4 twin_xs --steps 70 --slice-points 0 --h 1e-4 1e-5 1e-6 1e-7 1e-8 --tag _small_h
+python inversion/verify_linear_wakefield.py forward
+python inversion/verify_linear_wakefield.py check
+```
+
+Probes (Section 4.8). Probe 1: `laser_initial_fields` equals the fields that `add_laser_direct` writes, with a difference of exactly 0 on Twin-XS and Twin-S. Probe 3: the $E_L$ tangent of the six spectral fields after `begin` equals $s_0/(2E_L)$ within $4.2\cdot10^{-16}$ (Twin-XS) and $6.3\cdot10^{-16}$ (Twin-S). The scale of each difference is the largest entry of the same field (E or B) over all modes and components. For the x-polarized laser, mode 0 and the mode 1 `Ep` hold rounding noise only ($10^{-13}$ against $10^{4}$ V/m), so their own maximum is no scale. The `rho_prev` and particle tangents are exactly 0.
+
+J_chk L1. The analytic gradients of the particle term (positions, momenta, weights, all) and of the field term match central FD with the pair rule: best errors $\le 1.1\cdot10^{-9}$ and $\le 2\cdot10^{-13}$. The empty species gives $J = 0$ and empty gradients. The fixed choices are recorded with every L4 result (`CheckFunctional.record`).
+
+L2t (Section 6.1), Twin-XS and Twin-S, 300 steps:
+
+1. (a) Bitwise in-run check: every tangent section (gather, Vay, 2 position pushes, 3 sorts, 3 deposits, field push, window, realign) is enclosed by hooks that snapshot every primal array and scalar. All 3063 sections per run leave the primal bitwise unchanged.
+2. (b) Smoke test, with and without tangents, bound $\max(2\cdot10^{-11}, 10\,d_{AA})$ with $d_{AA}$ from 3 production runs: largest ratio 0.058 (Twin-XS, electron `uz`) and 0.13 (Twin-S, spectral mode 0 `Bz`). Counts and IDs are equal.
+
+L3 (Section 6.1), Twin-XS with `p_nz = 2`, nominal $\theta$ (`inversion/results/p5_l3_twin_xs.json`). `state_snapshot.py` restores the full state; a restored step reproduces the first step to $9.7\cdot10^{-16}$. Each block (particles, fields) has 2 random directions. Particles within $10^{-3}$ of a cell boundary at any stage are masked. An epsilon whose branch signature (cell keys, axis and `rmax_gather` branches, by tracker ID) or decisions differ from the base is rejected.
+
+| Step | Decisions | Particle block, best $e$ | Field block, best $e$ | Masked electrons |
+|---|---|---|---|---|
+| 30 (ordinary) | no exchange | 1.4e-9, 4.2e-10 | 2.2e-11, 2.0e-10 | 354 |
+| 14 (exchange) | 29696 injected per species | 1.1e-9, 1.4e-9 | 1.6e-13, 1.3e-13 | 233 |
+| 154 (first removal) | 5620 electrons and 9728 ions removed | 6.0e-9, 7.8e-9 | 1.4e-12, 2.3e-12 | 824 |
+
+All 12 directions pass the pair rule at $10^{-6}$. Deviation: the error is the vector form of Section 6.1 over the whole output, with each output array divided by its largest primal value. A first version normalized each output array by its own norm. It failed on the N-ion `inv_gamma` ($\approx 1$, tangent about $10^{-12}$), whose central difference is dominated by $\mathrm{ulp}(1)/(2\epsilon)$. With the field perturbations, cell crossings reject $\epsilon \ge 10^{-5}$ (rule 6), so $\epsilon = 10^{-8}$ was added to the list.
+
+L4 (Section 6.4), Twin-XS, $J_{chk}$, $n_c = 18$ (`inversion/results/n_c_twin_xs.json`), pass horizons $\{1, 10, 28, 50, 68, 218\}$, report horizon 300 (`inversion/results/p5_l4_twin_xs.json`). Error $e$ of the total $J_{chk}$ and $K(h)$ at the plan steps:
+
+| $N_t$ | $g^{AD}$ ($\hat\theta$) | $e$ at $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ | $K(h)$ | Verdict (Section 6.4) |
+|---|---|---|---|---|
+| 1 | 3.8e8 | 1.4e-6 / 1.4e-8 / 3.0e-10 | 16 / 1 / 0 | FD reference invalid ($K > 0$); $g^{AD}$ just outside the FD spread |
+| 10 | 6.9e8 | 2.7e-5 / 2.0e-3 / 4.2e-4 | 2414 / 230 / 21 | FD reference invalid; fail |
+| 28 | -5.5e10 | 1.1 / 0.91 / 1.4 | 57243 / 12565 / 2003 | FD reference invalid; fail |
+| 50 | 2.1e14 | 1.0 / 1.0 / 1.0 | 3.6e5 / 1.7e5 / 7.4e4 | FD reference invalid; fail |
+| 68 | -2.6e14 | 1.0 / 1.0 / 1.0 | 8.7e5 / 4.9e5 / 2.7e5 | FD reference invalid; fail |
+| 218 | -4.0e12 (field term only) | 1.0 / 1.0 / 1.0 | about 7e6 to 1e7; removal counts differ | fail |
+| 300 (report) | -2.3e12 (field term only) | 1.0 / 1.0 / 1.0 | about 7e6 to 1e7; removal counts differ | fail |
+
+The field and background terms behave like the total. `elec_from_N` is identically zero and is skipped. The plasma leaves the window before step 218, so the background term is 0 there. Rule 2: every $\pm h$ run changes the removed electron count at iteration 112, and repeated base runs at the same $\theta$ differ at iteration 196 or 224 (one electron on the removal boundary). At $N_t = 1$, all key flips are resting electrons on shape boundaries (`p_nz = 1`, Section 6.3 rule 6).
+
+Small-step diagnostic (not a plan gate; `inversion/results/p5_l4_twin_xs_small_h.json`). Where $K(h) = 0$, AD matches FD:
+
+| $N_t$ | $e$ with $K(h) = 0$ | $e$ at $h = 10^{-5}$ / $10^{-6}$ ($K$) |
+|---|---|---|
+| 1 | 1.1e-9 to 5.7e-7 ($h = 10^{-5}$ to $10^{-8}$) | 1.1e-9 (0) / 8.0e-9 (0) |
+| 10 | 6.0e-8, 1.3e-6 ($h = 10^{-7}, 10^{-8}$) | 6.4e-11 (1) / 5.6e-9 (1) |
+| 20 | 4.7e-6, 2.2e-5 ($h = 10^{-7}, 10^{-8}$; $\tau = 1.9\cdot10^{-4}$ at $10^{-8}$) | 0.23 (22) / 1.7e-7 (1) |
+| 28 | 2.2e-6 ($h = 10^{-8}$ only) | 0.24 (234) / 0.14 (27) |
+| 30 | 1.8e-3 ($h = 10^{-8}$, $\tau = 7.1\cdot10^{-3}$) | 1.0 / 1.0 |
+| 40 to 70 | no $h \ge 10^{-8}$ has $K(h) = 0$ | about 1 |
+
+Tangent growth on Twin-XS: the largest $|\partial u_x/\partial E_L|$ is 65 J$^{-1}$ at step 10, $1.2\cdot10^6$ at step 30, and $6\cdot10^8$ at step 50, a factor of about 10 every 5 steps. The largest values belong to electrons in the laser at $r = 1$ to 3 µm, not near the axis. $\sigma_J$ (5 base runs) grows from 0 at $N_t = 1$ to 1.6e-3 at 28 and 19 at 68.
+
+Conclusion: the tangent is the exact derivative of the frozen-decision map wherever central FD can resolve it ($N_t \le 30$). The L4 failure at the plan steps comes from the fixture. Suspect assumption: "Twin-XS is a usable L4 fixture up to $n_c + 200$ steps." Twin-XS resolves $\lambda_0$ with 3.85 cells ($\Delta z = 0.208$ µm, $c\Delta t = \Delta z$, $\omega_0\Delta t \approx 1.6$) at $a_0 \approx 4$. Its discrete particle map is strongly chaotic (Lyapunov rate about $\ln 10/5$ per step). Cell crossings then appear for every $h \ge 10^{-7}$ after about 20 steps, and the derivative grows beyond what fp64 FD can check after about 30 steps.
+
+Twin-S comparison (`inversion/results/p5_tangent_growth_twin_s.json`, 16 cells per $\lambda_0$, 1000 steps): $|\partial u_x/\partial E_L|$ rises by about 10 per 50 steps while the laser approaches the plasma, rises by $10^2$ between steps 450 and 625, and then saturates near $10^6$ J$^{-1}$ ($|\partial x/\partial E_L|$ near 3 m/J). Twin-S has no runaway, but a few particles are very sensitive. This is the trapping-horizon risk of Phase P7.
+
+L4w (Section 6.5; `inversion/results/p5_l4w.json`):
+
+1. Item 0: the upstream `test_linear_wakefield(Nm=2, show=False)` passes in its own process (13 s).
+2. Own builder: the upstream configuration with `use_cuda_graphs=False` and a tracked electron species; the laser seed is $F_0/a_0$.
+
+| Check | $E_z$ | $E_r$ | Limit |
+|---|---|---|---|
+| Analytic, $a_0 = 0.01$: $\partial E/\partial a_0$ against $2E^{an}/a_0$ | 0.074 of max | 0.065 of max | 0.08, 0.11: pass |
+| Analytic, $a_0 = 0.005$ | 0.074 | 0.065 | pass |
+| Self-consistency against $2E^{sim}/a_0$, $a_0 = 0.01$ / 0.005 | 3.8e-5 / 9.3e-6 | 2.0e-4 / 7.4e-5 | $10^{-3}$: pass |
+| Residual ratio from $a_0 = 0.01$ to 0.005 | 4.03 | **2.67** | 3 to 5: $E_z$ passes, $E_r$ fails |
+| Run-to-run noise (2 runs), relative to max, $a_0 = 0.01$ / 0.005 | 2.4e-5 / 1.3e-5 | 3.4e-4 / 2.0e-4 | - |
+| Central FD in $a_0$, $e$ at $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ | 8.6e-4 / 3.9e-3 / 2.7e-2 | 1.2e-2 / 5.3e-2 / 0.46 | $e \le \tau$ at each $h$, but rule 7 rejects all $h$ (noise term $\ge 9.9\cdot10^{-3}$) |
+
+The analytic error of the derivative equals the forward PIC-versus-theory error (0.0741 against 0.0741 for $E_z$), as expected. Sampled $K(h)$ (tracker IDs divisible by 256) is 0 at all $h$, and the counts match: L4w is kink-free. The $E_r$ self-consistency residuals at both amplitudes are below the run-to-run noise of $E_r$ (stepper atomics noise after 1500 steps), so the $a_0^2$ scaling of the $E_r$ residual is not resolved. For $E_z$, the residuals are at the noise level, and the ratio is 4.03.
+
+Tangent cost (`inversion/results/p5_tangent_cost.json`; best of 2 interleaved runs, without the first 20 steps):
+
+| Configuration | Primal step | Step with $K = 1$ | Ratio |
+|---|---|---|---|
+| Twin-XS, 300 steps | 8.4 ms | 16.7 ms | 1.98 |
+| Twin-S, 1000 steps, no EV | 9.2 ms | 18.0 ms | 1.96 |
+| L4w, 1500 steps | 6.1 ms | 13.3 ms | 2.18 |
+
+One tangent costs 1.0 to 1.2 primal steps. A gradient costs about 2 to 2.2 forward-run equivalents, inside the Section 8 estimate. Device memory of the Twin-S tangent run, 1000 steps: 2.9 GB in use.
+
+Regression: L2 (`tests/test_autodiff_stepper.py`) passes with the changed stepper (largest ratios 0.11, 0.13, and 0.17 for Twin-XS 300, Twin-S 300, and Twin-S 1000 steps). The EV path of the changed stepper runs (Twin-XS, 60 steps). The stepper change alters the hash of `stepper.py`, so the cached P3 FD runs in `inversion/runs/p3` no longer match their provenance check (`ev_point.py`); the primal is unchanged (L2t).
+
+Acceptance: accepted by the user on 2026-10-31, with deviations. The probes, L2t (Twin-XS and Twin-S), and L3 pass. L4 at the pass horizons fails at the plan steps for the fixture reason above; the gradient is verified where central FD resolves it ($N_t \le 30$, small $h$, $K(h) = 0$). L4w fails one criterion (the $E_r$ residual ratio), which the noise floor limits. The full-horizon L4 sweep stays on Twin-S in Phase P7, where the trapping sensitivity above is the main risk. The alternative, a Twin-XS variant with 16 cells per $\lambda_0$, was not chosen.
 
 ## Appendix A. Unverified claims and required probes
 
