@@ -2,13 +2,13 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
 | Owner | The implementing agent writes all code: kernels, tangents, algorithms, scaffolding, and tests. |
 | Production code | Unchanged. The differentiable path is a separate stepper in `fbpic/autodiff` (D17). |
-| Decisions | D1 to D28 in Section 10. D1, D2, and D21 to D28 are user decisions. The others are planner defaults that the user can change. |
+| Decisions | D1 to D32 in Section 10. D1, D2, and D21 to D32 are user decisions. The others are planner defaults that the user can change. |
 
 ## How to use this plan
 
@@ -189,7 +189,7 @@ Recovery runs (Phases P3 and P9) use the truth variants to avoid an inverse crim
 |---|---|---|
 | T0′ | EV with exactly the inversion settings (seed, `p_nz = 1`, $K_e$, $\epsilon$) | Convergence control. L6 applies. |
 | T0 | EV with the inversion settings ($K_e$, $\epsilon$) | Bias report: the `p_nz` model error. Report the offset from $\hat\theta^\ast$. |
-| T1 | EV with immediate emission ($\epsilon = 0$). If the $\epsilon = 0$ births do not fit in memory (Phase P8 step 3), use the reduced Twin-S for T1 and for its T0 control. | Main test. Report the offset from $\hat\theta^\ast$ (L6). |
+| T1 | EV with immediate emission ($\epsilon = 0$). If the $\epsilon = 0$ births do not fit in memory (Phase P8 step 1), use the reduced Twin-S for T1 and for its T0 control. | Main test. Report the offset from $\hat\theta^\ast$ (L6). |
 | T2 | Production stochastic ionization (Philox, tracked ions) | Model error. Report only. |
 
 If T0′ and T0 pass and the T1 offset exceeds 0.02 in a component, stop. Report the recovered-parameter bias together with the emission-delay results of Phase P8, and ask the user.
@@ -233,7 +233,7 @@ Whitening. $\Sigma$ is the residual covariance. In the twin, $\Sigma = \mathrm{d
   $$
 - Empty and nearly empty beams. If every $\sigma_i = 0$, then the first moments and $\sigma_k$ are 0, every $\log$ term takes its floor value, and $\mathrm{MMD}^2 = \lVert\mu_y\rVert^2$. The loss and every gradient stay finite. The trapping checks of Section 3.4 do not cover every point that the optimizer can visit, so the loss must not rely on a positive selected charge.
 - No prior term. The targets are noise-free (D22). A prior, as in noisy recovery (Section 11), depends on $\hat\theta$ directly; the objective must then also return that direct gradient.
-- Defaults: $\alpha_D = 0$ until Phase P7.
+- Defaults: $\alpha_D = 0$ in Stage A (D29). The MMD term enters in Stage B or later.
 
 Implement the loss and its analytic gradient in CuPy or Warp (D11). Test every term with FD on random particle sets (L1). Also test the loss and its gradient on an empty selection (all $\sigma_i = 0$) and on a nearly empty selection (one particle with $\sigma_i = 10^{-6}$). Both must be finite and match FD.
 
@@ -245,7 +245,7 @@ The optimizer follows the literature note `inversion/notes/optimizer-literature-
 2. A global design, then a local solve. Evaluate a 25-point grid or Sobol design over $[0, 1]^2$. Start the local solver from the 2 or 3 best design points that are well separated. A bounded local method cannot leave a boundary local minimum, and the design shows whether one exists.
 3. Loss design (Section 2.4): central moments, log scales, and whitened residuals.
 4. FD steps. Use fixed steps, $h = 0.02$ for $E_L$ and $h = 0.05$ for $z_f$; the FD Jacobian is temporary until the JVP Jacobian of item 5. Use one-sided second-order stencils $(x, x + h, x + 2h)$ within $h$ of a bound. Keep $h$ above the width of the jumps that emission thresholds and cell crossings cause. Removing jumps in the model (zero-weight creation, window-edge tapering) is a separate decision for Phase P6.
-5. JVP Jacobians in the same driver. After the JVP gate of the note (Section 3.2 there: comparison with central FD at several $h$ and with a smoothed Jacobian), the `jac` callable becomes 1 primal run with $K$ tangents, $K = 1$ in Stage A and $K = 2$ in Stage B (Sections 2.6 and 4.10). Before that gate, the driver uses the batched FD Jacobian, which reuses the cached center run.
+5. JVP Jacobians in the same driver. After the JVP gate of the note (Section 3.2 there: comparison with central FD at several $h$ and with a smoothed Jacobian), the `jac` callable becomes 1 primal run with $K$ tangents, $K = 1$ in Stage A and $K = 2$ in Stage B (Sections 2.6 and 4.10). Before that gate, the driver uses the batched FD Jacobian, which reuses the cached center run. In Stage A, the user chooses the Jacobian at the end of Phase P7 from the usability study (Section 6.4, recovery gate): the AD Jacobian, a blend of AD and smoothed columns, or the FD Jacobian.
 
 ### 2.6 Staged scope: one parameter first
 
@@ -255,7 +255,7 @@ Stage A (D28):
 
 1. Parameter: $E_L$. $z_f$ stays at $z_f^\ast$ in the model and in every target. The tangent seed of $E_L$ is exact and simple: every initial field scales as $\sqrt{E_L}$, so the seed is $F_0 / (2E_L)$ (Section 4.8). The $z_f$ seed needs the profile derivative and `GaussianLaserDzf`, which move to Stage B.
 2. Phases P3 to P9 apply with one tangent ($K = 1$). Write the tangent kernels and the driver generic over $K$ (Section 4.7), but run the Stage A tests, the L4 sweeps, and the recovery with the $E_L$ tangent only.
-3. The loss, the weights $\Sigma$, the targets (T0′, T0, T1, T2), and the optimizer of Sections 2.2 to 2.5 do not change. The optimizer works on one coordinate, with a 10-point design in place of the 25-point design.
+3. The loss, the weights $\Sigma$, the targets (T0′, T0, T1, T2), and the optimizer of Sections 2.2 to 2.5 do not change, except that $\alpha_D = 0$ throughout Stage A (D29). The optimizer works on one coordinate, with a 10-point design in place of the 25-point design.
 4. Milestones: M1 ends with the Stage A FD gate (Phase P3 step 15). M2 is the $K = 1$ tangent gradient. Phases P6 to P9 follow for $E_L$, and P9 compares the JVP recovery with the FD recovery of P3.
 
 Stage B starts after Stage A passes Phase P9:
@@ -592,7 +592,7 @@ The reference sets $\epsilon = 0$: every ion with $W > 0$ emits a weighted elect
 
 1. Compare $\epsilon \in \{10^{-4}, 10^{-5}, 10^{-6}\}$ at $K_e = 1$ with the reference, at the nominal $\theta$ and two corners.
 2. Birth history: the weighted distribution of the birth phase $\xi_b = z_b - c\,t_b$ in bins of $\lambda_0/16$, and the weighted mean and maximum delay between a fractional increment and its release.
-3. Beam: trapped charge $Q$, normalized transverse emittance, every $m_k$, $\mathrm{MMD}^2_{\mathrm{RFF}}$, and the full loss $J$. For each quantity, compute the SE from 16 stochastic seeds.
+3. Beam: trapped charge $Q$, normalized transverse emittance, every $m_k$, $\mathrm{MMD}^2_{\mathrm{RFF}}$ (Stage B or later, D29), and the full loss $J$. For each quantity, compute the SE from 16 stochastic seeds.
 4. Sensitivities: the forward-mode gradient of the full loss, relative to $\lVert g_{ref}\rVert_\infty$.
 5. Adopt an $\epsilon$ only if every beam difference is below 2 SE, every gradient difference is below 5%, and the differences decrease as $\epsilon$ decreases. Otherwise report the results and ask the user. The options are a smaller $\epsilon$ or immediate emission.
 
@@ -637,7 +637,7 @@ $$
 4. Free FD keeps the thresholds active. Report free minus frozen as the jump contribution. It is not a small correction, and on the twins it does not shrink as $h$ decreases. Each emission threshold that crosses inside $[\theta - h, \theta + h]$ adds $\Delta J_k/(2h)$, where $\Delta J_k$ is the jump of $J$ at that crossing. Example: for $q(\theta) = w(\epsilon + \theta)\,\mathbb{1}_{\theta > 0}$ at $\theta = 0$, frozen AD gives 0 and free central FD gives $w/2 + \epsilon w/(2h)$. In the twins the packet weight is pinned at about $\epsilon w$ and the $\theta$ dependence sits in the release time $t_k(\theta)$. The frozen derivative then misses the birth-time term by a Riemann-sum error of relative order $\tau_e/T_\varphi$, where $\tau_e$ is the interval between emissions (2 to 4 steps) and $T_\varphi$ is the laser-phase time scale over which the ionization rate varies (a quarter laser period, 4 steps on Twin-S). On the twins this ratio is of order 1. With about $10^7$ births, crossings are dense in $\hat\theta$ at every plan $h$, so free minus frozen is a finite bias at every plan $h$. Free and frozen FD agree only for $h$ below the crossing spacing, about $10^{-6}$ or less. AD claims only the conditional derivative with the decisions fixed. L4 acceptance therefore uses frozen FD only. The $\epsilon$ sweep of Section 5.5 is the referee for the birth-time term: at $\epsilon = 0$, frozen equals free.
 5. Threshold checks (Phase P6 and Phase P8):
    - Crossing probe: build a one-ion fixture with a prescribed field ramp, so that the emission threshold crosses at a known $\theta_c$. Set the fields through `_hook(state, "before_ionization")` (`stepper.py:274, 323-327`), which runs after the gather and push and can overwrite the gathered E and B each step. Confirm that free FD minus frozen FD equals $\Delta J/(2h)$ when $\theta_c$ is inside $[\theta - h, \theta + h]$, and is zero otherwise.
-   - $\epsilon$ convergence: Phase P8 step 2 compares the full loss and its forward-mode gradient with the immediate-emission reference as $\epsilon$ decreases (Section 5.5).
+   - $\epsilon$ convergence: Phase P7 step 6 compares the forward-mode gradient with the immediate-emission reference on the reduced Twin-S, and Phase P8 step 3 compares the beam (Section 5.5).
 6. L3 harness:
    - Run the tangent step once and store its decisions (rule 3).
    - Use a fixture with even `p_nz` and `p_nr`. The cell coordinate is $z_{cell} = (z - z_{min})/\Delta z - 0.5$ (`cuda_sorting.py:72-73`). With `p_nz = 1`, particles are loaded at $z_{min} + (i + 0.5)\Delta z$, so $z_{cell}$ is an integer and every resting particle sits on a shape boundary. The same holds in r for `p_nr = 1`. With an even count, $z_{cell} = i/2 - 1/4$.
@@ -655,10 +655,11 @@ $$
 - Report $e_j(h)$ and $K(h)$ for every $h$ and horizon, the growth of $\lVert\dot s_n[j]\rVert$ for each tangent, and 1D slices of $J$ over $\pm 0.05$ in each $\hat\theta_i$.
 - Horizons: $N_t \in \{1, 10, 50\}$ and $\{n_c + 10, n_c + 50, n_c + 200\}$ must pass. $\{1000, \text{full}\}$ are reported; on Twin-XS (at most 300 steps) this is $\{300\}$. $n_c$ is the first step at which the laser peak reaches the position where $S(z) = 0.1$, at the nominal $\theta$. Compute $n_c$ once per configuration with a script and store it in `inversion/results/n_c_<size>.json` with the `config_sha256` of the configuration. Do not add it to `inversion/configs/<size>.json`: that changes `config_sha256`, and `load_target` would then refuse the T0 target (`make_target.py:81-82`). On Twin-XS, $n_c \le 20$; on Twin-S it is about 450.
 - Agreement between batched and single tangents (Phase P7 step 2) shows that the driver is consistent. It does not show that the derivative is correct.
-- Recovery gate. At the end of Phase P7, the user chooses one branch for Phase P9 and records it in Section 12:
-  1. Verified: L4 passes at the full horizon on Twin-S, for $J_{chk}$ and for the loss. Phase P9 results carry the exact-gradient claim. If any component passed only as "FD reference invalid ($K > 0$)", report this, and the user decides whether Phase P9 results carry the exact-gradient claim.
-  2. FD fallback: the user approves central-FD gradients (4 forward runs per gradient) or a shorter horizon at which L4 passes. Phase P9 results state which one.
-  3. Exploratory: Phase P9 uses AD gradients that did not pass L4 at the full horizon. Phase P9 results make no exact-gradient claim and are labeled exploratory.
+- Recovery gate (D32). At the end of Phase P7, the user chooses one branch for Phase P9 from the Jacobian usability study (Phase P7 steps 5 and 6) and records it in Section 12. On Twin-S, cell crossings make $K(h) > 0$ at every usable $h$ at the full horizon, so L4 there is reported, not passed. The question is whether the AD Jacobian is usable by dogbox, measured by the fixed-point shift $\delta$ at the T0 solution.
+  1. AD usable: $\delta \le 0.005$, a quarter of the L6 tolerance. Phase P9 uses the AD Jacobian. Results claim exact derivatives of the frozen-decision map, verified by strict L4 at short horizons, and usability at the full horizon.
+  2. Blend: $J = a\,J_{AD} + (1 - a)\,J_{sm}$, with $a$ set from the measured disagreement (literature note, Section 3.2 item 4). Phase P9 results state $a$.
+  3. FD fallback: the central-FD Jacobian at $h = 0.02$ (3 runs per dogbox iteration). AD results are reported only.
+  4. Exploratory: Phase P9 uses an AD Jacobian with $\delta > 0.005$. Results make no gradient-quality claim and are labeled exploratory.
 
 ### 6.5 Linear-wakefield derivative check (L4w)
 
@@ -680,14 +681,15 @@ The check differentiates the full PIC cycle with respect to the laser amplitude 
 
 ## 7. Rollout plan
 
-Effort estimates are agent working days, with large uncertainty because the long-horizon behavior is unknown. The Stage A phases total about 39 to 58 days. Stage B adds about 6 to 10 days (rough estimate, re-planned after Stage A).
+Effort estimates are agent working days, with large uncertainty because the long-horizon behavior is unknown. Phases P0 to P5 are done (Section 12). The remaining Stage A phases, P6 to P9, total about 14.5 to 21.5 days (Section 12.8). Stage B adds about 6 to 10 days (rough estimate, re-planned after Stage A).
 
 Milestones. Stop and report to the user after each one.
 
 1. M1, Phases P0 to P3 (about 13 to 20 days): one frozen Twin-S configuration, identifiability, the forward EV model, and an FD recovery from a displaced start. M1 shows that the problem can be solved.
 2. M2, Phases P4 and P5 (about 12.5 to 17 days): a verified short-horizon gradient without ionization on Twin-XS, including L4w. M2 does not verify the EV tangents and birth copies, exchange steps with births, the loss gradient, Twin-S scale, or trapping horizons; Phases P6 and P7 cover them.
-3. After M2, update the effort and horizons of Phases P6 to P9 with the measurements of M1 and M2. Their Stage A scope (Section 2.6) does not change.
-4. Stage B (below) starts only after Stage A passes Phase P9.
+3. M3, Phases P6 and P7 (about 9.5 to 13.5 days): the gradient through ionization, the Twin-S horizon sweep to step 2000, and the Jacobian usability study that sets the recovery branch. These phases were re-planned on 2026-10-31 with the measurements of M1 and M2 (Section 12.8).
+4. M4, Phases P8 and P9 (about 5 to 8 days): the model checks and the Stage A recovery.
+5. Stage B (below) starts only after Stage A passes Phase P9.
 
 Stage A (Section 2.6) runs P4 to P9 with the $E_L$ tangent only ($K = 1$). Every step below that names $z_f$ or a second tangent is marked Stage B.
 
@@ -787,42 +789,56 @@ Acceptance: L1 passes for every kernel and operator.
 
 Acceptance: the probes, L2t (Twin-XS and Twin-S), L3, L4w, and L4 (pass horizons) pass without ionization; L3 and L4 on Twin-XS.
 
-### Phase P6. EV tangents (3 to 5 days)
+### Phase P6. EV tangents (3.5 to 5.5 days)
 
-0. After all P3 gate stages and before any EV tangent, change `ev_ionize` (`fbpic/autodiff/ionization.py:154`) from $P_5' = P_5 - P_5 p_5$ to $P_5' = P_5 e^{-x_5}$, as Section 5.1 requires. The change is at ulp level, so L1 at $10^{-12}$ cannot tell the two primals apart. It changes the `ionization.py` hash that `ev_point.py:27-33` records, so `fd_recovery.py` raises on every cached P3 run; this is intended. The P3 code and the T0 target must already be committed at that point, so that the target's `git_hash` identifies the code that made it.
+0. Before any EV tangent, commit these changes:
+   - The three deferred M1 fixes: change `ev_ionize` (`fbpic/autodiff/ionization.py:154`) from $P_5' = P_5 - P_5 p_5$ to $P_5' = P_5 e^{-x_5}$, as Section 5.1 requires; make the emission record optional; add a dirty marker to the target `git_hash`.
+   - FD caches keyed by code hash (D30): `runs/fd_<code_sha256[:12]>` in place of the fixed `runs/p3` (`fd_recovery.py:43`), and `ev_point` with the size and the target as arguments. Mark `runs/p3` read-only as P3 evidence.
+   - Cell-key sampling for Section 6.3 rule 8 in `verify_param_gradient.py`: tracker IDs divisible by 256, records on the host. Full records do not fit in device memory on Twin-S.
 1. Implement the tangents of Section 5.3 (with the $x_\ell = 0$ guard and the pre- and post-update charge tangents), the N-ion push tangent, and the Warp-generated reference VJPs. Run L1 on each kernel, with `ux, uy, uz` and the gathered fields as inputs, and the separate $E = 0$ check of Section 5.3. Test the emission copy as an exact index gather.
-2. Add the EV tangents to `step`. Run L3 on an emission step and L4 on Twin-XS at the pass horizons, against frozen FD.
-3. Run the crossing probe of Section 6.3, rule 5.
+2. Add the EV tangents to `step`. Run L3 on a Twin-XS emission step.
+3. Strict L4 gate on Twin-XS with EV and frozen emissions, at $N_t \in \{20, 28\}$ and $h \in \{10^{-6}, 10^{-7}, 10^{-8}\}$. First confirm that births occur by step 20. Twin-XS is chaotic beyond $N_t \approx 30$ (Section 12.7), so longer Twin-XS horizons are not used.
+4. Twin-S report: compute and store $n_c$ (about 450), then run L4 with $J_{chk}$ and frozen emissions at $N_t \in \{n_c + 10, n_c + 50\}$, with $h$ down to $10^{-8}$ and sampled $K(h)$. This step is a gate only if two adjacent $h$ have a sampled $K(h) = 0$ and $e(h)$ follows the $h^2$ truncation trend.
+5. Run the crossing probe of Section 6.3, rule 5.
 
-Acceptance: steps 1 to 3 pass.
+Acceptance: steps 1, 2, 3, and 5 pass. Step 4 is reported.
 
-### Phase P7. Full loss and the full horizon sweep (4 to 6 days)
+### Phase P7. Loss Jacobian, horizon sweep, and Jacobian usability (6 to 8 days)
 
-1. Add the MMD term and the analytic state gradient of every loss term (Section 2.4). Extend the targets with `rff_mean`. Run L1 on each loss term, including the empty and nearly empty selections.
-2. Run `jvp` on Twin-XS at $N_t = 200$ once with $K = 2$ tangents and twice with one tangent each. The tangents must agree within $10^{-12}$ relative. In Stage A the second tangent is a synthetic seed (a fixed random direction on the initial fields); it tests that the code is correct for any $K$. Stage B repeats the check with the real $z_f$ tangent.
-3. Measure peak GPU memory, host memory, and time per gradient on Twin-S. Record the cost of one gradient in forward-run equivalents next to the 4 runs of central FD. Update Section 8.
-4. Run the full L4 sweep on Twin-S with $J_{chk}$, and with the loss where the selected beam has at least 1000 macroparticles at every FD point.
+1. Implement the residual objective `objective(state) -> (r_w, dr_w/ds)` over the 11 residuals of Section 2.4, with $\alpha_D = 0$ (D29). The driver contracts each residual gradient with the tangent. Run L1 on every residual term, including the empty and nearly empty selections.
+2. Run `jvp` on Twin-XS at $N_t \le 10$ once with $K = 2$ tangents and twice with one tangent each. Set the tolerance from two repeated $K = 1$ runs, because deposit atomics differ between runs (`CLAUDE.md` rule 4). In Stage A the second tangent is a synthetic seed (a fixed random direction on the initial fields); it tests that the code is correct for any $K$. Stage B repeats the check with the real $z_f$ tangent.
+3. Measure peak GPU memory, host memory, and time per gradient on Twin-S with EV. Record the cost in run-equivalents next to the 3 runs per FD dogbox iteration (center and $\pm h$). Update Section 8.
+4. Horizon sweep on Twin-S with $J_{chk}$ at $N_t \in \{1, 10, 50, n_c + 10, n_c + 50, n_c + 200, 1000, 2000\}$. Report $e(h)$, the sampled $K(h)$, and the growth of the field and particle tangents up to step 2000. Run the loss part at $N_t = 2000$ only: the loss is defined only where the selected beam has at least 1000 macroparticles, and the targets exist only at $N_t = 2000$.
+5. Jacobian usability on T0 at $N_t = 2000$:
+   - Run `value_and_grad` at every point of three 41-point slices over $\pm 0.05$ in $\hat E_L$: around the T0 solution ($\hat E_L \approx 0.588$), around the false minimum ($\hat E_L \approx 0.545$), and in the far field ($\hat E_L = 0.75$). Each run returns $r_w$ and the AD column $\partial r_w/\partial \hat E_L$.
+   - Smoothed column: fit each of the 11 residuals separately on its slice. Also compute central FD at $h \in \{0.005, 0.01, 0.02, 0.05\}$.
+   - Frozen-emission central FD at small $h$ at the same points. It separates code errors (AD against frozen FD) from the birth-time bias (frozen against free FD, Section 6.3 rule 4).
+   - Report the distribution of the AD column error against the smoothed column (median, 90th percentile, and cosine), and the dogbox fixed-point shift $\delta = \lvert (J_{AD} - J_{sm})^T r_w\rvert / \lvert J_{AD}^T J_{sm}\rvert$ at the T0 solution.
+   - Cost: 123 gradient runs, about 6 to 8 h on one GPU.
+6. Before the branch choice, run the $\epsilon = 0$ gradient comparison on the reduced Twin-S (Section 5.5, item 4). If the frozen-against-free difference dominates the error of step 5, the remedy is $\epsilon \to 0$ or zero-weight creation (Section 11), not a fallback to FD.
 
-Acceptance: step 2 passes. L4 results for all horizons are reported to the user, and the user has chosen a recovery branch (Section 6.4).
+Acceptance: steps 1 and 2 pass. Steps 3 to 6 are reported. The user chooses the recovery branch with the step 5 and step 6 numbers (Section 6.4, D32).
 
 ### Phase P8. Model checks (3 to 4 days)
 
-1. Run L5 (Section 5.4) on Twin-S at the nominal $\theta$.
-2. Emission-delay check: run the comparison of Section 5.5 against the immediate-emission reference.
-3. Before Phase P9, measure the birth count and the mempool peak on the full Twin-S at $\epsilon \in \{10^{-5}, 10^{-6}, 0\}$. The reduced Twin-S gave 215 births per ion at $\epsilon = 0$, which extrapolates to about 190 M births on the full Twin-S at `p_nz = 1` and 380 M for T1 at `p_nz = 2`. At the measured 43% live fraction and 130 B per particle, this is about 10 GB and 21 GB used, and about 1.5 times that reserved. If $\epsilon = 0$ does not fit in memory, run T1 on the reduced Twin-S, not at $\epsilon = 10^{-6}$: births per ion are bounded by the number of emitting steps, so a small nonzero $\epsilon$ saves little.
+Phase P8 runs after M3, from the committed P6 code (D31). Set `CUDA_VISIBLE_DEVICES` for every process: the stray GPU 0 context fix (`8f27245`) is not on this branch.
 
-Acceptance: L5, the emission-delay check, and the step 3 birth counts and mempool peaks are reported to the user. The T1 configuration for Phase P9 is recorded.
+1. Birth count and memory on the full Twin-S at `p_nz = 2` (the T1 setting), at $\epsilon \in \{10^{-5}, 10^{-6}, 0\}$. The reduced Twin-S gave 215 births per ion at $\epsilon = 0$, which extrapolates to about 380 M births for T1 on the full Twin-S, about 21 GB used and about 1.5 times that reserved. If $\epsilon = 0$ does not fit in memory, run T1 on the reduced Twin-S, not at $\epsilon = 10^{-6}$: births per ion are bounded by the number of emitting steps, so a small nonzero $\epsilon$ saves little.
+2. L5 (Section 5.4) for $E_L$: write the CRN referee script, run the production stochastic seeds (22.5 s per run, about 0.2 to 1.6 h for $M = 8$ to 64), and compare with the EV secant and with the AD gradient (Section 5.4, items 4 and 5).
+3. The beam part of the emission-delay check (Section 5.5, items 1 to 3), without MMD (D29), on the reduced Twin-S.
 
-### Phase P9. Twin recovery (3 to 5 days)
+Acceptance: L5, the emission-delay check, and the step 1 birth counts and mempool peaks are reported to the user. The T1 configuration for Phase P9 is recorded.
+
+### Phase P9. Twin recovery (2 to 4 days)
 
 Stage A runs this phase for $E_L$ alone, with $\hat z_f = \hat z_f^\ast$ (Section 2.6). Steps 1 and 3 give the Stage A form first. Stage B uses the two-parameter form in the same steps.
 
 0. Confirm the recovery branch chosen at the end of Phase P7 (Section 6.4). Label every result with it.
 1. Write `inversion/recover.py` with the Section 2.5 driver.
-   - Stage A: the 10-point 1-D design in $\hat E_L$ of Phase P3 step 15, then `least_squares(method="dogbox")` on $r_w$ from the 2 best design points that are at least 0.2 apart, bounds $[0, 1]$. The JVP Jacobian (1 primal run and 1 tangent) replaces the FD Jacobian after it passes the JVP gate of Section 2.5, item 5.
+   - Stage A: the 10-point 1-D design in $\hat E_L$ of Phase P3 step 15, then `least_squares(method="dogbox")` on $r_w$ from the 2 best design points that are at least 0.2 apart, bounds $[0, 1]$. Use the Jacobian of the chosen branch: AD (1 primal run and 1 tangent), the blend, or the FD Jacobian.
    - Stage B: the 25-point design, then dogbox from the 2 or 3 best design points, with 1 primal run and 2 tangents, after the global-search decision of Section 2.6.
 2. Generate the T1 and T2 targets (Section 2.2). T0′ and T0 exist from Phase P3.
-3. Run L6 noise-free on Twin-S or on the reduced Twin-S, as Phase P8 step 3 decides. Stage A starts: the design-based starts and the $\hat E_L$ coordinates of the 5 starts of Section 3.4, with $\hat z_f = \hat z_f^\ast$. Stage B starts: the design-based starts and the 5 Latin-hypercube starts. T0′ is the tight convergence check, with the diagnostics of the L6 row. T0 must pass within 0.02. Run the same recoveries on T1 and report its offset from $\hat\theta^\ast$ as model bias. Record iterations, gradient evaluations, and wall time. Compare them with the FD recovery of Phase P3. Report T2.
+3. Run L6 noise-free on Twin-S or on the reduced Twin-S, as Phase P8 step 1 decides. Stage A starts: the design-based starts and the $\hat E_L$ coordinates of the 5 starts of Section 3.4, with $\hat z_f = \hat z_f^\ast$. Stage B starts: the design-based starts and the 5 Latin-hypercube starts. T0′ is the tight convergence check, with the diagnostics of the L6 row. T0 must pass within 0.02. Run the same recoveries on T1 and report its offset from $\hat\theta^\ast$ as model bias. Record iterations, run-equivalents, and wall time. Compare them with the FD recovery of Phase P3. Report T2.
 
 Acceptance: L6 passes for T0′ and T0. The T1 offset is recorded and reported to the user, together with the emission-delay results of Phase P8.
 
@@ -921,6 +937,10 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D26 | Bounded trust-region `least_squares(method="dogbox")` on the whitened residuals, from a 25-point global design, with multistart (Section 2.5). Supersedes D14. | User, 2026-10-30 |
 | D27 | Add the T0′ control target with exactly the inversion settings. Gate (b) and L6 test convergence on T0′; T0 and T1 recoveries report model bias. Drop ECNoise (fixed FD steps) and the bootstrap term of $\Sigma$. Drop $\langle y\rangle$ and $\langle u_y\rangle$ from the loss (11 observables). | User, 2026-10-30 |
 | D28 | Stage A: take one parameter ($E_L$, $z_f$ fixed at $z_f^\ast$) through Phases P3 to P9 with one tangent, then add $z_f$ in Stage B (Section 2.6). | User, 2026-10-30 |
+| D29 | Stage A loss: the 11 whitened residuals with $\alpha_D = 0$. MMD moves to Stage B or later, so Phase P9 uses the same loss as the P3 FD recovery. | User, 2026-10-31 |
+| D30 | FD caches are keyed by code hash. `runs/p3` is frozen as P3 evidence; Phase P9 compares with the recorded P3 results. | User, 2026-10-31 |
+| D31 | Phase P8 runs after M3 from committed code, not in parallel with P6 and P7, because it imports the EV code that P6 edits. | User, 2026-10-31 |
+| D32 | The recovery branch is chosen from the P7 Jacobian usability study: AD usable at a fixed-point shift $\delta \le 0.005$, blend, FD fallback, or exploratory (Section 6.4). Replaces the full-horizon L4 pass as the bar for using AD. | User, 2026-10-31 |
 
 ## 11. Future work
 
@@ -1543,6 +1563,20 @@ One tangent costs 1.0 to 1.2 primal steps. A gradient costs about 2 to 2.2 forwa
 Regression: L2 (`tests/test_autodiff_stepper.py`) passes with the changed stepper (largest ratios 0.11, 0.13, and 0.17 for Twin-XS 300, Twin-S 300, and Twin-S 1000 steps). The EV path of the changed stepper runs (Twin-XS, 60 steps). The stepper change alters the hash of `stepper.py`, so the cached P3 FD runs in `inversion/runs/p3` no longer match their provenance check (`ev_point.py`); the primal is unchanged (L2t).
 
 Acceptance: accepted by the user on 2026-10-31, with deviations. The probes, L2t (Twin-XS and Twin-S), and L3 pass. L4 at the pass horizons fails at the plan steps for the fixture reason above; the gradient is verified where central FD resolves it ($N_t \le 30$, small $h$, $K(h) = 0$). L4w fails one criterion (the $E_r$ residual ratio), which the noise floor limits. The full-horizon L4 sweep stays on Twin-S in Phase P7, where the trapping sensitivity above is the main risk. The alternative, a Twin-XS variant with 16 cells per $\lambda_0$, was not chosen.
+
+### 12.8 Re-plan of Phases P6 to P9 after M2
+
+Date: 2026-10-31. The user approved decisions D29 to D32. A first draft was checked by three reviewers (facts, method, schedule); the approved version applies their findings. Measurements that changed the plan:
+
+| # | Measurement (source) | Effect |
+|---|---|---|
+| 1 | Without EV, one tangent step costs 1.96 times a primal step on Twin-S (12.7). The cost with EV is not measured; an EV run takes 88.8 s, against about 18 s without EV. | Phase P7 step 3 measures it. Per dogbox iteration, AD needs about 2 run-equivalents and FD needs 3. |
+| 2 | Twin-XS is chaotic at 3.85 cells per $\lambda_0$. FD resolves the derivative only up to $N_t = 30$, and AD matches FD there (12.7). | Twin-XS is the strict short-horizon gate (P6 step 3). Twin-S long horizons are reported. |
+| 3 | Without EV, the Twin-S particle tangent grows by about $6\cdot10^2$ between steps 450 and 625, then stays near $10^6$ per J up to step 1000; the field tangent still grows at step 1000 (12.7). | Steps 1000 to 2000 and the EV case are measured in P7 step 4. The most sensitive particles stay linear only over about $10^{-7}$ in $\hat E_L$, against dogbox steps of $10^{-3}$ to $10^{-1}$, so P7 step 5 tests usability, not exactness. |
+| 4 | The 1-D loss has one false minimum at $\hat E_L \approx 0.545$ to 0.55. FD at $h = 0.02$ stopped in it from the best design start (12.5). | Multistart stays mandatory. P7 step 5 includes a slice around it. |
+| 5 | The P5 stepper change broke the provenance of the P3 FD cache (12.7), and P6 step 0 will break it again. `fd_recovery.py` hard-codes `runs/p3`. | D30 and P6 step 0. |
+
+The draft is kept at `inversion/notes/replan-p6-p9-2026-10-31.md`.
 
 ## Appendix A. Unverified claims and required probes
 
