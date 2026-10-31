@@ -1,0 +1,71 @@
+{
+  "name": "twin_xs",
+  "grid": {
+    "Nz": 96,
+    "zmin": -1e-05,
+    "zmax": 1e-05,
+    "Nr": 32,
+    "rmax": 1.2e-05,
+    "Nm": 2,
+    "dt_cells": 1.0,
+    "n_order": -1,
+    "n_guard": 64,
+    "exchange_period": 14,
+    "hankel_precision": "float64"
+  },
+  "laser": {
+    "lambda0": 8e-07,
+    "w0": 5e-06,
+    "tau": 1.6e-14,
+    "z0": -3e-06,
+    "theta_pol": 0.0
+  },
+  "plasma": {
+    "start": "preloaded",
+    "n_e0": 8e+24,
+    "nitrogen_fraction": 0.03,
+    "z_c": 8e-06,
+    "beta": 2.0,
+    "F_L": 8e-06,
+    "F_R": 8e-06,
+    "z_lo": 0.0,
+    "z_hi": 1.6e-05,
+    "p_nz": 1,
+    "p_nr": 2,
+    "p_nt": 8,
+    "p_rmax": 1.2e-05
+  },
+  "theta": {
+    "names": [
+      "laser_energy_J",
+      "laser_focal_position_m"
+    ],
+    "nominal": [
+      0.27,
+      6e-05
+    ],
+    "lo": [
+      0.162,
+      1.68e-05
+    ],
+    "hi": [
+      0.378,
+      0.0001032
+    ]
+  },
+  "num_steps": 300,
+  "seeds": {
+    "numpy": 0,
+    "ionization_rng": 20261030,
+    "ionization_stream": 1
+  },
+  "ev": {
+    "K_e": 1,
+    "epsilon": 0.0001
+  },
+  "selection": {
+    "u_c": 2.0,
+    "delta_u": 0.25,
+    "note": "No trapped peak in Twin-XS; set by convention for operator and closure checks."
+  }
+}

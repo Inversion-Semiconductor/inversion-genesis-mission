@@ -924,6 +924,97 @@ for f in tests/test_autodiff_*.py tests/test_fused_particle_operations.py tests/
 
 L0 passes. The autodiff files hold 132 tests, not the 122 of Section 1.5. Tests were added after commit `24fb4c7`. This difference does not change the plan.
 
+### 12.3 Phase P1. Twin configurations, trapping, and identifiability
+
+Run on 2026-10-30 on physical GPU 1 (RTX 6000 Ada), code on top of commit `9a65f19`. The P1 commit holds the code and the results.
+
+Files: `inversion/twin_config.py`, `inversion/observable.py`, `inversion/forward.py`, `inversion/identifiability.py`, `inversion/verify_twin_p1.py`, `inversion/configs/twin_s.json`, `inversion/configs/twin_xs.json`, and `inversion/results/p1_twin_s.json`.
+
+Frozen Twin-S physics (`configs/twin_s.json`):
+
+| Item | Value |
+|---|---|
+| Grid | 800 x 50 cells, window [-30, 10] µm, rmax 20 µm, $\Delta t = \Delta z / c$, $N_m = 2$, `n_order=-1`, `n_guard=64`, `exchange_period=14`, float64 Hankel |
+| Laser | $\lambda_0 = 0.8$ µm, $w_0 = 5$ µm, $\tau = 16$ fs (FBPIC field duration), $z_0 = -10$ µm, linear polarization along x; $z_R = 98.2$ µm |
+| $E_L$ | nominal 0.27 J ($a_0 = 4.0$), bounds [0.162, 0.378] J ($a_0$ 3.10 to 4.73). The ratios 0.6 and 1.4 match production (1.5, 2.5, 3.5 J). |
+| $z_f$ | nominal 90.0 µm ($z_c + 0.53 z_R$), bounds [46.8, 133.2] µm ($\pm 0.44 z_R$) |
+| Density | $n_{e0} = 8\times10^{24}$ m$^{-3}$ peak electron density, N fraction 0.03 of the atoms, $z_c = 38$ µm, $\beta = 2$, $F_L = F_R = 28$ µm, indicator [10, 66] µm, $S(z_{lo}) = S(z_{hi}) = 0.0625$. The window injects all plasma (`start = injected`). |
+| Plasma length | FWHM $= 0.29\, z_R$, indicator extent $= 0.57\, z_R$ |
+| Particles | `p_nz=1`, `p_nr=2`, `p_nt=8`, every species tracked |
+| $N_t$ | 2000. The left window edge is at 69.95 µm, past $z_{hi}$. |
+| Seeds | NumPy 0, ionization Philox 20261030 stream 1, Latin hypercube 2045 |
+| $\hat\theta^\ast$ | (0.6, 0.4). This is a planner choice: $\theta^\ast$ = (0.2916 J, 81.36 µm). |
+| Selection | $u_c = 6.246$, $\delta_u = 0.0385$ ($u_{lo} = 6.075$, $u_{hi} = 6.400$; low-energy peak at 1.0, trapped peak at 11.2) |
+| Optimizer starts | (0.273, 0.503), (0.164, 0.323), (0.750, 0.723), (0.690, 0.123), (0.502, 0.795). The farthest from $\hat\theta^\ast$ is (0.164, 0.323), at 0.436 in the infinity norm. |
+
+Twin-XS (`configs/twin_xs.json`): 96 x 32 cells, window [-10, 10] µm, rmax 12 µm, the same laser with $z_0 = -3$ µm, preloaded density with $z_c = 8$ µm, $F = 8$ µm, indicator [0, 16] µm, $N_t = 300$. The laser peak reaches $S = 0.1$ after 18 steps ($n_c \le 20$). Twin-XS traps no beam ($u_z \le 4.6$). Its selection ($u_c = 2.0$, $\delta_u = 0.25$) is a convention for the operator and closure checks.
+
+Interpretation choices:
+
+1. The moments are the 6 first moments and the 6 raw diagonal second moments of $\xi$, so $K = 12$. The plan does not name the second moments; $s_k$ (standard deviation, and its square) implies diagonal moments.
+2. Step 7 needs 16 runs for 2 parameters (2 parameters x 2 signs x 4 seeds), not 32. The 32 in the plan dates from the 4-parameter scope. I also ran $\hat\theta^\ast$ with the same 4 seeds for the seed variance and $v_{model}$.
+3. The $\Sigma$ floor of $\log Q$ uses the scale 1, so the floor is $0.02^2$.
+
+Commands, from `lpa/FBPIC_Warp/inversion`, with `CUDA_VISIBLE_DEVICES=1`:
+
+```bash
+python verify_twin_p1.py twin_xs
+python verify_twin_p1.py twin_s
+python identifiability.py selection trapping sensitivity report
+```
+
+Each production run is one `Simulation.step(N_t)` call. A first attempt split the runs into 100-step calls. Each call forces a particle exchange at its first iteration, which changes the physics, so that attempt was discarded.
+
+Step 4, aliasing, $\max|\rho_1| / \max|\rho_0|$ per species (limit $10^{-10}$):
+
+| Size | When | Electrons | He | N |
+|---|---|---|---|---|
+| Twin-XS | t = 0, preloaded | 1.9e-15 | 1.4e-15 | 1.3e-15 |
+| Twin-S | 300 steps, laser fields set to zero, injected plasma | 2.4e-15 | 2.5e-15 | 3.0e-15 |
+
+Step 5, weights: all weights are positive. At the corners (0, 0) and (1, 1), the weights of equal tracker IDs are identical (maximum difference 0.0), and the attributed ID counts are equal (Twin-XS after 60 steps; Twin-S after 1300 steps, 896000 IDs per species).
+
+Step 6, trapping (stochastic ionization, limits: at least 1000 macroparticles with $\sigma > 0.5$ and $Q \ge 0.1\,Q_{nom}$):
+
+| Point | $\hat\theta$ | $n(\sigma > 0.5)$ | $Q$ [pC] | $Q/Q_{nom}$ | Pass |
+|---|---|---|---|---|---|
+| nominal | (0.5, 0.5) | 40612 | 15.51 | 1.000 | yes |
+| corner | (0, 0) | 35607 | 9.40 | 0.606 | yes |
+| corner | (1, 0) | 32536 | 13.30 | 0.858 | yes |
+| corner | (0, 1) | 20183 | 4.24 | 0.274 | yes |
+| corner | (1, 1) | 69686 | 28.01 | 1.807 | yes |
+| start 0 | (0.273, 0.503) | 46731 | 14.77 | 0.952 | yes |
+| start 1 | (0.164, 0.323) | 39825 | 12.18 | 0.786 | yes |
+| start 2 | (0.750, 0.723) | 50722 | 20.21 | 1.303 | yes |
+| start 3 | (0.690, 0.123) | 28162 | 12.67 | 0.817 | yes |
+| start 4 | (0.502, 0.795) | 62162 | 20.32 | 1.310 | yes |
+
+The bounds stay unchanged.
+
+Step 7, identifiability ($h = 0.05$, Philox seeds 101 to 104, T2 truth with NumPy seed 7, Philox seed 999, and `p_nz = 2`):
+
+| Quantity | Value |
+|---|---|
+| $Q_y$ (seed mean at $\theta^\ast$) | 15.06 pC |
+| Eigenvalues of $G$ | 2.215e4, 4.827e4 |
+| $\mathrm{cond}(G)$ | 2.18 (limit $10^4$) |
+| Weakest eigenvector | (-0.659, -0.752) in ($\hat E_L$, $\hat z_f$) |
+| $\sqrt{\mathrm{diag}\, G^{-1}}$ | 0.0056, 0.0059 (limit 0.02) |
+
+The gate passes. The strongest normalized sensitivities $S/\sqrt{\Sigma}$ are $\langle u_z^2\rangle$ (143.6) and $\langle\zeta^2\rangle$ (-89.4) for $E_L$, and $\langle y^2\rangle$ (-120.7) and $\langle u_y^2\rangle$ (-83.2) for $z_f$. Section `identifiability` of `results/p1_twin_s.json` holds $S$, its SE, $\Sigma$, and $G$.
+
+Step 8, Twin-S at the nominal $\theta$ (stochastic):
+
+| Item | Value |
+|---|---|
+| Selected charge | 15.5 pC, 40612 macroparticles with $\sigma > 0.5$ |
+| Selected energy | weighted mean 5.8 MeV, standard deviation 1.8 MeV, maximum 12.6 MeV |
+| Particles at $N_t$ | 165717 `elec_from_N`; 44387 electrons, 24000 He, 24000 N (in the guard region) |
+| Run time | 22.5 s for 2000 steps (11 ms per step) |
+| Device memory | CUDA mempool high-water mark 0.49 GB used, 0.64 GB reserved; 1.13 GB device memory in use at the end, including the context |
+
+Acceptance: steps 4 to 7 pass. The config files are frozen.
+
 ## Appendix A. Unverified claims and required probes
 
 | Claim | Probe | Phase |

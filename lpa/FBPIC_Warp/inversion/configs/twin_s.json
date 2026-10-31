@@ -1,0 +1,97 @@
+{
+  "name": "twin_s",
+  "grid": {
+    "Nz": 800,
+    "zmin": -3e-05,
+    "zmax": 1e-05,
+    "Nr": 50,
+    "rmax": 2e-05,
+    "Nm": 2,
+    "dt_cells": 1.0,
+    "n_order": -1,
+    "n_guard": 64,
+    "exchange_period": 14,
+    "hankel_precision": "float64"
+  },
+  "laser": {
+    "lambda0": 8e-07,
+    "w0": 5e-06,
+    "tau": 1.6e-14,
+    "z0": -1e-05,
+    "theta_pol": 0.0
+  },
+  "plasma": {
+    "start": "injected",
+    "n_e0": 8e+24,
+    "nitrogen_fraction": 0.03,
+    "z_c": 3.8e-05,
+    "beta": 2.0,
+    "F_L": 2.8e-05,
+    "F_R": 2.8e-05,
+    "z_lo": 1e-05,
+    "z_hi": 6.6e-05,
+    "p_nz": 1,
+    "p_nr": 2,
+    "p_nt": 8,
+    "p_rmax": 2e-05
+  },
+  "theta": {
+    "names": [
+      "laser_energy_J",
+      "laser_focal_position_m"
+    ],
+    "nominal": [
+      0.27,
+      9e-05
+    ],
+    "lo": [
+      0.162,
+      4.68e-05
+    ],
+    "hi": [
+      0.378,
+      0.0001332
+    ]
+  },
+  "num_steps": 2000,
+  "seeds": {
+    "numpy": 0,
+    "ionization_rng": 20261030,
+    "ionization_stream": 1,
+    "lhs": 2045
+  },
+  "ev": {
+    "K_e": 1,
+    "epsilon": 0.0001
+  },
+  "selection": {
+    "u_c": 6.246229215420769,
+    "delta_u": 0.03847988480118669
+  },
+  "theta_star_hat": [
+    0.6,
+    0.4
+  ],
+  "optimizer_starts_hat": [
+    [
+      0.27342743668611535,
+      0.5025453184692884
+    ],
+    [
+      0.164030550954873,
+      0.3227693113413561
+    ],
+    [
+      0.7499131247207887,
+      0.7229583871732091
+    ],
+    [
+      0.6903884213516032,
+      0.12257408950496451
+    ],
+    [
+      0.5017881120502764,
+      0.794519485547683
+    ]
+  ]
+}
