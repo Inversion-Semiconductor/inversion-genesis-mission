@@ -117,12 +117,21 @@ def _decision_record(decisions) -> list:
 
 
 class KeyRecorder:
-    """Hook that records or compares per-stage cell keys by tracker ID."""
+    """Hook that records or compares per-stage cell keys by tracker ID.
 
-    def __init__(self, reference=None):
+    Section 6.3 rule 8. The records live on the host. With `stride > 1`,
+    only the tracker IDs divisible by `stride` are recorded (Phase P6 step 0:
+    256 on Twin-S, where full records do not fit in device memory); K(h)
+    then counts the sampled keys, and `sampled`/`total` give the fraction.
+    """
+
+    def __init__(self, reference=None, stride: int = 1):
         self.reference = reference
+        self.stride = int(stride)
         self.records = {} if reference is None else None
         self.differences = []  # (step, species, count) per stage event
+        self.sampled = 0
+        self.total = 0
 
     def __call__(self, state, name):
         if name not in STAGES:
@@ -157,17 +166,23 @@ class KeyRecorder:
                     grid.Nr,
                 )
                 ids = sp.tracker.id[:n]
+                if self.stride > 1:
+                    keep = ids % self.stride == 0
+                    ids, cells = ids[keep], cells[keep]
                 order = cupy.argsort(ids)
                 ids, cells = ids[order], cells[order]
+            ids, cells = cupy.asnumpy(ids), cupy.asnumpy(cells)
+            self.sampled += ids.size
+            self.total += n
             if self.records is not None:
                 self.records[key] = (ids, cells)
                 continue
             ref_ids, ref_cells = self.reference.pop(key)
-            if ref_ids.size == ids.size and bool(cupy.all(ref_ids == ids)):
-                count = int(cupy.count_nonzero(ref_cells != cells))
+            if ref_ids.size == ids.size and np.array_equal(ref_ids, ids):
+                count = int(np.count_nonzero(ref_cells != cells))
             else:
-                common, i, j = cupy.intersect1d(ref_ids, ids, return_indices=True)
-                count = int(cupy.count_nonzero(ref_cells[i] != cells[j]))
+                common, i, j = np.intersect1d(ref_ids, ids, return_indices=True)
+                count = int(np.count_nonzero(ref_cells[i] != cells[j]))
                 count += int(ref_ids.size + ids.size - 2 * common.size)
             self.differences.append((state.iteration, species, count))
 
@@ -307,6 +322,7 @@ def run_l4(
     slice_points: int,
     h_values=H_VALUES,
     tag: str = "",
+    key_stride: int = 1,
 ):
     from fbpic.autodiff.loss import CheckFunctional
 
@@ -369,11 +385,11 @@ def run_l4(
     }
     fd = {}
     for h in h_values:
-        recorder = KeyRecorder()
+        recorder = KeyRecorder(stride=key_stride)
         plus, d_plus = primal_run(
             build, theta_at(hat0 + h), set(horizons), n_steps, functional, recorder
         )
-        comparer = KeyRecorder(recorder.records)
+        comparer = KeyRecorder(recorder.records, key_stride)
         minus, d_minus = primal_run(
             build, theta_at(hat0 - h), set(horizons), n_steps, functional, comparer
         )
@@ -397,6 +413,11 @@ def run_l4(
             "K": k_cum,
             "K_species": k_species,
             "mismatch": mismatch,
+            "key_sample": {
+                "stride": key_stride,
+                "sampled": comparer.sampled,
+                "total": comparer.total,
+            },
         }
         print(f"h={h}: K(h) at horizons {k_cum}; first decision mismatch {mismatch}")
     slice_hats = hat0 + np.linspace(-0.05, 0.05, slice_points)
@@ -435,6 +456,7 @@ def run_l4(
             "K": fd[h]["K"],
             "K_species": fd[h]["K_species"],
             "mismatch": fd[h]["mismatch"],
+            "key_sample": fd[h]["key_sample"],
         }
         for h in h_values
     }
@@ -487,11 +509,25 @@ def main():
     parser.add_argument("--slice-points", type=int, default=41)
     parser.add_argument("--h", type=float, nargs="+", default=list(H_VALUES))
     parser.add_argument("--tag", default="")
+    parser.add_argument(
+        "--key-stride",
+        type=int,
+        default=1,
+        help="record the cell keys of tracker IDs divisible by this (rule 8)",
+    )
     args = parser.parse_args()
     if args.stage == "nc":
         print(compute_n_c(args.size))
     else:
-        run_l4(args.size, args.steps, args.base, args.slice_points, args.h, args.tag)
+        run_l4(
+            args.size,
+            args.steps,
+            args.base,
+            args.slice_points,
+            args.h,
+            args.tag,
+            args.key_stride,
+        )
 
 
 if __name__ == "__main__":

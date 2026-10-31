@@ -61,7 +61,7 @@ def _by_id(state):
 def main():
     config = load_config("twin_s")
     theta = theta_from_hat(config, config["theta_star_hat"])
-    twin, state = build_ev_state(theta, config)
+    twin, state = build_ev_state(theta, config, record_emissions=True)
     report = {"charge": [], "cohort": [], "ledger": [], "follow_ids": []}
     charge = {}
 

@@ -79,7 +79,15 @@ def run_production(
     }
 
 
-def build_ev_state(theta, config, seed=None, p_nz=1, epsilon=None, immobile=False):
+def build_ev_state(
+    theta,
+    config,
+    seed=None,
+    p_nz=1,
+    epsilon=None,
+    immobile=False,
+    record_emissions=False,
+):
     """Build a twin with fixed-charge ions and attach the EV model.
 
     Returns:
@@ -93,6 +101,7 @@ def build_ev_state(theta, config, seed=None, p_nz=1, epsilon=None, immobile=Fals
         "epsilon": ev["epsilon"] if epsilon is None else epsilon,
         "K_e": ev["K_e"],
         "immobile": immobile,
+        "record_emissions": record_emissions,
     }
     state = begin(
         twin.sim,

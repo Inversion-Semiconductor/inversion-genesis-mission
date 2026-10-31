@@ -24,7 +24,9 @@ the target name. `--starts` sets the number of design starts (default 3).
 Every loss evaluation is one EV forward run of Twin-S (p_nz = 1, inversion
 seed) against the T0 target, with the minimal loss (alpha_D = 0). The runs of
 one batch execute as parallel processes on the same GPU (`ev_point.py`), and
-each result is cached in `runs/p3/` by its normalized parameters.
+each result is cached in `runs/fd_<code_sha256[:12]>/` by its normalized
+parameters (D30). `runs/p3/` holds the P3 evidence read-only; its runs carry
+the code hash `804032cdc3e2`.
 """
 
 from __future__ import annotations
@@ -40,12 +42,19 @@ import numpy as np
 from twin_config import load_config
 
 HERE = Path(__file__).resolve().parent
-RUN_DIR = HERE / "runs" / "p3"
+
 RESULT_FILE = HERE / "results" / "p3_fd_recovery.json"
 SIZE, VARIANT = "twin_s", "T0"
 H_FD = 0.02
 MAX_PARALLEL = 5
 LOG = []
+
+
+def run_dir() -> Path:
+    """Cache directory of the current simulation code (D30)."""
+    from ev_point import code_sha256
+
+    return HERE / "runs" / f"fd_{code_sha256()[:12]}"
 
 
 def _key(theta_hat, tag=""):
@@ -61,6 +70,7 @@ def evaluate_batch(points, tag="", tags=None):
     """
     from ev_point import provenance
 
+    RUN_DIR = run_dir()
     RUN_DIR.mkdir(parents=True, exist_ok=True)
     tags = [tag] * len(points) if tags is None else list(tags)
     jobs = list(dict.fromkeys((tuple(p), t) for p, t in zip(points, tags)))
@@ -75,6 +85,8 @@ def evaluate_batch(points, tag="", tags=None):
             cmd = [
                 sys.executable,
                 str(HERE / "ev_point.py"),
+                SIZE,
+                VARIANT,
                 str(p[0]),
                 str(p[1]),
                 str(out),
@@ -87,7 +99,7 @@ def evaluate_batch(points, tag="", tags=None):
             log.close()
             if proc.returncode != 0:
                 raise RuntimeError(f"ev_point.py failed; see {log.name}")
-    current = provenance()
+    current = provenance(SIZE, VARIANT)
     results = []
     for p, t in zip(points, tags):
         result = json.loads((RUN_DIR / f"{_key(p, t)}.json").read_text())
@@ -411,15 +423,18 @@ def _gkey(name):
 def _stats_of(result, target=None):
     """Q and raw moments of a cached run, for the charge floor of `target`.
 
-    `ev_point.py` forms the moments with the Q_f of T0. Each moment is
-    sum / (Q/e + Q_f/e), so a different target floor is an exact rescale.
+    `ev_point.py` forms the moments with the Q_f of its target (T0; stored
+    in the result since Phase P6). Each moment is sum / (Q/e + Q_f/e), so a
+    different target floor is an exact rescale.
     """
     from make_target import load_target
 
     Q = result["Q_pC"] * 1e-12
     moments = np.asarray(result["moments"])
     if target is not None:
-        Q_f_run = load_target(SIZE, VARIANT, load_config(SIZE))["Q_f"]
+        Q_f_run = result.get("Q_f")
+        if Q_f_run is None:
+            Q_f_run = load_target(SIZE, VARIANT, load_config(SIZE))["Q_f"]
         moments = moments * (Q + Q_f_run) / (Q + target["Q_f"])
     return {"Q": Q, "moments": moments}
 

@@ -1578,6 +1578,29 @@ Date: 2026-10-31. The user approved decisions D29 to D32. A first draft was chec
 
 The draft is kept at `inversion/notes/replan-p6-p9-2026-10-31.md`.
 
+### 12.9 Phase P6. EV tangents
+
+Run on 2026-10-31 on physical GPU 1 (RTX 6000 Ada), Warp 1.18.0, code on top of commit `1c0f458`. Stage A: one tangent ($K = 1$, $E_L$).
+
+#### Step 0. Deferred fixes, FD caches, and cell-key sampling
+
+Changes:
+
+1. `ev_ionize` (`fbpic/autodiff/ionization.py`) forms $P_5' = P_5 e^{-x_5}$ and $P_6' = P_6 e^{-x_6} + \Delta_{56}$, with the survival factors computed directly (Section 5.1). The P6 form is the same correction for the second transition; it was not in the M1 finding, but Section 5.1 requires it for both.
+2. The emission record (`ledger["emitted_first_id"]`, 8 B per birth on the device) is optional: `attach(..., record_emissions=False)`. Only `verify_ev_invariants.py` turns it on.
+3. `make_target.git_hash()` appends `-dirty` when tracked files differ from HEAD.
+4. FD caches are keyed by code hash (D30): `fd_recovery.py` writes to `runs/fd_<code_sha256[:12]>/`, and `ev_point.py` takes the size and the target as arguments and stores the $Q_f$ that formed its moments. `runs/p3/` is read-only (mode `a-w`); its 311 runs carry the code hash `804032cdc3e2`.
+5. `verify_param_gradient.py`: the cell keys of Section 6.3 rule 8 are recorded on the host. Option `--key-stride 256` records only the tracker IDs divisible by 256 and reports the sampled and total counts.
+
+Checks after the change:
+
+| Check | Result | Limit or previous value |
+|---|---|---|
+| EV open loop (`python verify_ev_open_loop.py`) | pass; $z$ = +0.99, +0.48, -1.42, -1.69 (unchanged to the printed digits); $\max\lvert P_5+P_6+P_7-1\rvert = 9.3\cdot10^{-15}$ over 200 steps | 3 SE; previous sum error $1.6\cdot10^{-15}$ |
+| EV invariants on Twin-S (`python verify_ev_invariants.py`) | pass; cohort population error at most $2.0\cdot10^{-15}$; charge, ledgers, and ID follow-up pass | $10^{-14}$, $10^{-12}$ |
+
+The larger population-sum error of the open loop is expected: $e^{-x}$ and $-\mathrm{expm1}(-x)$ are rounded separately, so $P_5' + \Delta_{56}$ differs from $P_5$ by a few ulp in each step, as a random walk. The invariant limit of Phase P3 still holds with a margin of 5.
+
 ## Appendix A. Unverified claims and required probes
 
 | Claim | Probe | Phase |

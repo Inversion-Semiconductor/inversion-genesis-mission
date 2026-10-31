@@ -35,14 +35,17 @@ def target_path(size, variant, n_t):
 
 
 def git_hash() -> str:
+    """HEAD commit, with the suffix "-dirty" if tracked files differ from it."""
+    here = Path(__file__).parent
     out = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
-        cwd=Path(__file__).parent,
+        cwd=here,
         check=True,
     )
-    return out.stdout.strip()
+    dirty = subprocess.run(["git", "diff", "--quiet", "HEAD"], cwd=here).returncode
+    return out.stdout.strip() + ("-dirty" if dirty else "")
 
 
 def target_from_beam(elec, z_win, config, theta_star, variant, seed, p_nz=VARIANT_P_NZ):

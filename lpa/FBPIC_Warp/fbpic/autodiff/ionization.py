@@ -10,7 +10,7 @@ weight W. For each step, with the ADK exponent
 the populations move with the old values (one level per step, as production):
 
     D56 = P5 p5,  D67 = P6 p6,
-    P5' = P5 - D56,  P6' = P6 + D56 - D67,  P7' = P7 + D67,
+    P5' = P5 exp(-x5),  P6' = P6 exp(-x6) + D56,  P7' = P7 + D67,
     W'  = W + w (D56 + D67).
 
 An ion with W' > epsilon w emits one electron of weight W' into the target
@@ -151,8 +151,9 @@ def ev_ionize(
         p6 = -expm1_accurate(-x6)
         d56 = pop5[i] * p5
         d67 = pop6[i] * p6
-        pop5_out[i] = pop5[i] - d56
-        pop6_out[i] = pop6[i] + d56 - d67
+        # Survival factors exp(-x) directly, not 1 - p (Section 5.1)
+        pop5_out[i] = pop5[i] * wp.exp(-x5)
+        pop6_out[i] = pop6[i] * wp.exp(-x6) + d56
         pop7_out[i] = pop7[i] + d67
         pending = w_pending[i] + w[i] * (d56 + d67)
         fire = pending > epsilon * w[i]
@@ -228,7 +229,13 @@ def _launch(kernel, n, inputs):
 # ----------------
 
 
-def attach(state: StepState, epsilon: float = 1e-4, K_e: int = 1, immobile=False):
+def attach(
+    state: StepState,
+    epsilon: float = 1e-4,
+    K_e: int = 1,
+    immobile=False,
+    record_emissions=False,
+):
     """Create the EV arrays of the ion species (P = (1, 0, 0), W = 0).
 
     Args:
@@ -236,6 +243,9 @@ def attach(state: StepState, epsilon: float = 1e-4, K_e: int = 1, immobile=False
         epsilon: Emission threshold relative to the ion weight (D12).
         K_e: Emission period; only 1 is supported (Section 5.2).
         immobile: Freeze the ion positions and momenta (Phase P3 step 8).
+        record_emissions: Keep the parent IDs and the first electron ID of
+            every emitting step in `ledger["emitted_first_id"]` (Phase P3
+            step 4). The record holds 8 B per birth on the device.
     """
     if K_e != 1:
         raise ValueError("Only K_e = 1 is supported (Section 5.2).")
@@ -250,7 +260,12 @@ def attach(state: StepState, epsilon: float = 1e-4, K_e: int = 1, immobile=False
         w_pending=cupy.zeros(n),
     )
     params = dict(adk_coefficients("N", state.sim.dt))
-    params.update(epsilon=float(epsilon), K_e=K_e, immobile=bool(immobile))
+    params.update(
+        epsilon=float(epsilon),
+        K_e=K_e,
+        immobile=bool(immobile),
+        record_emissions=bool(record_emissions),
+    )
     state.ev_params = params
     state.ledger = {
         "emitted": cupy.zeros((), dtype=np.float64),
@@ -488,5 +503,8 @@ def ionize_and_emit(state: StepState):
         first_id = int(elec.tracker.next_attributed_id)
         generate_new_ids(elec, old, old + n_new)
         elec.sorted = False
-        state.ledger["emitted_first_id"].append((state.iteration, first_id, parent_ids))
+        if params["record_emissions"]:
+            state.ledger["emitted_first_id"].append(
+                (state.iteration, first_id, parent_ids)
+            )
     return parent_ids
