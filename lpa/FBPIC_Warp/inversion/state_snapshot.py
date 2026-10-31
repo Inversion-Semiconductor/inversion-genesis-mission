@@ -26,6 +26,8 @@ def _objects(state):
         "comm": sim.comm,
         "moving_win": sim.comm.moving_win,
     }
+    if getattr(state, "ev", None) is not None:
+        objects["ev"] = state.ev
     for m, grid in enumerate(sim.fld.interp):
         objects[f"interp{m}"] = grid
     for m, grid in enumerate(sim.fld.spect):

@@ -1,10 +1,11 @@
 """L4: forward-mode parameter gradient against frozen-decision central FD.
 
-Inversion plan Sections 6.2 to 6.4, Phase P5 step 6 and step 10. Stage A:
-one tangent (E_L), `ionization="none"`, so there are no emission decisions
-to freeze. One AD run (`jvp` with the E_L seed) records the decisions and
-evaluates J_chk and its gradient at every horizon. The FD runs are plain
-`step` runs at theta_hat_E +- h.
+Inversion plan Sections 6.2 to 6.4, Phase P5 step 6 and step 10, Phase P6
+steps 3 and 4. Stage A: one tangent (E_L). One AD run (`jvp` with the E_L
+seed) records the decisions and evaluates J_chk and its gradient at every
+horizon. The FD runs are plain `step` runs at theta_hat_E +- h. With
+`--ionization ev`, every FD run and base run reuses the emitting parent IDs
+of the AD run at every step as `emit_mask` (frozen-decision FD, rule 3).
 
 FD rules (Section 6.3):
 
@@ -28,6 +29,8 @@ Usage (from lpa/FBPIC_Warp, CUDA_VISIBLE_DEVICES set):
 
     python inversion/verify_param_gradient.py nc twin_xs
     python inversion/verify_param_gradient.py l4 twin_xs
+    python inversion/verify_param_gradient.py l4 twin_xs --ionization ev \
+        --steps 28 --horizons 20 28 --h 1e-6 1e-7 1e-8 --slice-points 0
 """
 
 from __future__ import annotations
@@ -202,12 +205,28 @@ def count_valid(mismatch, horizon) -> bool:
     return mismatch is None or mismatch >= horizon
 
 
-def primal_run(build, theta, horizons, n_steps, functional, hooks=None):
-    """Plain `step` run; J_chk terms at each horizon and the decisions."""
+def primal_run(
+    build,
+    theta,
+    horizons,
+    n_steps,
+    functional,
+    hooks=None,
+    begin_kwargs=None,
+    emit_masks=None,
+):
+    """Plain `step` run; J_chk terms at each horizon and the decisions.
+
+    Args:
+        emit_masks: {iteration: device array of parent IDs} for every step,
+            from the AD run (frozen emissions), or None (thresholds active).
+    """
     from fbpic.autodiff.stepper import begin, step
 
     sim, species, _ = build(theta)
-    state = begin(sim, species)
+    state = begin(sim, species, **(begin_kwargs or {}))
+    if emit_masks is not None:
+        state.emit_masks = emit_masks
     if hooks is not None:
         state.hooks = {"*": hooks}
     check = functional(state)
@@ -219,7 +238,23 @@ def primal_run(build, theta, horizons, n_steps, functional, hooks=None):
     return values, _decision_record(decisions)
 
 
-def ad_run(build, theta, horizons, n_steps, functional, bounds):
+def emission_masks(decisions) -> dict | None:
+    """Emitting parent IDs of every step of a run, keyed by iteration."""
+    import cupy
+
+    if all(d.emitted_parent_ids is None for d in decisions):
+        return None
+    return {
+        d.iteration: (
+            cupy.zeros(0, np.uint64)
+            if d.emitted_parent_ids is None
+            else d.emitted_parent_ids
+        )
+        for d in decisions
+    }
+
+
+def ad_run(build, theta, horizons, n_steps, functional, bounds, begin_kwargs=None):
     """`jvp` run with the E_L tangent; J and dJ/dtheta_hat per term and horizon."""
     import cupy
 
@@ -247,9 +282,16 @@ def ad_run(build, theta, horizons, n_steps, functional, bounds):
             norms = tangent_norms(tangents)[0]
             out["norms"].append({"step": n, **norms})
 
-    result = jvp(theta, build, ("E_L",), n_steps, callback=callback)
+    result = jvp(
+        theta, build, ("E_L",), n_steps, callback=callback, begin_kwargs=begin_kwargs
+    )
     cupy.cuda.runtime.deviceSynchronize()
     out["decisions"] = _decision_record(result.decisions)
+    out["emit_masks"] = emission_masks(result.decisions)
+    out["births"] = [
+        0 if d.emitted_parent_ids is None else int(d.emitted_parent_ids.size)
+        for d in result.decisions
+    ]
     out["info"] = {k: v for k, v in result.info.items() if k != "tangent_norms"}
     return out
 
@@ -323,11 +365,24 @@ def run_l4(
     h_values=H_VALUES,
     tag: str = "",
     key_stride: int = 1,
+    ionization: str = "none",
+    horizons_override=None,
 ):
     from fbpic.autodiff.loss import CheckFunctional
 
     config = load_config(size)
-    build = twin_builder(config)
+    build = twin_builder(config, ionization=ionization)
+    begin_kwargs = None
+    if ionization == "ev":
+        begin_kwargs = {
+            "ionization": "ev",
+            "ev_species": "nitrogen",
+            "ev_target": "elec_from_N",
+            "ev_options": {
+                "epsilon": config["ev"]["epsilon"],
+                "K_e": config["ev"]["K_e"],
+            },
+        }
     lo, hi = (
         np.asarray(v, float) for v in (config["theta"]["lo"], config["theta"]["hi"])
     )
@@ -340,6 +395,10 @@ def run_l4(
     horizons = sorted(
         {n for n in pass_horizons + report_horizons if n <= n_steps} | {5, 20, 30, 40}
     )
+    if horizons_override:
+        horizons = sorted(set(horizons_override))
+        pass_horizons = horizons
+    horizons = [n for n in horizons if n <= n_steps]
     lambda0 = config["laser"]["lambda0"]
 
     def functional(state):
@@ -352,6 +411,7 @@ def run_l4(
 
     record = {
         "size": size,
+        "ionization": ionization,
         "config_sha256": config_sha256(config),
         "theta_nominal": theta0.tolist(),
         "theta_hat_E": hat0,
@@ -361,7 +421,18 @@ def run_l4(
         "h_values": list(h_values),
     }
     t0 = time.perf_counter()
-    ad = ad_run(build, theta0, set(horizons), n_steps, functional, (lo, hi))
+    ad = ad_run(
+        build,
+        theta0,
+        set(horizons),
+        n_steps,
+        functional,
+        (lo, hi),
+        begin_kwargs,
+    )
+    masks = ad.pop("emit_masks")
+    record["births_per_step"] = ad.pop("births")
+    run_kwargs = {"begin_kwargs": begin_kwargs, "emit_masks": masks}
     record["check_functional"] = functional(_FakeState(build, theta0)).record()
     record["ad_info"] = ad["info"]
     record["tangent_norms"] = ad["norms"]
@@ -370,7 +441,7 @@ def run_l4(
     base, base_mismatch = [], []
     for i in range(n_base):
         values, decisions = primal_run(
-            build, theta0, set(horizons), n_steps, functional
+            build, theta0, set(horizons), n_steps, functional, **run_kwargs
         )
         base_mismatch.append(first_mismatch(decisions, ad["decisions"]))
         base.append(values)
@@ -387,11 +458,23 @@ def run_l4(
     for h in h_values:
         recorder = KeyRecorder(stride=key_stride)
         plus, d_plus = primal_run(
-            build, theta_at(hat0 + h), set(horizons), n_steps, functional, recorder
+            build,
+            theta_at(hat0 + h),
+            set(horizons),
+            n_steps,
+            functional,
+            recorder,
+            **run_kwargs,
         )
         comparer = KeyRecorder(recorder.records, key_stride)
         minus, d_minus = primal_run(
-            build, theta_at(hat0 - h), set(horizons), n_steps, functional, comparer
+            build,
+            theta_at(hat0 - h),
+            set(horizons),
+            n_steps,
+            functional,
+            comparer,
+            **run_kwargs,
         )
         del recorder
         mismatch = [
@@ -423,7 +506,9 @@ def run_l4(
     slice_hats = hat0 + np.linspace(-0.05, 0.05, slice_points)
     slices = []
     for hat in slice_hats if slice_points >= 3 else []:
-        values, _ = primal_run(build, theta_at(hat), set(horizons), n_steps, functional)
+        values, _ = primal_run(
+            build, theta_at(hat), set(horizons), n_steps, functional, **run_kwargs
+        )
         slices.append(values)
     results = {}
     for n in horizons:
@@ -462,7 +547,8 @@ def run_l4(
     }
     record["slice_hats"] = slice_hats.tolist()
     record["wall_time_s"] = time.perf_counter() - t0
-    out = RESULTS / f"p5_l4_{size}{tag}.json"
+    phase = "p6" if ionization == "ev" else "p5"
+    out = RESULTS / f"{phase}_l4_{size}{tag}.json"
     out.write_text(json.dumps(record, indent=1, default=_json_default) + "\n")
     _print_summary(record)
     return record
@@ -509,6 +595,8 @@ def main():
     parser.add_argument("--slice-points", type=int, default=41)
     parser.add_argument("--h", type=float, nargs="+", default=list(H_VALUES))
     parser.add_argument("--tag", default="")
+    parser.add_argument("--ionization", default="none", choices=("none", "ev"))
+    parser.add_argument("--horizons", type=int, nargs="+", default=None)
     parser.add_argument(
         "--key-stride",
         type=int,
@@ -527,6 +615,8 @@ def main():
             args.h,
             args.tag,
             args.key_stride,
+            args.ionization,
+            args.horizons,
         )
 
 

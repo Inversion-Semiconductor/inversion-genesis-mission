@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
@@ -141,7 +141,7 @@ Appendix C lists the sources.
 | Tangent kernels for gather, push, and deposition | Verified (L1): Phase P4, Section 12.6 |
 | One-step, horizon, and parameter gradients | L3 verified on Twin-XS; L4 verified for $N_t \le 30$ on Twin-XS with small $h$ (Section 12.7) |
 | Memory and run time of a forward-mode gradient pass | Not measured |
-| Expected-value ionization | Not implemented |
+| Expected-value ionization | Forward model verified in Phase P3 (Section 12.5); tangents verified by L1, L3, and short-horizon L4 in Phase P6 (Section 12.9) |
 | Identifiability of the two parameters in the twin | Not measured |
 
 ## 2. Problem formulation
@@ -1600,6 +1600,96 @@ Checks after the change:
 | EV invariants on Twin-S (`python verify_ev_invariants.py`) | pass; cohort population error at most $2.0\cdot10^{-15}$; charge, ledgers, and ID follow-up pass | $10^{-14}$, $10^{-12}$ |
 
 The larger population-sum error of the open loop is expected: $e^{-x}$ and $-\mathrm{expm1}(-x)$ are rounded separately, so $P_5' + \Delta_{56}$ differs from $P_5$ by a few ulp in each step, as a random walk. The invariant limit of Phase P3 still holds with a margin of 5.
+
+Commit: `94d9ffb`.
+
+#### Steps 1 to 5
+
+Status: steps 1, 2, and 5 pass. Step 3 passes at $N_t = 20$; at $N_t = 28$ the user accepted it as a deviation on 2026-10-31 (below). Step 4 is reported.
+
+Files:
+
+1. `fbpic/autodiff/ionization.py`: the kernel `ev_tangent` (closed-form tangent of `ev_ionize` with the emission flags fixed, $K$ tangents per thread, out of place), the device functions `E_amplitude_jvp` and `adk_exponent_jvp`, and the host functions `ionize_tangent` and `charge_weight_tangents`. `ionize_and_emit(state, keep_inputs=True)` keeps the old EV arrays and the emission flags for the tangent.
+2. `fbpic/autodiff/tangent.py`: `vay_ion_tangent`, the tangent of `push_ion_momenta_ev`.
+3. `fbpic/autodiff/state.py`, `fbpic/autodiff/stepper.py`: the EV tangents live in `tangents.particles["nitrogen"]` as `pop5`, `pop6`, `pop7`, `w_pending`, so that every sort and realignment carries them. Hooks `tangent_ev:before` and `:after`.
+4. `inversion/verify_one_step.py` and `inversion/state_snapshot.py` (`--ionization ev`), `inversion/verify_param_gradient.py` (`--ionization ev`, `--horizons`, `--key-stride`), `inversion/verify_crossing_probe.py`.
+5. Tests: `tests/test_autodiff_ionization.py` (L1, 13 tests); `tests/test_autodiff_tangent_step.py` gets the EV case of L2t (a).
+
+Design:
+
+1. EV tangent (Section 5.3). $\dot E$ comes from $\dot{(E^2)}$ of `get_E_amplitude` differentiated line by line, with $\dot\gamma = u\cdot\dot u/\gamma$. Where $x_\ell = 0$, $\dot x_\ell = 0$ and $\dot E$ is not formed. With $s_\ell = e^{-x_\ell}$: $\dot p_\ell = s_\ell \dot x_\ell$, $\dot P_5' = s_5(\dot P_5 - P_5\dot x_5)$, $\dot P_6' = s_6(\dot P_6 - P_6\dot x_6) + \dot\Delta_{56}$, $\dot P_7' = \dot P_7 + \dot\Delta_{67}$, $\dot W' = \dot W + w(\dot\Delta_{56} + \dot\Delta_{67})$. An emitting ion moves $\dot W'$ into the birth-weight tangent and resets $\dot W$ to 0. The ion weight $w$ is constant (D21).
+2. Ion push tangent. The Vay push reads $\mathbf E$ only as $c_E\mathbf E$ and $\mathbf B$ only as $c_B\mathbf B$, and both coefficients are proportional to the charge $e\,w_\text{tl}/w$. The charge tangent therefore enters as the field tangents $\dot{\mathbf E} + (\dot w_\text{tl}/w_\text{tl})\mathbf E$ and $\dot{\mathbf B} + (\dot w_\text{tl}/w_\text{tl})\mathbf B$ of the fixed-charge tangent `vay_jvp`.
+3. Charge tangents. $\dot w_\text{tl} = w\sum_\ell \ell\dot P_\ell - \dot W$ from the current EV tangents: before the EV call for the ion push and the exchange-step `rho_prev` deposit, after it for the J and `rho_next` deposits. The ion deposit tangent uses the weight $w_\text{tl}$, the weight tangent $\dot w_\text{tl}$, and the charge $e$, as the primal deposit does.
+4. Births. The new electrons take the tangents of $x, y, z, u_x, u_y, u_z$, `inv_gamma` of their parents, and the weight tangent $\dot W'$, by an index gather over `flatnonzero(emit)`. This is the parent order, which is the slot order of the primal.
+
+Commands, from `lpa/FBPIC_Warp`, with `CUDA_VISIBLE_DEVICES=1`:
+
+```bash
+python -m pytest tests/test_autodiff_ionization.py -q -s
+python -m pytest tests/test_autodiff_tangent_step.py -q -s -k bitwise
+python inversion/verify_one_step.py --ionization ev --steps 20 28
+python inversion/verify_param_gradient.py l4 twin_xs --ionization ev --steps 28 --horizons 20 28 --h 1e-6 1e-7 1e-8 --slice-points 0
+python inversion/verify_param_gradient.py l4 twin_xs --ionization ev --steps 28 --horizons 28 --h 3e-8 1e-8 3e-9 1e-9 --slice-points 0 --tag _small_h
+python inversion/verify_param_gradient.py nc twin_s
+python inversion/verify_param_gradient.py l4 twin_s --ionization ev --steps 500 --horizons 460 500 --h 1e-2 1e-3 1e-4 1e-5 1e-6 1e-7 1e-8 --slice-points 0 --key-stride 256
+python inversion/verify_crossing_probe.py
+```
+
+Step 1, L1 (`tests/test_autodiff_ionization.py`). The EV fixture has 40 ions with rest-frame fields from $10^{11}$ V/m (two ions in the underflow band, $x = 0$ with $E > 0$) to $1.8\cdot10^{13}$ V/m ($x_5$ up to 43), random populations on the simplex, $W$ up to $10^{-4}w$, and half of the ions emitting. The ion-push fixture has 9 ions with $w_\text{tl}/w$ from 5 to 7.
+
+| Kernel | Dot product with the Warp VJP, largest $e$ of 3 draws (limit $10^{-12}$) | `check_jvp`, best errors of 3 directions |
+|---|---|---|
+| `ev_tangent`: momenta / fields / populations and $W$ / all | 3.5e-17 / 5.2e-17 / 1.1e-17 / 2.4e-17 | 2.1e-10, 8.6e-11, 4.0e-10 |
+| `vay_ion_tangent`: momenta / fields / $w_\text{tl}$ / all | 2.5e-17 / 5.6e-17 / 3.0e-17 / 2.4e-17 | 1.5e-9, 7.1e-10, 6.6e-10 |
+
+The reference VJPs are those of `ev_ionize` (with `use_mask = 1`, so the emission branch is fixed) and of `push_ion_momenta_ev`. Separate checks: at $E = 0$ (6 ions), every output tangent is finite and $\dot P' = \dot P$, $\dot W' = \dot W$ or the birth tangent, exactly. The birth copy is an exact index gather: the old electron tangents are unchanged, and the new ones equal the parent tangents and $\dot W'$ bit for bit.
+
+Step 2, EV tangents in `step`.
+
+1. L2t (a) with EV: every tangent section, including `tangent_ev`, leaves the primal bitwise unchanged over 300 steps on Twin-XS and Twin-S (3363 sections per run). The Twin-XS ions leave the window before step 300; `ionize_tangent` then does nothing.
+2. L3 (`inversion/results/p6_l3_twin_xs.json`), Twin-XS with `p_nz = 2`, nominal $\theta$. The base step records the emitting parent IDs; the tangent step and every FD step reuse them as `emit_mask`. The particle block also perturbs the EV arrays of the ions (not the ion weight, whose tangent is 0 under D21).
+
+| Step | Decisions | Particle block, best $e$ | Field block, best $e$ | Masked particles (electrons, `elec_from_N`) |
+|---|---|---|---|---|
+| 20 (ordinary) | 3285 emissions | 8.6e-9, 5.0e-9 | 2.0e-12, 2.7e-12 | 278, 318 |
+| 28 (exchange) | 4348 emissions | 1.7e-8, 2.2e-8 | 3.5e-12, 2.9e-12 | 292, 660 |
+
+All 8 directions pass the pair rule at $10^{-6}$. The worst output of the particle block is the pending weight $W$ of the ions, with the $h^2$ truncation trend from $\epsilon = 10^{-3}$ to $10^{-5}$.
+
+Step 3, strict L4 on Twin-XS with EV and frozen emissions (`inversion/results/p6_l4_twin_xs.json`). Births occur from step 0 (376 at step 0, 55366 up to step 28). Every base and FD run reuses the emitting parent IDs of the AD run at every step. The counts of rule 2 match in every run.
+
+| $N_t$ | Term | $g^{AD}$ ($\hat\theta$) | $e$ at $h = 10^{-6}$ / $10^{-7}$ / $10^{-8}$ | $K(h)$ | Verdict |
+|---|---|---|---|---|---|
+| 20 | field | 1.13e4 | 5.5e-8 / 5.4e-8 / 8.4e-7 | 3 / 0 / 0 | pass |
+| 20 | background | -1.24e8 | 1.4e-8 / 1.1e-5 / 4.1e-5 | 3 / 0 / 0 | pass |
+| 20 | `elec_from_N` | 2.18e7 | 1.0e-8 / 3.3e-9 / 5.2e-8 | 3 / 0 / 0 | pass |
+| 20 | total | -1.02e8 | 3.9e-8 / 1.3e-5 / 4.4e-5 | 3 / 0 / 0 | pass |
+| 28 | field | -6.47e4 | 1.5e-2 / 1.0e-6 / 9.0e-7 | 50 / 2 / 0 | deviation (below) |
+| 28 | background | -6.51e10 | 3.9e-2 / 2.4e-5 / 5.9e-6 | 50 / 2 / 0 | deviation |
+| 28 | `elec_from_N` | 6.70e7 | 2.5e-4 / 4.7e-6 / 3.5e-7 | 50 / 2 / 0 | deviation |
+| 28 | total | -6.50e10 | 3.9e-2 / 2.4e-5 / 5.9e-6 | 50 / 2 / 0 | deviation |
+
+$\tau = 10^{-4}$ at every entry, except $1.3\cdot10^{-4}$ to $1.6\cdot10^{-4}$ at $N_t = 20$, $h = 10^{-8}$. At $N_t = 28$ only one plan $h$ has $K = 0$, so the pair rule of Section 6.4 is not met, and the fallback rule (the AD value inside the FD spread) fails for the background and the total term because all FD values lie on one side. Small-step diagnostic (`p6_l4_twin_xs_small_h.json`, not a plan gate): at $h = 3\cdot10^{-8}$, $10^{-8}$, $3\cdot10^{-9}$, $10^{-9}$, $K(h) = 0$ at all four, and $e \le 1.2\cdot10^{-5}$ for every term (total: 8.0e-7, 7.5e-6, 7.2e-6, 1.2e-5; $\tau = 10^{-4}$, $1.8\cdot10^{-4}$ for the field term at $10^{-9}$). Deviation accepted by the user on 2026-10-31: $N_t = 28$ passes on the small-step evidence. The cause is the Twin-XS fixture of Section 12.7, not the EV tangent.
+
+Step 4, Twin-S report (`inversion/results/n_c_twin_s.json`: $n_c = 450$; `inversion/results/p6_l4_twin_s.json`). $J_{chk}$, frozen emissions, 1.64M births up to step 500, sampled cell keys (tracker IDs divisible by 256: 5.9M of 1.52G particle-stage keys per FD pair). AD costs 26.4 ms per step.
+
+| $N_t$ | Total $e$ at $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ / $10^{-5}$ / $10^{-6}$ / $10^{-7}$ / $10^{-8}$ | Sampled $K(h)$ |
+|---|---|---|
+| 460 ($n_c + 10$) | 3.0e-2 / 4.7e-3 / 1.8e-3 / 3.0e-4 / 3.3e-4 / 3.2e-5 / 1.2e-5 | 107635 / 12493 / 1495 / 291 / 5 / 0 / 1 |
+| 500 ($n_c + 50$) | 1.8e-1 / 2.9e-2 / 5.1e-3 / 3.9e-4 / 2.9e-4 / 1.8e-6 / 9.5e-8 | 270153 / 32885 / 3605 / 579 / 22 / 0 / 1 |
+
+The sampled $K(h)$ is 0 only at $h = 10^{-7}$, so this step is not a gate (Phase P6 step 4). Every term passes the fallback rule of Section 6.4 ("FD reference invalid ($K > 0$)": the AD value lies within the FD spread). The error falls with $h$ together with $K(h)$; it does not follow an $h^2$ trend, because the cell crossings, not the truncation, set it. The field, background, and `elec_from_N` terms behave like the total (largest $e$ at $h \le 10^{-7}$: 3.4e-5).
+
+Step 5, crossing probe (`inversion/results/p6_crossing_probe.json`). Twin-XS, 20 steps. The hook `before_ionization` sets the gathered fields of every ion to 0, except one probe ion, which sees $E_x = a E_0 \min(1, (n+1)/20)$ with $E_0 = 5\cdot10^{12}$ V/m. The objective is the `elec_from_N` term of $J_{chk}$. Bisection gives the crossing $a_c = 0.939923718941973$, where the probe ion's emission steps change from (18, 19) to (17, 18, 19), with the jump $\Delta J = -1.477\cdot10^{-2}$. At $a_0 = a_c \pm 3\cdot10^{-4}$:
+
+| Case | Prediction | Result |
+|---|---|---|
+| $a_c$ inside $[a_0 - h, a_0 + h]$ ($h = 10^{-3}$, $5\cdot10^{-4}$) | free − frozen $= (\Delta J + \mathrm{sign}(d)(g_{above} - g_{below})(\lvert d\rvert - h))/(2h)$ | relative error 1.9e-4 to 8.1e-4 (limit $10^{-3}$); against $\Delta J/(2h)$ alone, 0.4% to 1.5% |
+| $a_c$ outside ($h = 2\cdot10^{-4}$, $10^{-4}$, $10^{-5}$) | free − frozen $= 0$ | at most $6.3\cdot10^{-12}$ relative (limit $10^{-9}$) |
+
+$g_{above} = 1.2211$ and $g_{below} = 1.5294$ are the frozen slopes on the two branches. The second term is the $O(1)$ slope difference over the part of the stencil past $a_c$; Section 6.3 rule 5 states only the leading term $\Delta J/(2h)$. Pass.
+
+Acceptance: steps 1, 2, and 5 pass; step 3 passes with the accepted deviation at $N_t = 28$; step 4 is reported. Production code is unchanged.
 
 ## Appendix A. Unverified claims and required probes
 

@@ -17,9 +17,9 @@ An ion with W' > epsilon w emits one electron of weight W' into the target
 species in the same step, and resets W to 0. The ion is pushed and deposited
 with the charge e (w Zbar - W), so pending births are neutral.
 
-Only the forward model is implemented here (Phase P3). The kernel
-`ev_ionize` keeps `enable_backward=True`, so that Phase P6 can use its
-Warp-generated VJP as the reference for the hand-written tangent.
+The kernel `ev_ionize` keeps `enable_backward=True`: its Warp-generated VJP
+is the reference of the hand-written tangent `ev_tangent` (Phase P6). The
+tangents follow the emission decisions of the primal and never change them.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ from fbpic.utils.warp import as_warp_array, get_runtime
 
 LIGHT_SPEED = wp.constant(wp.float64(c))
 LEVEL_START = 5
+EV_TANGENT_NAMES = ("pop5", "pop6", "pop7", "w_pending")
 
 
 def adk_coefficients(element: str, dt: float, levels=(5, 6)) -> dict:
@@ -167,6 +168,158 @@ def ev_ionize(
             birth_w[i] = wp.float64(0.0)
             w_pending_out[i] = pending
             emit[i] = 0
+
+
+@wp.func
+def E_amplitude_jvp(
+    ux: wp.float64,
+    uy: wp.float64,
+    uz: wp.float64,
+    Ex: wp.float64,
+    Ey: wp.float64,
+    Ez: wp.float64,
+    cBx: wp.float64,
+    cBy: wp.float64,
+    cBz: wp.float64,
+    dux: wp.float64,
+    duy: wp.float64,
+    duz: wp.float64,
+    dEx: wp.float64,
+    dEy: wp.float64,
+    dEz: wp.float64,
+    dcBx: wp.float64,
+    dcBy: wp.float64,
+    dcBz: wp.float64,
+):
+    """Tangent of `get_E_amplitude`, line by line.
+
+    Returns (E, gamma, dE2, dgamma). The caller forms dE = dE2 / (2 E) only
+    where E > 0 (Section 5.3).
+    """
+    u_dot_E = ux * Ex + uy * Ey + uz * Ez
+    gamma = wp.sqrt(wp.float64(1.0) + ux * ux + uy * uy + uz * uz)
+    du_dot_E = dux * Ex + duy * Ey + duz * Ez + ux * dEx + uy * dEy + uz * dEz
+    dgamma = (ux * dux + uy * duy + uz * duz) / gamma
+    ax = gamma * Ex + uy * cBz - uz * cBy
+    ay = gamma * Ey + uz * cBx - ux * cBz
+    az = gamma * Ez + ux * cBy - uy * cBx
+    dax = dgamma * Ex + gamma * dEx + duy * cBz + uy * dcBz - duz * cBy - uz * dcBy
+    day = dgamma * Ey + gamma * dEy + duz * cBx + uz * dcBx - dux * cBz - ux * dcBz
+    daz = dgamma * Ez + gamma * dEz + dux * cBy + ux * dcBy - duy * cBx - uy * dcBx
+    E2 = -u_dot_E * u_dot_E + ax * ax + ay * ay + az * az
+    dE2 = wp.float64(2.0) * (-u_dot_E * du_dot_E + ax * dax + ay * day + az * daz)
+    return wp.sqrt(E2), gamma, dE2, dgamma
+
+
+@wp.func
+def adk_exponent_jvp(
+    x: wp.float64,
+    E: wp.float64,
+    gamma: wp.float64,
+    dE2: wp.float64,
+    dgamma: wp.float64,
+    power: wp.float64,
+    exp_prefactor: wp.float64,
+):
+    """dx of x = a E^q exp(c / E) / gamma; 0 where x = 0 (Section 5.3 guard).
+
+    dx = x ((q / E - c / E^2) dE - dgamma / gamma), with dE = dE2 / (2 E).
+    x = 0 covers E = 0 and the underflow band E < |c| / 745, where the
+    formula would evaluate 0 (inf - inf).
+    """
+    if x == wp.float64(0.0):
+        return wp.float64(0.0)
+    dE = dE2 / (wp.float64(2.0) * E)
+    return x * ((power / E - exp_prefactor / (E * E)) * dE - dgamma / gamma)
+
+
+@wp.kernel(enable_backward=False, module="unique")
+def ev_tangent(
+    ux: wp.array(dtype=wp.float64),
+    uy: wp.array(dtype=wp.float64),
+    uz: wp.array(dtype=wp.float64),
+    Ex: wp.array(dtype=wp.float64),
+    Ey: wp.array(dtype=wp.float64),
+    Ez: wp.array(dtype=wp.float64),
+    Bx: wp.array(dtype=wp.float64),
+    By: wp.array(dtype=wp.float64),
+    Bz: wp.array(dtype=wp.float64),
+    w: wp.array(dtype=wp.float64),
+    pop5: wp.array(dtype=wp.float64),
+    pop6: wp.array(dtype=wp.float64),
+    prefactor5: wp.float64,
+    power5: wp.float64,
+    exp_prefactor5: wp.float64,
+    prefactor6: wp.float64,
+    power6: wp.float64,
+    exp_prefactor6: wp.float64,
+    emit: wp.array(dtype=wp.int32),
+    dux: wp.array2d(dtype=wp.float64),
+    duy: wp.array2d(dtype=wp.float64),
+    duz: wp.array2d(dtype=wp.float64),
+    dEx: wp.array2d(dtype=wp.float64),
+    dEy: wp.array2d(dtype=wp.float64),
+    dEz: wp.array2d(dtype=wp.float64),
+    dBx: wp.array2d(dtype=wp.float64),
+    dBy: wp.array2d(dtype=wp.float64),
+    dBz: wp.array2d(dtype=wp.float64),
+    dpop5: wp.array2d(dtype=wp.float64),
+    dpop6: wp.array2d(dtype=wp.float64),
+    dpop7: wp.array2d(dtype=wp.float64),
+    dw_pending: wp.array2d(dtype=wp.float64),
+    dpop5_out: wp.array2d(dtype=wp.float64),
+    dpop6_out: wp.array2d(dtype=wp.float64),
+    dpop7_out: wp.array2d(dtype=wp.float64),
+    dw_pending_out: wp.array2d(dtype=wp.float64),
+    dbirth_w: wp.array2d(dtype=wp.float64),
+):
+    """Tangent of `ev_ionize` with the emission flags `emit` fixed (Section 5.3).
+
+    Out of place, K tangents per thread. The primal inputs are those of the
+    `ev_ionize` call (old populations, momenta after the push, gathered
+    fields). With s = exp(-x) and p = -expm1(-x): dp = s dx, ds = -s dx.
+    """
+    i = wp.tid()
+    if i >= ux.shape[0]:
+        return
+    c_light = LIGHT_SPEED
+    E, gamma = get_E_amplitude(
+        ux[i], uy[i], uz[i], Ex[i], Ey[i], Ez[i],
+        c_light * Bx[i], c_light * By[i], c_light * Bz[i],
+    )  # fmt: skip
+    x5 = adk_exponent(E, gamma, prefactor5, power5, exp_prefactor5)
+    x6 = adk_exponent(E, gamma, prefactor6, power6, exp_prefactor6)
+    s5 = wp.exp(-x5)
+    s6 = wp.exp(-x6)
+    p5 = -expm1_accurate(-x5)
+    p6 = -expm1_accurate(-x6)
+    P5 = pop5[i]
+    P6 = pop6[i]
+    wi = w[i]
+    fire = emit[i] != 0
+    for k in range(dux.shape[0]):
+        unused_E, unused_gamma, dE2, dgamma = E_amplitude_jvp(
+            ux[i], uy[i], uz[i], Ex[i], Ey[i], Ez[i],
+            c_light * Bx[i], c_light * By[i], c_light * Bz[i],
+            dux[k, i], duy[k, i], duz[k, i], dEx[k, i], dEy[k, i], dEz[k, i],
+            c_light * dBx[k, i], c_light * dBy[k, i], c_light * dBz[k, i],
+        )  # fmt: skip
+        dx5 = adk_exponent_jvp(x5, E, gamma, dE2, dgamma, power5, exp_prefactor5)
+        dx6 = adk_exponent_jvp(x6, E, gamma, dE2, dgamma, power6, exp_prefactor6)
+        dP5 = dpop5[k, i]
+        dP6 = dpop6[k, i]
+        dd56 = dP5 * p5 + P5 * s5 * dx5
+        dd67 = dP6 * p6 + P6 * s6 * dx6
+        dpop5_out[k, i] = dP5 * s5 - P5 * s5 * dx5
+        dpop6_out[k, i] = dP6 * s6 - P6 * s6 * dx6 + dd56
+        dpop7_out[k, i] = dpop7[k, i] + dd67
+        dpending = dw_pending[k, i] + wi * (dd56 + dd67)
+        if fire:
+            dbirth_w[k, i] = dpending
+            dw_pending_out[k, i] = wp.float64(0.0)
+        else:
+            dbirth_w[k, i] = wp.float64(0.0)
+            dw_pending_out[k, i] = dpending
 
 
 @wp.kernel(enable_backward=False, module="unique")
@@ -403,11 +556,15 @@ def push_ion_momenta(state: StepState):
         getattr(ion, name)[:n] = array
 
 
-def ionize_and_emit(state: StepState):
+def ionize_and_emit(state: StepState, keep_inputs: bool = False):
     """EV update and emission for one step (Sections 5.1 and 5.2).
 
     Uses `state.emit_masks[iteration]` (device array of parent tracker IDs)
     instead of the threshold when it exists.
+
+    Args:
+        keep_inputs: Keep the old EV arrays and the emission flags in
+            `state.ev_inputs` for `ionize_tangent`.
 
     Returns:
         Device array of the tracker IDs of the emitting ions, in slot order.
@@ -466,6 +623,8 @@ def ionize_and_emit(state: StepState):
             emit,
         ],
     )
+    if keep_inputs:
+        state.ev_inputs = {"ev": ev, "emit": emit}
     state.ev = EVArrays(*outs[:4])
     birth_w = outs[4]
     state.ledger["emitted"] += birth_w.sum()
@@ -508,3 +667,98 @@ def ionize_and_emit(state: StepState):
                 (state.iteration, first_id, parent_ids)
             )
     return parent_ids
+
+
+# Tangents
+# --------
+
+
+def charge_weight_tangents(state: StepState, tangents):
+    """dw_tl = w sum_l l dP_l - dW of the ions, (K, N) (Section 5.3).
+
+    Computed from the current EV tangents right before each use: before the
+    EV call for the ion push and the exchange-step rho_prev deposit, after
+    it for the J and rho_next deposits.
+    """
+    ion = state.species[state.ev_species]
+    n = int(ion.Ntot)
+    t = tangents.particles[state.ev_species]
+    level = 5.0 * t["pop5"] + 6.0 * t["pop6"] + 7.0 * t["pop7"]
+    return ion.w[:n] * level - t["w_pending"]
+
+
+def ionize_tangent(state: StepState, tangents, gathered):
+    """Tangent of `ionize_and_emit`, with the emissions of the primal fixed.
+
+    Replaces the EV tangents out of place (Section 5.3), then appends the
+    tangents of the new electrons: x, y, z, ux, uy, uz, inv_gamma copied
+    from the parent ion, and w = dW' before the reset. The copy is an exact
+    index gather in parent order, which is the slot order of the primal.
+
+    Args:
+        state: State right after `ionize_and_emit(state, keep_inputs=True)`.
+        tangents: `TangentState`; the ion and target arrays are updated.
+        gathered: (dEx, ..., dBz) of the ions, each (K, N), from the gather.
+    """
+    from fbpic.autodiff.state import TANGENT_PARTICLE_NAMES
+
+    inputs = state.__dict__.pop("ev_inputs", None)
+    ion = state.species[state.ev_species]
+    n = int(ion.Ntot)
+    if n == 0:
+        return
+    if inputs is None:
+        raise RuntimeError("Call ionize_and_emit(state, keep_inputs=True) first.")
+    params = state.ev_params
+    a, q, cexp = (
+        params["adk_prefactor"],
+        params["adk_power"],
+        params["adk_exp_prefactor"],
+    )
+    t_ion = tangents.particles[state.ev_species]
+    K = tangents.K
+    outs = [cupy.empty((K, n)) for _ in range(5)]
+    ev_old, emit = inputs["ev"], inputs["emit"]
+    _launch(
+        ev_tangent,
+        n,
+        [
+            ion.ux[:n],
+            ion.uy[:n],
+            ion.uz[:n],
+            ion.Ex[:n],
+            ion.Ey[:n],
+            ion.Ez[:n],
+            ion.Bx[:n],
+            ion.By[:n],
+            ion.Bz[:n],
+            ion.w[:n],
+            ev_old.pop5,
+            ev_old.pop6,
+            float(a[0]),
+            float(q[0]),
+            float(cexp[0]),
+            float(a[1]),
+            float(q[1]),
+            float(cexp[1]),
+            emit,
+            t_ion["ux"],
+            t_ion["uy"],
+            t_ion["uz"],
+            *gathered,
+            t_ion["pop5"],
+            t_ion["pop6"],
+            t_ion["pop7"],
+            t_ion["w_pending"],
+            *outs,
+        ],
+    )
+    for name, array in zip(EV_TANGENT_NAMES, outs[:4]):
+        t_ion[name] = array
+    parents = cupy.flatnonzero(emit)
+    if parents.size == 0:
+        return
+    t_elec = tangents.particles[state.ev_target]
+    for comp in TANGENT_PARTICLE_NAMES:
+        new = outs[4][:, parents] if comp == "w" else t_ion[comp][:, parents]
+        t_elec[comp] = cupy.concatenate([t_elec[comp], new], axis=1)

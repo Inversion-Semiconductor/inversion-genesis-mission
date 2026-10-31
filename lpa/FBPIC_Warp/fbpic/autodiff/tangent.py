@@ -28,7 +28,7 @@ from functools import cache
 
 import cupy
 import warp as wp
-from scipy.constants import c
+from scipy.constants import c, e
 
 from fbpic.particles.deposition.cuda_methods_fused import ModeBetas, mode_betas
 from fbpic.particles.deposition.cuda_particle_shapes import Sr_linear, Sz_linear
@@ -41,6 +41,7 @@ from fbpic.particles.gathering.cuda_methods_fused import (
 from fbpic.utils.warp import as_warp_array, cmul, get_runtime
 
 LIGHT_SPEED = wp.constant(wp.float64(c))
+ELEMENTARY_CHARGE = wp.constant(wp.float64(e))
 MAX_MODES = 5
 
 
@@ -709,6 +710,84 @@ def vay_tangent(stash, gathered, q, m, dt, tangents, field_tangents):
         vay_tangent_kernel,
         n,
         [*stash, *gathered, float(q), float(m), float(dt), *tangents, *field_tangents],
+    )
+
+
+@wp.kernel(enable_backward=False, module="unique")
+def vay_ion_tangent_kernel(
+    ux: wp.array(dtype=wp.float64),
+    uy: wp.array(dtype=wp.float64),
+    uz: wp.array(dtype=wp.float64),
+    inv_gamma: wp.array(dtype=wp.float64),
+    Ex: wp.array(dtype=wp.float64),
+    Ey: wp.array(dtype=wp.float64),
+    Ez: wp.array(dtype=wp.float64),
+    Bx: wp.array(dtype=wp.float64),
+    By: wp.array(dtype=wp.float64),
+    Bz: wp.array(dtype=wp.float64),
+    w: wp.array(dtype=wp.float64),
+    w_tl: wp.array(dtype=wp.float64),
+    m: wp.float64,
+    dt: wp.float64,
+    dux: wp.array2d(dtype=wp.float64),
+    duy: wp.array2d(dtype=wp.float64),
+    duz: wp.array2d(dtype=wp.float64),
+    dinv_gamma: wp.array2d(dtype=wp.float64),
+    dEx: wp.array2d(dtype=wp.float64),
+    dEy: wp.array2d(dtype=wp.float64),
+    dEz: wp.array2d(dtype=wp.float64),
+    dBx: wp.array2d(dtype=wp.float64),
+    dBy: wp.array2d(dtype=wp.float64),
+    dBz: wp.array2d(dtype=wp.float64),
+    dw_tl: wp.array2d(dtype=wp.float64),
+):
+    """Tangent of `push_ion_momenta_ev` (charge e w_tl / w), in place.
+
+    The Vay push reads E only as econst E and B only as bconst B, and both
+    coefficients are proportional to the charge. So the charge tangent
+    enters as the field tangents dE + (dw_tl / w_tl) E and dB + (dw_tl /
+    w_tl) B of the fixed-charge tangent. w_tl >= 5 w - W > 0 for EV ions.
+    """
+    i = wp.tid()
+    if i >= ux.shape[0]:
+        return
+    charge = ELEMENTARY_CHARGE * w_tl[i] / w[i]
+    econst = charge * dt / (m * LIGHT_SPEED)
+    bconst = wp.float64(0.5) * charge * dt / m
+    for k in range(dux.shape[0]):
+        rel = dw_tl[k, i] / w_tl[i]
+        a, b, cc, d = vay_jvp(
+            ux[i], uy[i], uz[i], inv_gamma[i],
+            Ex[i], Ey[i], Ez[i], Bx[i], By[i], Bz[i],
+            dux[k, i], duy[k, i], duz[k, i], dinv_gamma[k, i],
+            dEx[k, i] + rel * Ex[i], dEy[k, i] + rel * Ey[i], dEz[k, i] + rel * Ez[i],
+            dBx[k, i] + rel * Bx[i], dBy[k, i] + rel * By[i], dBz[k, i] + rel * Bz[i],
+            econst, bconst,
+        )  # fmt: skip
+        dux[k, i] = a
+        duy[k, i] = b
+        duz[k, i] = cc
+        dinv_gamma[k, i] = d
+
+
+def vay_ion_tangent(stash, gathered, w, w_tl, m, dt, tangents, field_tangents, dw_tl):
+    """Apply the tangent of the EV ion push (`push_ion_momenta_ev`) in place.
+
+    Args:
+        stash: (ux, uy, uz, inv_gamma) before the push, each length N.
+        gathered: (Ex, Ey, Ez, Bx, By, Bz) primal gathered fields.
+        w: Ion weights; w_tl: charge weights w Zbar - W before the EV call.
+        m, dt: Ion mass (kg) and time step (s).
+        tangents: (dux, duy, duz, dinv_gamma), each (K, N); updated in place.
+        field_tangents: (dEx, ..., dBz), each (K, N).
+        dw_tl: Tangent of w_tl, (K, N) (plan Section 5.3).
+    """
+    n = int(stash[0].shape[0])
+    _launch(
+        vay_ion_tangent_kernel,
+        n,
+        [*stash, *gathered, w, w_tl, float(m), float(dt), *tangents]
+        + [*field_tangents, dw_tl],
     )
 
 

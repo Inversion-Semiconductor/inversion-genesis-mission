@@ -11,7 +11,9 @@
     within max(2e-11, 10 d_AA), with d_AA from 3 production runs as in L2.
     Counts and IDs equal.
 
-Twin-XS and Twin-S, `ionization="none"`, E_L tangent (K = 1).
+Twin-XS and Twin-S, E_L tangent (K = 1). (a) runs with `ionization="none"`
+and with the EV model (Phase P6; the snapshot then includes the EV arrays
+of the ions). (b) runs with `ionization="none"`.
 """
 
 import importlib.util
@@ -83,6 +85,11 @@ def _primal_snapshot(state):
         scalars[f"{name}.Ntot"] = n
         scalars[f"{name}.sorted"] = sp.sorted
         scalars[f"{name}.prefix_sum_shift"] = sp.prefix_sum_shift
+    if state.ev is not None:
+        for attr, value in zip(
+            ("pop5", "pop6", "pop7", "w_pending"), state.ev.arrays()
+        ):
+            arrays[f"ev.{attr}"] = value.copy()
     return arrays, scalars
 
 
@@ -113,25 +120,39 @@ class BitwiseGuard:
         self.before = None
 
 
+def _begin_kwargs(config, ionization):
+    if ionization == "none":
+        return {}
+    return {
+        "ionization": "ev",
+        "ev_species": "nitrogen",
+        "ev_target": "elec_from_N",
+        "ev_options": {"epsilon": config["ev"]["epsilon"], "K_e": config["ev"]["K_e"]},
+    }
+
+
+@pytest.mark.parametrize("ionization", ["none", "ev"])
 @pytest.mark.parametrize("size", ["twin_xs", "twin_s"])
-def test_l2t_bitwise_in_run(size):
+def test_l2t_bitwise_in_run(size, ionization):
     from builders import twin_builder
 
     from fbpic.autodiff.driver import resolve_seeds, seed_tangents
     from fbpic.autodiff.stepper import begin, step
 
-    build = twin_builder(size)
+    build = twin_builder(size, ionization=ionization)
     theta = np.array(build.config["theta"]["nominal"])
     sim, species, profile = build(theta)
     seeds = resolve_seeds(sim, profile, theta, ("E_L",))
-    state = begin(sim, species)
+    state = begin(sim, species, **_begin_kwargs(build.config, ionization))
     tangents = seed_tangents(state, seeds)
     guard = BitwiseGuard()
     state.hooks = {"*": guard}
     for _ in range(N_STEPS):
         step(state, tangents)
-    print(f"\n{size}: bitwise-checked sections {guard.sections}")
+    print(f"\n{size} {ionization}: bitwise-checked sections {guard.sections}")
     assert guard.sections["tangent_gather"] == N_STEPS
+    if ionization == "ev":
+        assert guard.sections["tangent_ev"] == N_STEPS
     assert guard.sections["tangent_realign"] == N_STEPS // sim.comm.exchange_period
 
 

@@ -1,9 +1,14 @@
 """L3: the tangent of one full `step` against central FD of `step`.
 
 Inversion plan Sections 6.1 (L3) and 6.3 (rule 6). Twin-XS with `p_nz = 2`
-(so that resting particles do not sit on shape boundaries), nominal theta,
-`ionization="none"`. Steps: one ordinary step and the exchange steps 14 and
-154 (154 is the first exchange with removal).
+(so that resting particles do not sit on shape boundaries), nominal theta.
+Phase P5: `ionization="none"`, one ordinary step and the exchange steps 14
+and 154 (154 is the first exchange with removal). Phase P6 (`--ionization
+ev`): steps with emissions. The base step records the emitting parent IDs,
+and every tangent and FD step reuses them as `emit_mask` (frozen decisions,
+Section 6.3 rule 3). The particle block then also perturbs the EV arrays
+(pop5, pop6, pop7, w_pending) of the ions. The ion weight w stays fixed:
+its tangent is zero under D21, and the EV tangents treat it as a constant.
 
 For each step n:
 
@@ -30,6 +35,7 @@ For each step n:
    accepted epsilons with error <= 1e-6.
 
 Usage: python inversion/verify_one_step.py [--steps 30 14 154]
+       python inversion/verify_one_step.py --ionization ev --steps 24 28
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from twin_config import config_sha256, load_config  # noqa: E402
 
 SPECT_STATE = ("Ep", "Em", "Ez", "Bp", "Bm", "Bz", "rho_prev")
 PARTICLE = ("x", "y", "z", "ux", "uy", "uz", "inv_gamma", "w")
+EV_NAMES = ("pop5", "pop6", "pop7", "w_pending")
 STAGES = ("stage:gather", "stage:J", "stage:rho_next", "stage:rho_prev")
 EPSILONS = (1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8)
 TOLERANCE = 1e-6
@@ -113,7 +120,23 @@ def _same_signature(a, b):
 
 
 def _decisions(d):
-    return (d.n_move, sorted(d.injected.items()), sorted(d.removed.items()))
+    import cupy
+
+    emitted = d.emitted_parent_ids
+    emitted = () if emitted is None else tuple(cupy.asnumpy(emitted).tolist())
+    return (d.n_move, sorted(d.injected.items()), sorted(d.removed.items()), emitted)
+
+
+def _components(state, species):
+    if state.ev is not None and species == state.ev_species:
+        return PARTICLE + EV_NAMES
+    return PARTICLE
+
+
+def _array_of(state, species, comp):
+    if comp in EV_NAMES:
+        return getattr(state.ev, comp)
+    return getattr(state.species[species], comp)
 
 
 def _output(state):
@@ -129,8 +152,9 @@ def _output(state):
         n = int(sp.Ntot)
         order = cupy.argsort(sp.tracker.id[:n])
         orders[species] = order
-        for comp in PARTICLE:
-            out[f"{species}.{comp}"] = cupy.asnumpy(getattr(sp, comp)[:n][order])
+        for comp in _components(state, species):
+            array = _array_of(state, species, comp)[:n]
+            out[f"{species}.{comp}"] = cupy.asnumpy(array[order])
     return out, orders
 
 
@@ -142,7 +166,7 @@ def _tangent_output(state, tangents, orders):
         for name in SPECT_STATE:
             out[f"spect{m}.{name}"] = cupy.asnumpy(tangents.fields.spect[m][name][0])
     for species in state.species:
-        for comp in PARTICLE:
+        for comp in _components(state, species):
             out[f"{species}.{comp}"] = cupy.asnumpy(
                 tangents.particles[species][comp][0][orders[species]]
             )
@@ -173,8 +197,10 @@ def _direction(state, block, rng, masks):
     for species, sp in state.species.items():
         n = int(sp.Ntot)
         mask = masks[species]
-        for comp in PARTICLE:
-            primal = cupy.asnumpy(getattr(sp, comp)[:n])
+        for comp in _components(state, species):
+            if comp == "w" and state.ev is not None and species == state.ev_species:
+                continue
+            primal = cupy.asnumpy(_array_of(state, species, comp)[:n])
             if comp in ("x", "y", "z"):
                 scale = 0.05 * cell
             else:
@@ -192,9 +218,8 @@ def _apply_direction(state, d, eps):
         array = getattr(sim.fld.spect[m], name)
         array += eps * cupy.asarray(value)
     for (species, comp), value in d["particles"].items():
-        sp = state.species[species]
-        n = int(sp.Ntot)
-        getattr(sp, comp)[:n] += eps * cupy.asarray(value)
+        n = int(state.species[species].Ntot)
+        _array_of(state, species, comp)[:n] += eps * cupy.asarray(value)
     sim.fld.spect2interp("E")
     sim.fld.spect2interp("B")
 
@@ -219,14 +244,15 @@ def _seed(state, d):
     return tangents
 
 
-def check_step(build, theta, n_step, rng, n_directions=2):
+def check_step(build, theta, n_step, rng, n_directions=2, begin_kwargs=None):
     from fbpic.autodiff.stepper import begin, step
 
     sim, species, _ = build(theta)
-    state = begin(sim, species)
+    state = begin(sim, species, **(begin_kwargs or {}))
     for _ in range(n_step):
         step(state)
     snap = snapshot(state)
+    ev = state.ev is not None
     # Base step, twice: the second checks that restore is complete.
     bases = []
     for _ in range(2):
@@ -239,6 +265,9 @@ def check_step(build, theta, n_step, rng, n_directions=2):
         out, orders = _output(state)
         bases.append((recorder, decision, out, orders))
     (base_rec, base_dec, base_out, orders0), (_, dec2, out2, _) = bases
+    if ev:
+        # Freeze the emissions of this step for every later step from snap.
+        state.emit_masks = {n_step: base_dec.emitted_parent_ids.copy()}
     scales = {
         key: float(np.max(np.abs(value), initial=0)) or 1.0
         for key, value in base_out.items()
@@ -267,7 +296,8 @@ def check_step(build, theta, n_step, rng, n_directions=2):
     result = {
         "step": n_step,
         "exchange": bool(base_dec.exchanged),
-        "decisions": _decisions(base_dec),
+        "decisions": _decisions(base_dec)[:3],
+        "emissions": len(_decisions(base_dec)[3]),
         "restore_reproducibility": reproducibility,
         "masked_particles": masked,
         "blocks": {},
@@ -373,15 +403,30 @@ def main():
     parser.add_argument("--steps", type=int, nargs="+", default=[30, 14, 154])
     parser.add_argument("--p-nz", type=int, default=2)
     parser.add_argument("--seed", type=int, default=3)
+    parser.add_argument("--ionization", default="none", choices=("none", "ev"))
     args = parser.parse_args()
     config = load_config(args.size)
-    build = twin_builder(config, p_nz=args.p_nz)
+    build = twin_builder(config, ionization=args.ionization, p_nz=args.p_nz)
+    begin_kwargs = None
+    if args.ionization == "ev":
+        begin_kwargs = {
+            "ionization": "ev",
+            "ev_species": "nitrogen",
+            "ev_target": "elec_from_N",
+            "ev_options": {
+                "epsilon": config["ev"]["epsilon"],
+                "K_e": config["ev"]["K_e"],
+            },
+        }
     theta = np.asarray(config["theta"]["nominal"], float)
     rng = np.random.default_rng(args.seed)
     t0 = time.perf_counter()
-    results = [check_step(build, theta, n, rng) for n in args.steps]
+    results = [
+        check_step(build, theta, n, rng, begin_kwargs=begin_kwargs) for n in args.steps
+    ]
     record = {
         "size": args.size,
+        "ionization": args.ionization,
         "config_sha256": config_sha256(config),
         "p_nz": args.p_nz,
         "theta": theta.tolist(),
@@ -391,12 +436,14 @@ def main():
         "results": results,
         "wall_time_s": time.perf_counter() - t0,
     }
-    out = HERE / "results" / f"p5_l3_{args.size}.json"
+    phase = "p6" if args.ionization == "ev" else "p5"
+    out = HERE / "results" / f"{phase}_l3_{args.size}.json"
     out.write_text(json.dumps(record, indent=1, default=str) + "\n")
     for r in results:
         verdicts = {b: [d["passed"] for d in v] for b, v in r["blocks"].items()}
         print(
             f"step {r['step']} (exchange={r['exchange']}): {verdicts}, "
+            f"emissions {r['emissions']}, "
             f"restore reproducibility {r['restore_reproducibility']:.1e}, "
             f"masked {r['masked_particles']}"
         )

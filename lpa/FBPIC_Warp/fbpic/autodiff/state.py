@@ -113,16 +113,15 @@ class TangentState:
         K: Number of tangents, one per parameter.
         fields: `FieldTangents` of every spectral and interp field array.
         particles: Species name -> component name -> CuPy (K, Ntot) array,
-            for x, y, z, ux, uy, uz, inv_gamma, w. Row k is tangent k.
+            for x, y, z, ux, uy, uz, inv_gamma, w, and for the EV ions also
+            pop5, pop6, pop7, w_pending (Phase P6). Row k is tangent k.
             The arrays follow the primal order: every sort permutes them,
             and every exchange realigns them by tracker ID.
-        ev: EV tangents (Phase P6).
     """
 
     K: int
     fields: object = None
     particles: dict = field(default_factory=dict)
-    ev: dict = field(default_factory=dict)
 
     @classmethod
     def zeros(cls, state: "StepState", K: int) -> "TangentState":
@@ -134,9 +133,10 @@ class TangentState:
         particles = {}
         for name, sp in state.species_by_object():
             n = int(sp.Ntot)
-            particles[name] = {
-                comp: cupy.zeros((K, n)) for comp in TANGENT_PARTICLE_NAMES
-            }
+            comps = TANGENT_PARTICLE_NAMES
+            if state.ev is not None and name == state.ev_species:
+                comps = comps + EV_ARRAY_NAMES
+            particles[name] = {comp: cupy.zeros((K, n)) for comp in comps}
         return cls(K=K, fields=FieldTangents(state.sim.fld, K), particles=particles)
 
 

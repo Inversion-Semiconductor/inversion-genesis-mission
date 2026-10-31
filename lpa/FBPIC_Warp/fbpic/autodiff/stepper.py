@@ -19,8 +19,8 @@ With a `TangentState`, `step` applies the tangent of each primal operation
 right after it (forward mode, Sections 4.3 to 4.9). The particle tangents use
 the kernels of `fbpic.autodiff.tangent`; the field tangents run the production
 linear field operators on swapped tangent arrays (`FieldTangents.apply`).
-Tangents follow every primal decision and never change it. EV tangents arrive
-in Phase P6.
+Tangents follow every primal decision and never change it, including the
+EV emissions (Phase P6, plan Section 5.3).
 
 Production `Simulation.step` stays unchanged (D17). The stepper requires
 `sim.use_cuda_graphs` to be False and reads `sim.iteration` and `sim.time`.
@@ -34,7 +34,6 @@ import numpy as np
 from fbpic.autodiff import tangent as tg
 from fbpic.autodiff.state import (
     EV_ARRAY_NAMES,
-    TANGENT_PARTICLE_NAMES,
     StepDecisions,
     StepState,
     TangentState,
@@ -300,7 +299,7 @@ def _realign_tangents(state, tangents, old_ids, before):
         if not bool(cupy.all(found | (new_ids >= before[name][1]))):
             raise RuntimeError(f"An exchange created {name} with old tracker IDs.")
         arrays = tangents.particles[name]
-        for comp in TANGENT_PARTICLE_NAMES:
+        for comp in list(arrays):
             old = arrays[comp]
             if old.shape[1] == 0:
                 arrays[comp] = cupy.zeros((tangents.K, n))
@@ -328,8 +327,8 @@ def step(state: StepState, tangents: TangentState | None = None):
     if state.ev is not None:
         from fbpic.autodiff import ionization as ev
 
-        if tangents is not None:
-            raise NotImplementedError("EV tangents arrive in Phase P6.")
+        if tangents is not None and state.ev_params["immobile"]:
+            raise NotImplementedError("Immobile EV ions have no tangent.")
 
     # 1. Exchange iteration: removal, injection, rho_prev deposit
     if (
@@ -363,14 +362,21 @@ def step(state: StepState, tangents: TangentState | None = None):
             sp.push_p(sim.time + 0.5 * dt)
     if tangents is not None:
         _vay_tangents(state, tangents, stash, gathered)
-        del stash, gathered
+        del stash
     _push_positions(state, tangents)
     _hook(state, "before_ionization")
 
     # 4. Ionization and emission at t = (n + 1/2) dt
     if ev is not None:
-        decisions.emitted_parent_ids = ev.ionize_and_emit(state)
+        decisions.emitted_parent_ids = ev.ionize_and_emit(
+            state, keep_inputs=tangents is not None
+        )
     _hook(state, "after_ionization")
+    if ev is not None and tangents is not None:
+        _hook(state, "tangent_ev:before")
+        ev.ionize_tangent(state, tangents, gathered[state.ev_species])
+        _hook(state, "tangent_ev:after")
+    del gathered
     for sp in sim.ptcl:
         sp.keep_fields_sorted = False
 
@@ -478,6 +484,21 @@ def _vay_tangents(state, tangents, stash, gathered):
         n = int(sp.Ntot)
         if sp.q == 0 or n == 0:
             continue
+        if state.ev is not None and name == state.ev_species:
+            from fbpic.autodiff import ionization as ev
+
+            tg.vay_ion_tangent(
+                stash[name],
+                [getattr(sp, f)[:n] for f in GATHERED_TANGENT_NAMES],
+                sp.w[:n],
+                ev.charge_weights(state),
+                sp.m,
+                sim.dt,
+                _particle_tangents(tangents, name, MOMENTUM_NAMES),
+                gathered[name],
+                ev.charge_weight_tangents(state, tangents),
+            )
+            continue
         tg.vay_tangent(
             stash[name],
             [getattr(sp, f)[:n] for f in GATHERED_TANGENT_NAMES],
@@ -509,10 +530,22 @@ def _deposit_tangents(state, tangents, fieldtype):
             continue
         if sp.ionizer is not None:
             raise NotImplementedError("Production ionizers have no tangent.")
+        primal = [getattr(sp, c)[:n] for c in DEPOSIT_TANGENT_NAMES]
+        dprimal = _particle_tangents(tangents, name, DEPOSIT_TANGENT_NAMES)
+        q = sp.q
+        if state.ev is not None and name == state.ev_species:
+            # EV ions deposit with charge e and weight w_tl (Section 5.2);
+            # the current EV arrays give the pre- or post-EV value.
+            from fbpic.autodiff import ionization as ev
+            from scipy.constants import e
+
+            primal[3] = ev.charge_weights(state)
+            dprimal[3] = ev.charge_weight_tangents(state, tangents)
+            q = e
         tg.deposit_tangent(
-            [getattr(sp, c)[:n] for c in DEPOSIT_TANGENT_NAMES],
-            _particle_tangents(tangents, name, DEPOSIT_TANGENT_NAMES),
-            sp.q,
+            primal,
+            dprimal,
+            q,
             fld.interp,
             sp.prefix_sum,
             outputs,
