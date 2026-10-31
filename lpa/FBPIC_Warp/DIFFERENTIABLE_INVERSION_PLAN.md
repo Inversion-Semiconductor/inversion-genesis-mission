@@ -207,15 +207,16 @@ $$
 - $Q = e \sum_i w_i \sigma_i$ is the selected charge. $Q_f = 10^{-3} Q_y$.
 - $m_k = \sum_i w_i\sigma_i f_k(\xi_i) / (\sum_i w_i \sigma_i + Q_f/e)$ are the weighted first and second moments of $\xi = (x, u_x, y, u_y, z - z_{win}, u_z)$.
 - $s_k$ are fixed scales from the target: the target standard deviation for first moments and its square for second moments.
-- $\mathrm{MMD}^2_{\mathrm{RFF}} = \lVert \mu - \mu_y \rVert^2$, with $\mu = \sum_i w_i\sigma_i \phi(\tilde\xi_i) / \sum_i w_i\sigma_i$. $\phi$ has $D = 512$ random Fourier features, seed 1234, bandwidth 1.0. $\tilde\xi$ is $\xi$ standardized with the frozen target mean and standard deviation, never with statistics of the current sample.
-- $\mu$ is linear in the normalized weights, so $\mathrm{MMD}^2$ is quadratic in them. The weight gradient is
+- $\mathrm{MMD}^2_{\mathrm{RFF}} = \lVert \mu - \mu_y \rVert^2$, with $\mu = \sum_i w_i\sigma_i \phi(\tilde\xi_i) / (\sum_i w_i\sigma_i + Q_f/e)$. The denominator has the same floor as the moments. $\phi$ has $D = 512$ random Fourier features, seed 1234, bandwidth 1.0. $\tilde\xi$ is $\xi$ standardized with the frozen target mean and standard deviation, never with statistics of the current sample.
+- The weight gradient is
   $$
-  \frac{\partial\, \mathrm{MMD}^2}{\partial (w_i\sigma_i)} = \frac{2\,\langle \mu - \mu_y,\; \phi(\tilde\xi_i) - \mu\rangle}{\sum_k w_k \sigma_k}.
+  \frac{\partial\, \mathrm{MMD}^2}{\partial (w_i\sigma_i)} = \frac{2\,\langle \mu - \mu_y,\; \phi(\tilde\xi_i) - \mu\rangle}{\sum_k w_k \sigma_k + Q_f/e}.
   $$
-- $R(\hat\theta) = \sum_i (\hat\theta_i - \hat\theta^{pr}_i)^2/\hat\sigma_i^2$. $\hat\theta^{pr}$ is the prior center, not the optimizer start.
-- Defaults: $\alpha_Q = 1$, $\alpha_M = 1/K$ for $K$ moments, $\alpha_D = 1$, $\lambda = 0$ except in noisy L6 runs.
+- Empty and nearly empty beams. If every $\sigma_i = 0$, then $\mu = 0$, $m_k = 0$, $\mathrm{MMD}^2 = \lVert\mu_y\rVert^2$, and the charge term is $\alpha_Q(\log Q_f - \log(Q_y + Q_f))^2$. The loss and every gradient stay finite. The trapping checks of Section 3.4 do not cover every point that the optimizer can visit, so the loss must not rely on a positive selected charge.
+- $R(\hat\theta) = \sum_i (\hat\theta_i - \hat\theta^{pr}_i)^2/\hat\sigma_i^2$. $\hat\theta^{pr}$ is the prior center, not the optimizer start. $R$ depends on $\hat\theta$ directly, not through the state. Its gradient $2\lambda(\hat\theta_i - \hat\theta^{pr}_i)/\hat\sigma_i^2$ is the direct term of the objective (Section 4.10).
+- Defaults: $\alpha_Q = 1$, $\alpha_M = 1/K$ for $K$ moments, $\alpha_D = 1$, $\lambda = 0$ except in noisy L6 runs. Noisy L6 runs replace these weights with the weights of Section 3.4, item 6. $\lambda$ is fixed during a run.
 
-Implement the loss and its analytic gradient in CuPy or Warp (D11). Test every term with FD on random particle sets (L1).
+Implement the loss and its analytic gradient in CuPy or Warp (D11). Test every term with FD on random particle sets (L1). Also test the loss and its gradient on an empty selection (all $\sigma_i = 0$) and on a nearly empty selection (one particle with $\sigma_i = 10^{-6}$). Both must be finite and match FD.
 
 ## 3. Twin configuration
 
@@ -281,7 +282,12 @@ Store all fixed values in `inversion/configs/<size>.json`. Commit the file. A la
 3. Trapping check: at the nominal $\theta$, at the 16 corners of $\Theta$, and at the 5 optimizer starts, require at least 1000 macroparticles with $\sigma_i > 0.5$ and $Q \ge 0.1\,Q(\text{nominal})$. If a point fails, shrink the bounds of the parameter that causes it, record the new $\Theta$, and tell the user.
 4. Optimizer starts: 5 points from a seeded Latin hypercube in $[0.1, 0.9]^4$, each at least 0.25 from $\hat\theta^\ast$ in the infinity norm.
 5. Targets: write them with `inversion/make_target.py` to `inversion/targets/<size>_<variant>_Nt<N>.npz`. Keys: `Q`, `moments`, `rff_mean`, `standardization`, `s_k`, `theta_star`, `seed`, `p_nz`, `N_t`, `variant`, `config_sha256`, `git_hash`. `value_and_grad` refuses a target whose `config_sha256` or `N_t` does not match.
-6. Noise (noisy L6 only): additive Gaussian noise of $0.02\, s_k$ on first moments; 2% multiplicative noise on $Q$ and on variances. Set $\alpha_D = 0$. Draw $\hat\theta^{pr} = \hat\theta^\ast + \mathcal{N}(0, 0.2^2)$ once with a fixed seed, and set $\hat\sigma = 0.2$.
+6. Noise (noisy L6 only):
+   - Add Gaussian noise to the target: $0.02\, s_k$ additive on first moments; 2% multiplicative on $Q$ and on variances.
+   - Let $r = (\log Q - \log Q_y,\, m_k - m_{k,y})$ be the residual vector and $\Sigma_n$ the diagonal covariance of the injected noise: $0.02^2$ for $\log Q$, $(0.02\, s_k)^2$ for first moments, and $(0.02\, m_{k,y})^2$ for variances.
+   - Replace the default data terms with the matched likelihood $r^T \Sigma_n^{-1} r$. Set $\alpha_D = 0$.
+   - Draw $\hat\theta^{pr} = \hat\theta^\ast + \mathcal{N}(0, 0.2^2)$ once with a fixed seed. Set $\hat\sigma = 0.2$ and $\lambda = 1$, so that the prior is the matched Gaussian prior.
+   - Predict the sampling distribution of this estimator, not of the P1 estimator. Let $S_{EV} = \partial v/\partial\hat\theta$ at $\hat\theta^\ast$ for the EV model, from central FD with $h = 0.05$. Let $\Lambda = \mathrm{diag}(1/\hat\sigma^2)$ and $H = S_{EV}^T \Sigma_n^{-1} S_{EV} + \Lambda$. The predicted covariance is $C = H^{-1} S_{EV}^T \Sigma_n^{-1} S_{EV} H^{-1}$, and the predicted offset from the prior is $b = H^{-1}\Lambda(\hat\theta^{pr} - \hat\theta^\ast)$.
 
 ## 4. Architecture
 
@@ -297,7 +303,7 @@ forward sweep (no tape):
   for n in 0 .. N_t-1:
       if n % K_c == 0: save checkpoint C_n       # GPU or pinned-host tier
       s_{n+1}, D_n = forward_step(s_n)
-  J, lambda_{N_t} = objective_and_seed(s_{N_t})
+  J, lambda_{N_t}, g_direct = objective(s_{N_t}, theta_hat)
 
 backward sweep (last segment first):
   restore C_k; replay K_c steps with forward_step; keep s_k .. s_{k+K_c-1} and D_k .. D_{k+K_c-1}
@@ -307,6 +313,7 @@ backward sweep (last segment first):
       tape.backward(seed = lambda_{n+1})  ->  lambda_n
       accumulate the injection-weight terms of step n into dJ/dtheta          # Section 4.9
   after step 0: add the laser term and the t = 0 weight term                  # Sections 4.8, 4.9
+  add g_direct, the gradient of terms that depend on theta directly           # Section 4.10
 ```
 
 ### 4.2 Step state
@@ -404,8 +411,14 @@ Rules:
 1. `forward_step` computes and returns the decisions. `taped_step` uses them and recomputes none.
 2. Sort with the production key `ir_upper + iz_upper*(Nr+1)` (`cuda_sorting.py:94`) and a stable sort (`cupy.argsort` on the key).
 3. Assign slots for emission and injection with an exclusive prefix sum over the parent index or batch. Never use an atomic slot counter.
-4. Before seeding step $n$, compare $s'_{n+1}$ with the state that produced $\lambda_{n+1}$: equal `Ntot` per species, equal IDs, `max|dx|`, `max|dy|`, `max|dz|` below $10^{-6}$ of the cell size, and `ux, uy, uz, w` within $10^{-9}$ relative. Run this check on every step in Phases P4 to P6, and at every segment boundary afterwards.
-5. At an inner segment boundary, $\lambda_{k+K_c}$ comes from the replay of segment $k+1$, which starts from checkpoint $C_{k+K_c}$ of the sweep. The replay of segment $k$ produces its own $s_{k+K_c}$. Atomics rounding can change a decision between the two. If the check fails and the ID sets match, permute $\lambda_{k+K_c}$ by ID. Otherwise raise an error that names the step and the species.
+4. Before seeding step $n$, compare $s'_{n+1}$ with the state that produced $\lambda_{n+1}$, in this order:
+   1. Counts: `Ntot` per species and the set of tracker IDs per species must be equal. Otherwise raise an error.
+   2. Order: if the IDs are in the same order, continue. If only the order differs, build the ID permutation and apply it to $\lambda_{n+1}$. A permutation repairs order only.
+   3. Continuous state, after alignment: `max|dx|`, `max|dy|`, `max|dz|` below $10^{-6}$ of the cell size; `ux, uy, uz, inv_gamma, w` within $10^{-9}$ relative; `pop5, pop6, pop7` within $10^{-12}$ absolute; `w_pending` within $10^{-9} w$; every field array, including `rho_prev`, within $\max(2\cdot10^{-11}, 10\, d_{AA})$ relative in the infinity norm (Section 6.1, L2). Any value outside its tolerance raises an error.
+
+   Each error names the step, the species or field, the array, and the largest deviation. No fallback exists. Run this check on every step in Phases P4 to P6, and at every segment boundary afterwards.
+5. At an inner segment boundary, $\lambda_{k+K_c}$ comes from the replay of segment $k+1$, which starts from checkpoint $C_{k+K_c}$ of the sweep. The replay of segment $k$ produces its own $s_{k+K_c}$. Atomics rounding can change the sort order between the two, which rule 4 repairs. A changed emission or a continuous difference above tolerance means that the cotangent belongs to a different state, and rule 4 rejects it.
+6. Test the rejection path in Phase P4. Perturb a stored state and confirm that the check raises for each case: one position by $10^{-3}$ cell, one momentum by $10^{-6}$ relative, one field array by $10^{-8}$ relative, and (Phase P5) one `w_pending` by $10^{-6} w$. Confirm that a pure ID permutation passes and that the permuted cotangent gives the same gradient.
 
 Frozen decisions also define the FD reference (Section 6.3). With the decisions fixed, the forward map is piecewise smooth in $\theta$, and AD computes its exact derivative.
 
@@ -424,7 +437,7 @@ Use the paired-real inner product of the existing autodiff contract (doc 08).
 
 Rules:
 
-1. Build each adapter from the differentiable layout clones in `fbpic/autodiff/fields.py:23-40` (`copy_2d_to_1d`, `copy_1d_to_2d`, `copy_2dc_to_2dr`, `copy_2dr_to_2dc`, `rt_to_pm`, `pm_to_rt`), launched normally so that the tape records them. Register only the cuFFT and `dgemm` calls with `tape.record_func`. The production `transform`, `inverse_transform`, `interp2spect_*`, and `spect2interp_*` methods launch forward-only copy kernels and would trip the tape guard.
+1. Build each adapter from the differentiable layout clones in `fbpic/autodiff/fields.py:23-40` (`copy_2d_to_1d`, `copy_1d_to_2d`, `copy_2dc_to_2dr`, `copy_2dr_to_2dc`, `rt_to_pm`, `pm_to_rt`), launched normally so that the tape records them. Launch `copy_2d_to_1d` and `copy_1d_to_2d` in 1D with `dim=copy_1d_2d_dim((Nz, Nr))`, because they keep the tiled production body. A 2D launch copies only the `ir = 0` column. Register only the cuFFT and `dgemm` calls with `tape.record_func`. The production `transform`, `inverse_transform`, `interp2spect_*`, and `spect2interp_*` methods launch forward-only copy kernels and would trip the tape guard.
 2. If a production method must be reused, wrap it in a context manager `fbpic.autodiff.tape.suspended()` that sets `wp._src.context.runtime.tape` to `None` and restores it in a `finally` block. Use `suspended()` only when the adjoint of the wrapped call is registered.
 3. Accumulate through scratch. `dgemm` and cuFFT work on split-real or 1D scratch, not on the interleaved `vec2d` layout. For each backward: copy the output gradient to scratch, run `dgemm` (`transa=1`, `beta=0`) or cuFFT into a second scratch, then add the result into the input gradient with a kernel.
 4. For $m \ge 1$, the forward matrices for $p = m$ and $p = m+1$ have a zero column 0. The adjoint inherits this. Test all modes $m = 0..4$ and all three DHT orders.
@@ -490,8 +503,10 @@ Exchange iterations remove particles at the back of the window, inject new parti
 
 1. Forward sweep: save `StepState` every $K_c$ steps. Put checkpoints on the GPU while they fit. Otherwise use pinned host memory.
 2. Backward sweep, for each segment in reverse order: restore the checkpoint, replay $K_c$ steps with `forward_step`, and keep the states and decisions. Then run `taped_step` and `backward` for each step in reverse order.
-3. Choose $K_c \approx \sqrt{N_t}$. Memory is $(N_t/K_c + K_c)$ states, $K_c$ decision records, and one step tape.
-4. If two levels do not fit (Twin-M), implement binomial checkpointing (Griewank-Walther Revolve) over the GPU and host tiers.
+3. Memory is $(N_t/K_c + K_c)$ states, $K_c$ decision records, and one step tape. $K_c \approx \sqrt{N_t}$ minimizes the state count, but it does not set the device peak. Choose $K_c$ from measured peaks (Section 8): the $K_c$ replay states, the $K_c$ permutation records, the measured tape, and the measured forward workspace must fit in device memory with a 10% margin.
+4. If no $K_c$ fits, use the fallbacks of Section 8 in their stated order. Binomial checkpointing (Griewank-Walther Revolve) over the GPU and host tiers is one of them, for Twin-S as well as Twin-M.
+
+The objective returns three values. The driver adds `g_direct` to the gradient after the backward sweep. For the Section 2.4 loss, `g_direct` is the prior gradient; for $J_{chk}$, it is zero.
 
 Driver API:
 
@@ -501,7 +516,9 @@ result = value_and_grad(theta, objective, config, segment_length=None)
 # result.grad: dJ/dtheta, shape (4,), float64, host
 # result.grad_hat: dJ/dtheta_hat = diag(theta_hi - theta_lo) @ grad
 # result.info: GPU and host memory peaks, timings, tape sizes, per-segment norms of lambda
-# objective(state) -> (J, seed cotangents); the Section 2.4 loss or a Section 6.2 functional
+# objective(state, theta_hat) -> (J, seed cotangents, g_direct)
+#   the Section 2.4 loss or a Section 6.2 functional
+#   g_direct: dJ/dtheta_hat of the terms that depend on theta_hat directly (the prior), shape (4,)
 ```
 
 ## 5. Expected-value ionization
@@ -577,7 +594,7 @@ Run each level on GPU. Run each test file in its own process (`CLAUDE.md` rule 5
 | L3 | One full step | Random cotangent on all of $s_{n+1}$. `check_vjp` normalization and pair rule at $10^{-6}$. Steps: one ordinary step, one exchange step, one step with emissions (Phase P5). Harness rules in Section 6.3. |
 | L4 | Parameter gradient, horizon sweep | Error definition and pass rule in Section 6.4. Horizons in Section 6.4. |
 | L5 | EV vs stochastic | Section 5.4. Report only. The user decides acceptance. |
-| L6 | Twin recovery | Noise-free: from the 5 starts, recover $\hat\theta^\ast$ within 0.02 in every component. Noisy: the recovered spread is within 2x the spread $\sqrt{\mathrm{diag}(G^{-1})}$ predicted by the Phase P1 sensitivity matrix. |
+| L6 | Twin recovery | Noise-free: from the 5 starts, recover $\hat\theta^\ast$ within 0.02 in every component. Noisy (Section 3.4, item 6): over the noise realizations, the sample standard deviation of each $\hat\theta_i$ is within a factor 2 of $\sqrt{C_{ii}}$, and the mean of $\hat\theta - \hat\theta^\ast$ is within $2\sqrt{C_{ii}/M}$ of $b_i$, where $M$ is the number of realizations. The Phase P1 matrix $G$ is an identifiability gate, not the predicted spread of this estimator. |
 
 ### 6.2 Check functional for L3 and L4
 
@@ -598,9 +615,17 @@ $$
 1. Build every FD run with the same `inversion/configs/<size>.json`: same $N_t$, $\Delta t$, window speed, `exchange_period`, $K_e$, $\epsilon$, and NumPy seed.
 2. In the base run, record the `n_move` sequence and the injected count of every species at every injection event. Each $\pm h$ run asserts that both are equal. A count mismatch shifts the NumPy stream and invalidates the FD value.
 3. Frozen-decision FD is the AD reference. In the base run, record the emitting parent IDs at each step. In each $\pm h$ run, pass them as `emit_mask` and skip the threshold test. Key the set by tracker ID.
-4. Free FD keeps the thresholds active. Report free minus frozen as the jump contribution. It is $O(\epsilon)$ and does not vanish as $h \to 0$.
-5. L3 harness: run the base step once and store its decisions. Give `check_vjp` an optional `direction_masks` argument. Mask out every particle whose fractional cell coordinate in z or r, at gather, J deposit, or `rho_next` deposit, is within $10^{-3}$ of an integer. The shape kernels take the cell from `ceil(position)`, so a crossing cannot be frozen.
-6. Measure the run-to-run noise $\sigma_J$ by running the base $\theta$ three times. Use only steps $h$ with $2h\lvert g_j\rvert > 100\,\sigma_J$.
+4. Free FD keeps the thresholds active. Report free minus frozen as the jump contribution. It is not a small correction with a fixed size. Each emission threshold that crosses inside $[\theta - h, \theta + h]$ adds $\Delta J_k/(2h)$, where $\Delta J_k$ is the jump of $J$ at that crossing. One crossing therefore contributes $O(\epsilon w/h)$, which grows as $h$ decreases. Example: for $q(\theta) = w(\epsilon + \theta)\,\mathbb{1}_{\theta > 0}$ at $\theta = 0$, frozen AD gives 0 and free central FD gives $w/2 + \epsilon w/(2h)$. Away from crossings, free and frozen FD agree once $h$ is small enough. AD claims only the conditional derivative with the decisions fixed.
+5. Threshold checks (Phase P5 and Phase P7):
+   - Crossing probe: build a one-ion fixture with a prescribed field ramp, so that the emission threshold crosses at a known $\theta_c$. Confirm that free FD minus frozen FD equals $\Delta J/(2h)$ when $\theta_c$ is inside $[\theta - h, \theta + h]$, and is zero otherwise.
+   - $\epsilon$ convergence: Phase P7 step 2 compares the full loss and its AD gradient as $\epsilon$ decreases.
+6. L3 harness:
+   - Run the base step once and store its decisions.
+   - Use a fixture with even `p_nz` and `p_nr`. The cell coordinate is $z_{cell} = (z - z_{min})/\Delta z - 0.5$ (`cuda_sorting.py:72-73`). With `p_nz = 1`, particles are loaded at $z_{min} + (i + 0.5)\Delta z$, so $z_{cell}$ is an integer and every resting particle sits on a shape boundary. The same holds in r for `p_nr = 1`. With an even count, $z_{cell} = i/2 - 1/4$.
+   - Give `check_vjp` an optional `direction_masks` argument. Mask out every particle whose fractional cell coordinate in z or r, at gather, J deposit, or `rho_next` deposit, is within $10^{-3}$ of an integer. The shape kernels take the cell from `ceil(position)`, so a crossing cannot be frozen.
+   - A field perturbation moves unmasked particles too. Record a branch signature for each particle at each stage: the cell indices and the axis branch at gather, at J deposit, and at `rho_next` deposit, and the emission flag. Recompute the signature for every FD evaluation. If it differs from the base, reject that FD point and use a smaller $\epsilon$.
+   - Test the particle inputs and the field inputs as separate blocks, each with its own random direction.
+7. Measure the run-to-run noise $\sigma_J$ by running the base $\theta$ three times. Use only steps $h$ with $2h\lvert g_j\rvert > 100\,\sigma_J$.
 
 ### 6.4 L4 error, pass rule, and horizons
 
@@ -608,7 +633,11 @@ $$
 - Pass: two adjacent $h$ give $e_j \le 10^{-4}$ for every $j$. A component also passes when $\lvert g^{AD}_j\rvert$ and $\lvert g^{FD}_j\rvert$ are both below $10^{-6}\lVert g\rVert_\infty$. This covers $n_0$ and $F_L$ before any plasma is injected.
 - Report $e_j(h)$ for every $h$ and horizon, the growth of $\lVert\lambda_n\rVert$, and 1D slices of $J$ over $\pm 0.05$ in each $\hat\theta_i$.
 - Horizons: $N_t \in \{1, 10, 50\}$ and $\{n_c + 10, n_c + 50, n_c + 200\}$ must pass. $\{1000, \text{full}\}$ are reported. $n_c$ is the first step at which the laser peak reaches the position where $S(z) = 0.1$, at the nominal $\theta$. On Twin-XS, $n_c \le 20$.
-- For horizons past the pass set, decide with the user how to proceed (shorter horizon, smoother objective, or FD fallback).
+- Agreement across segment lengths (Phase P6 step 2) shows that checkpointing is consistent. It does not show that the derivative is correct.
+- Recovery gate. At the end of Phase P6, the user chooses one branch for Phase P8 and records it in Section 12:
+  1. Verified: L4 passes at the full horizon on Twin-S, for $J_{chk}$ and for the loss. Phase P8 results carry the exact-gradient claim.
+  2. FD fallback: the user approves central-FD gradients (8 forward runs per gradient) or a shorter horizon at which L4 passes. Phase P8 results state which one.
+  3. Exploratory: Phase P8 uses AD gradients that did not pass L4 at the full horizon. Phase P8 results make no exact-gradient claim and are labeled exploratory.
 
 ## 7. Rollout plan
 
@@ -680,37 +709,46 @@ Acceptance: probes, L3, and L4 (pass horizons) pass on Twin-XS without ionizatio
 1. Implement the EV state, the ADK kernel, emission, `emit_mask`, and `push_ion_momenta_ev` (Section 5) in `fbpic/autodiff/ionization.py`. Add EV to `forward_step` and to `StepState` save and restore.
 2. Open-loop parity: freeze the gathered fields and ion momenta of a set of ions over 200 steps. Give each ion a prescribed field so that $p_5$ and $p_6$ each cover about $10^{-3}$ to 0.3 over the set. Run the EV kernel and 32 Philox seeds of the production kernel. Pass if $\sum_i w_i P_\ell$ for $\ell = 5,6,7$ and the cumulative birth weight each satisfy $\lvert EV - \text{mean}\rvert \le 3\,\mathrm{SE}$.
 3. Charge test: deposit rho from the N ions and `elec_from_N` before and after the EV call. The difference must be below $10^{-12}$ relative, on emission steps and on steps without emission.
-4. Invariant test on Twin-S with EV, after 3 exchange periods: $P_5 + P_6 + P_7 = 1$ to $10^{-14}$; the charge of `elec_from_N` plus $\sum_i W_i$ equals $\sum_i w_i(\bar Z_i - 5)$; each ion's populations follow its tracker ID through sorts.
+4. Invariant tests on Twin-S with EV. Production removes each species at the window back independently, so a trapped electron can outlive its parent ion. Test the closed cohort first, then the open window:
+   1. Closed cohort: take the N ions of the first injection event and the electrons whose recorded parent is one of them. Before any of these particles reaches the left window edge, check $P_5 + P_6 + P_7 = 1$ to $10^{-14}$ and $\sum_{e} w_e + \sum_i W_i = \sum_i w_i(\bar Z_i - 5)$ over the cohort, to $10^{-12}$ relative.
+   2. Open window, after 3 exchange periods: keep test-only cumulative ledgers from the recorded removal ranges, per species: the removed electron weight, and the removed ions' $\sum w(\bar Z - 5)$ and $\sum W$. Let $B$ be the cumulative emitted weight. Check $B = \sum_{\text{live}} w_e + \sum_{\text{removed}} w_e$ and $B + \sum_{\text{live}} W + \sum_{\text{removed}} W = \sum_{\text{live}} w(\bar Z - 5) + \sum_{\text{removed}} w(\bar Z - 5)$, each to $10^{-12}$ relative.
+   3. Each ion's populations follow its tracker ID through sorts.
 5. Implement the adjoints of Section 5.3. Run L1 on each kernel, with `ux, uy, uz` and the gathered fields as differentiable inputs.
 6. Add EV to `taped_step`. Run L3 on an emission step and L4 on Twin-XS at the pass horizons.
+6a. Run the crossing probe of Section 6.3, rule 5.
 7. Run Twin-S forward with EV at the nominal $\theta$ and at two opposite corners. Record the `elec_from_N` count and peak memory. Update Section 8.
 
-Acceptance: steps 2 to 6 pass.
+Acceptance: steps 2 to 6a pass.
 
 ### Phase P6. Loss and the full horizon sweep (5 to 7 days)
 
-1. Implement the loss module and `inversion/make_target.py` (Sections 2.4 and 3.4). Run L1 on each loss term.
+1. Implement the loss module and `inversion/make_target.py` (Sections 2.4 and 3.4). Run L1 on each loss term, including the empty and nearly empty selections.
 2. Run `value_and_grad` on Twin-XS at $N_t = 200$ with `segment_length` in $\{5, 13, 14, 40\}$. The gradients must agree within $10^{-10}$ relative. This covers segment lengths that do not divide $N_t$ and boundaries on and off exchange steps.
-3. Measure peak GPU memory, host memory, and time per gradient on Twin-S.
+3. Measure peak GPU memory, host memory, and time per gradient on Twin-S. Choose $K_c$ from these peaks (Section 4.10).
 4. Run the full L4 sweep on Twin-S with $J_{chk}$, and with the loss where the selected beam has at least 1000 macroparticles at every FD point.
-5. Implement Revolve if Twin-M does not fit two levels.
+5. Run L4 on Twin-XS at the pass horizons with the loss, $\lambda = 1$, and a fixed $\hat\theta^{pr}$. This checks that `g_direct` reaches the gradient.
+6. Implement Revolve if Twin-S or Twin-M does not fit two levels with the measured $K_c$.
 
-Acceptance: step 2 passes. L4 results for all horizons are reported to the user.
+Acceptance: steps 2 and 5 pass. L4 results for all horizons are reported to the user, and the user has chosen a recovery branch (Section 6.4).
 
 ### Phase P7. Model checks (3 to 4 days)
 
 1. Run L5 (Section 5.4) on Twin-S at the nominal $\theta$.
-2. Merge check: compare $\epsilon \in \{10^{-4}, 10^{-5}\}$ at $K_e = 1$ against $\epsilon = 10^{-6}$, forward-only, at the nominal $\theta$ and two corners. Compare $Q$ and every $m_k$. Adopt $\epsilon = 10^{-4}$ only if every difference is below 2 SE of 16 stochastic seeds.
+2. Merge and $\epsilon$-convergence check: compare $\epsilon \in \{10^{-4}, 10^{-5}\}$ at $K_e = 1$ against $\epsilon = 10^{-6}$, at the nominal $\theta$ and two corners.
+   - Forward: compare $Q$, every $m_k$, $\mathrm{MMD}^2_{\mathrm{RFF}}$ against the target, and the full loss $J$. For each quantity, compute the SE from 16 stochastic seeds.
+   - Gradient: compare the AD gradient of the full loss in each component, relative to $\lVert g(\epsilon = 10^{-6})\rVert_\infty$.
+   - Adopt $\epsilon = 10^{-4}$ only if every forward difference is below 2 SE, and every gradient difference is below 5%. The differences must also decrease from $10^{-4}$ to $10^{-5}$. Otherwise report the results and ask the user.
 3. Optional: add the weighted SWD term.
 
 Acceptance: L5 and the merge check are reported to the user.
 
 ### Phase P8. Twin recovery (3 to 5 days)
 
+0. Confirm the recovery branch chosen at the end of Phase P6 (Section 6.4). Label every result with it.
 1. Write `inversion/recover.py` with `scipy.optimize.minimize(method="L-BFGS-B")` on $\hat\theta$, bounds $[0, 1]$, and `value_and_grad(...).grad_hat`.
 2. Generate targets for T0, T1, and T2 (Section 2.2).
 3. Run L6 noise-free on Twin-S for T0 and T1 from the 5 starts. Record iterations, gradient evaluations, and wall time. Report T2.
-4. Run L6 with noise (Section 3.4, item 6) for T1, with 5 noise realizations from one start.
+4. Run L6 with noise (Section 3.4, item 6) for T1, with 5 noise realizations from one start. Compute $S_{EV}$, $C$, and $b$ before the runs.
 5. Run L6 on Twin-M if Phase P6 shows that it fits.
 
 Acceptance: L6 passes on Twin-S for T0 and T1. Results are recorded.
@@ -736,11 +774,21 @@ Estimates. Phases P1, P5, and P6 replace them with measurements.
 | EV births | measured in Phase P5 | up to about 1.7 x background (estimate) | measure |
 | One-step tape | about 0.7 KB per particle plus field versions | about 4 to 10 GB | about 20 GB |
 | Recorded permutations | about 2.1 sorts per step x 4 B x $N_p$ x $K_c$ | about 2 to 4 GB | about 30 GB (recompute or host tier) |
-| Two-level storage | $(N_t/K_c + K_c)$ states | about 85 x 1.05 GB = 90 GB: checkpoints on the pinned-host tier, replay states (about 42 GB) on the GPU | Revolve over GPU and host |
+| Two-level storage | $(N_t/K_c + K_c)$ states | about 85 x 1.05 GB = 90 GB at $K_c = 42$: checkpoints on the pinned-host tier, replay states (about 42 GB) on the GPU | Revolve over GPU and host |
+| Device peak at $K_c = 42$ | replay states + tape + permutations | about 48 to 56 GB before workspace. Exceeds one RTX 6000 Ada (48 GiB). Not feasible as the default. | Does not fit |
 | Forward time per step | doc 07: 0.31 s for 1852 x 300 x 5 with about 57 M particles | well below 0.1 s | measure |
 | Gradient cost | 1 sweep + 1 replay + 1 taped step and backward per step | about 4 to 6 forward runs | about 4 to 6 forward runs |
 
-If host memory is insufficient for Twin-S, reduce `p_nt` to 12 (not below 9) or limit the plasma radius with `p_rmax`. Record the choice.
+The host has two NVIDIA RTX 6000 Ada GPUs with 49140 MiB each (`nvidia-smi`, 2026-10-30). The plan uses one.
+
+Twin-S fallbacks, in this order, until the measured device peak fits with a 10% margin:
+
+1. Decrease $K_c$. This adds checkpoints on the pinned-host tier and keeps the gradient cost.
+2. Keep the replay states on the pinned-host tier, and copy one state to the GPU per reverse step.
+3. Use Revolve over the GPU and host tiers. This adds forward recomputation.
+4. Reduce `p_nt` to 12 (not below 9), or limit the plasma radius with `p_rmax`.
+
+Record the choice and the measured peaks in Section 12. If host memory is insufficient, use fallback 4.
 DHT cost grows as $N_z^a N_r^2$. Keep Twin-M at moderate $N_r$.
 The CuPy pool and the Warp allocator compete for device memory. Measure the peak of both.
 
@@ -756,10 +804,12 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | EV model bias | Gradient of a different model than the stochastic code | L5, T2 truth. User decides. |
 | Charge non-conservation from pending births | Spurious fields at the injection point | Neutral pending deposit (Section 5.2), charge test in Phase P5 |
 | Azimuthal aliasing at low `p_nt` | Spurious mode-4 fields | `p_nt = 20`, aliasing check in Phase P1 |
-| Atomics non-determinism | Replay differs from the sweep by rounding | Backward uses replayed states. Layout check with ID fallback. |
+| Atomics non-determinism | Replay differs from the sweep by rounding | Backward uses replayed states. Layout check: ID alignment, then a full continuous-state check that rejects (Section 4.5). |
 | Private Warp API (`wp._src.context.runtime.tape`) | Breaks on a Warp upgrade | Keep Warp at 1.18.0 |
 | Inverse crime | Over-optimistic recovery | Truth variants T0, T1, T2 |
-| Memory of Twin-S and Twin-M | Does not fit | Pinned-host tier, Revolve, lower `p_nt` |
+| Memory of Twin-S and Twin-M | Does not fit | $K_c$ from measured peaks, then the Section 8 fallbacks |
+| Emission-threshold jumps | Free FD differs from AD by $O(\epsilon w/h)$ per crossing | Frozen-decision FD as the reference, crossing probe, $\epsilon$ convergence (Section 6.3) |
+| Long-horizon gradient fails L4 | Recovery uses an unverified gradient | Recovery gate with three branches (Section 6.4) |
 
 ## 10. Decisions
 
@@ -813,6 +863,18 @@ An adversarial review (4 lenses, then one skeptic per serious finding, 38 agents
 7. An identifiability gate runs in Phase P1 (D20).
 8. Acceptance criteria have numeric thresholds and normalizations (Section 6).
 9. Truth variants T0, T1, and T2 address the inverse crime (Section 2.2).
+
+A second review on 2026-10-30 returned 4 correctness findings and 5 validation findings. All were checked against the plan and the code and confirmed. This revision applies them:
+
+1. The jump contribution of free FD is $O(\epsilon w/h)$ per crossing, not $O(\epsilon)$. A crossing probe and an $\epsilon$-convergence check of the full loss and gradient were added (Section 6.3, Phase P7).
+2. The objective returns a direct parameter gradient, so the prior reaches the gradient. Phase P6 checks it with $\lambda = 1$ (Section 4.10).
+3. The layout check aligns IDs first, then checks every continuous state component, and rejects. It has a rejection test (Section 4.5).
+4. The MMD mean has the $Q_f$ floor. The empty and nearly empty beams have a defined loss and are tested (Section 2.4).
+5. A recovery gate with three branches follows Phase P6 (Section 6.4).
+6. The ionization invariants use a closed cohort, then removal ledgers (Phase P5).
+7. Noisy recovery uses the matched likelihood and prior, and a sandwich covariance for the predicted spread (Section 3.4, L6).
+8. The L3 harness uses even `p_nz` and `p_nr`, branch signatures, and separate particle and field blocks (Section 6.3).
+9. $K_c$ comes from measured peaks, with ordered Twin-S fallbacks (Sections 4.10 and 8).
 
 _No implementation phase has run yet._
 
