@@ -894,7 +894,35 @@ A scope review on 2026-10-30 (Sol) recommended an inversion baseline before the 
 
 Phase numbers in the review records above refer to the plan at the time of each review.
 
-_No implementation phase has run yet._
+### 12.2 Phase P0. Baseline
+
+Run on 2026-10-30 at commit `74c21bd`, branch `snidhan/dev-autodiff`.
+
+| Item | Value |
+|---|---|
+| Environment | Conda `fbpic-warp`: Warp 1.18.0, CuPy 14.2.0, NumPy 2.2.6, SciPy 1.17.1 |
+| GPU | Physical GPU 1, NVIDIA RTX 6000 Ada Generation, 49140 MiB total, 48496 MiB free at start |
+| Device selection | `CUDA_VISIBLE_DEVICES=1`. The process sees the GPU as `cuda:0`, so commit `8f27245` is not needed. |
+| Host memory | 125 GiB total, 115 GiB available |
+| Sandbox note | GPU access needs a process outside the agent sandbox. |
+
+Command, from `lpa/FBPIC_Warp`:
+
+```bash
+export CUDA_VISIBLE_DEVICES=1 OPENPMD_VERIFY_HOMOGENEOUS_EXTENTS=0 PYTHONPATH="$PWD"
+for f in tests/test_autodiff_*.py tests/test_fused_particle_operations.py tests/test_gpu_end_to_end.py; do python -m pytest "$f" -q; done
+```
+
+| Test file | Result |
+|---|---|
+| `test_autodiff_arrays.py` | 4 passed |
+| `test_autodiff_deposition.py` | 17 passed |
+| `test_autodiff_fields.py` | 94 passed |
+| `test_autodiff_particles.py` | 17 passed |
+| `test_fused_particle_operations.py` | 139 passed |
+| `test_gpu_end_to_end.py` | 2 passed |
+
+L0 passes. The autodiff files hold 132 tests, not the 122 of Section 1.5. Tests were added after commit `24fb4c7`. This difference does not change the plan.
 
 ## Appendix A. Unverified claims and required probes
 
