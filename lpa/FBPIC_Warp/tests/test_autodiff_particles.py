@@ -223,12 +223,14 @@ def test_neutral_ion_gradients(device):
 def _gather_fixture():
     rng = np.random.default_rng(211)
     dz, dr = 2e-6, 3e-6
-    radius = dr * np.array([1.17, 2.28, 3.36, 4.41, 2.64])
-    theta = np.array([0.22, 1.04, -1.73, 2.45, -0.53])
+    # The last two radii lie in (0, 0.5 dr) and take the ir_lower < 0
+    # guard-cell branch (inversion plan Section 4.7).
+    radius = dr * np.array([1.17, 2.28, 3.36, 4.41, 2.64, 0.21, 0.43])
+    theta = np.array([0.22, 1.04, -1.73, 2.45, -0.53, 2.9, -2.2])
     arrays = {
         "x": radius * np.cos(theta),
         "y": radius * np.sin(theta),
-        "z": -5e-6 + dz * np.array([1.17, 2.28, 3.36, 4.41, 5.22]),
+        "z": -5e-6 + dz * np.array([1.17, 2.28, 3.36, 4.41, 5.22, 2.61, 6.12]),
     }
     for mode in range(5):
         for field in ("Er", "Et", "Ez", "Br", "Bt", "Bz"):

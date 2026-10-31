@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P3 done; milestone M1 reached with the Stage A gate (Section 12.5). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
+| Status | Phases P0 to P4 done; milestone M1 reached with the Stage A gate (Section 12.5); Phase P4 L1 in Section 12.6. Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
@@ -138,7 +138,7 @@ Appendix C lists the sources.
 | Item | Status |
 |---|---|
 | Per-operator VJPs for push, gather, deposition, and pointwise field operators | Verified: 122 tests on GPU, 118 on CPU with 4 skipped, commit `24fb4c7` |
-| Tangent kernels for gather, push, and deposition | Not implemented |
+| Tangent kernels for gather, push, and deposition | Verified (L1): Phase P4, Section 12.6 |
 | One-step, horizon, and parameter gradients | Not measured |
 | Memory and run time of a forward-mode gradient pass | Not measured |
 | Expected-value ionization | Not implemented |
@@ -1366,13 +1366,76 @@ Independent code review (a workflow of 3 reviewers with distinct lenses and 1 ad
 
 Refuted findings: missing checks in `_check_supported` for features the twin does not use; the deposit weight swap is not exception-safe (a failed step leaves the state invalid anyway); the open-loop check covers only ions at rest; and the FD stencil leaves $[0, 1]$ by $h$ at a bound (the plan prescribes this setup, and the loss stays finite). A third finding, a NaN in the generated VJP at zero field, was first refuted because no P3 caller differentiates there. It is real for Phase P6: `ev_tangent` runs on every ion at every step, so Section 5.3 gets a guard for $x_\ell = 0$.
 
+### 12.6 Phase P4. Tangent kernels
+
+Run on 2026-10-31 on physical GPU 1 (RTX 6000 Ada, 49140 MiB), Warp 1.18.0, code on top of commit `6e855cb`. Stage A scope: the kernels are generic over $K$ and $N_m \le 5$; the tests use $K = 3$ for the three dot-product draws and $K = 1$ for `check_jvp`.
+
+Files:
+
+1. `fbpic/autodiff/tangent.py`: `gather_tangent`, `vay_tangent`, `position_tangent`, `deposit_tangent`. The gather and deposition kernels are compile-time factories over ($N_m$, $K$). The Vay and position kernels loop over $K$ at run time.
+2. `fbpic/autodiff/verification.py`: `check_jvp` (vector form of Section 6.1, epsilon list and pair rule of `check_vjp`, optional `direction_masks`) and `dot_product_error`.
+3. `fbpic/autodiff/field_tangents.py`: `FieldTangents`, $K$ copies of every spectral and interp field array. `apply` runs a production field method once per tangent, with the tangent arrays swapped into the production grid objects.
+4. Tests: `tests/test_autodiff_tangent.py` (L1 of the four kernels), `tests/test_autodiff_field_tangents.py` (operator linearity and the $k = 0$ probe). The gather VJP fixture in `tests/test_autodiff_particles.py` has two new particles at $r = 0.21\,\Delta r$ and $0.43\,\Delta r$.
+
+Design:
+
+1. Particle tangents are $(K, N)$ arrays, so that row $k$ is coalesced. Field tangents are $(K, N_z, N_r)$ complex arrays.
+2. The gather tangent differentiates the production gather line by line: $r$, $\cos\varphi$, $\sin\varphi$ (written as $x/r$ and $y/r$, with $d(1/r) = -\dot r/r^2$), the linear weights including the guard-cell fold, the phase $e^{-im\varphi}$ through its `cmul` recursion, and the Cartesian rotation. The cells, the fold, the radial clamp, and the `rmax_gather` branch come from the primal.
+3. The deposition tangent uses the production work split: one thread per sorted cell, particles in reverse order, a local matrix of $4 \times$ components $\times K$ complex entries, then atomics into the tangent grids. It differentiates $r$, $\cos\varphi$, $\sin\varphi$, the phase $e^{+im\varphi}$, $v_r$ and $v_\theta$ (the rotation terms follow from $\dot{\cos\varphi}$ and $\dot{\sin\varphi}$), the Ruyten-corrected radial shape (slope $-1 + \beta(1 - 2u)$, with the fold sign), the axial shape, the weight, and the stored `inv_gamma` tangent.
+4. The Vay tangent (`vay_jvp`) carries each line of `push_p_vay` with its tangent and writes the tangent of the new `inv_gamma`. The position tangent reads that stored tangent (Section 4.2, rule 1).
+5. At $r = 0$, the kernels keep the production branch ($\cos\varphi = 1$, $\sin\varphi = 0$) and set $\dot r = \dot\varphi = 0$.
+
+Command, from `lpa/FBPIC_Warp`, with `CUDA_VISIBLE_DEVICES=1`:
+
+```bash
+python -m pytest tests/test_autodiff_tangent.py -q -s
+python -m pytest tests/test_autodiff_field_tangents.py -q -s
+python -m pytest tests/test_autodiff_particles.py -q
+```
+
+L1 results, tangent kernels. The dot-product error is the largest of 3 draws, computed in scaled variables (inputs and outputs divided by their characteristic scales), against the reverse-mode clones at $N_m = 5$. The `check_jvp` error is the largest over 3 directions of the best normalized error; the pair rule holds for every direction.
+
+| Kernel | Dot product, largest $e$ (limit $10^{-12}$) | `check_jvp` at $N_m = 2$ | `check_jvp` at $N_m = 5$ |
+|---|---|---|---|
+| Gather, positions / E grids / B grids / all | 3.0e-17 / 1.1e-17 / 1.4e-17 / 1.7e-17 | positions 6.2e-10, fields 1.7e-15 (linear) | positions 2.3e-10, fields 1.4e-15 (linear) |
+| Vay push, electrons ($a_0$-scale fields), He$^{2+}$ | 4.1e-17, 2.1e-17 | electrons 6.1e-11, He 9.8e-10 (no modes) | - |
+| Position push | 3.4e-17 | 4.2e-14 (no modes) | - |
+| Deposit $\rho$, positions / weights / grids / all | 1.7e-17 / 1.2e-17 / 0 / 9.0e-18 | 7.3e-11 | 4.5e-10 |
+| Deposit $J$, positions / weights / momenta and `inv_gamma` / grids / all | 2.4e-17 / 3.8e-18 / 6.1e-18 / 0 / 1.3e-17 | 1.2e-10 | 1.2e-10 |
+
+The `check_jvp` reference is the production forward kernel (fused gather, `push_p_gpu`, `push_x_gpu`, fused deposition), not the clone. The gather fixture includes particles in the guard-cell fold ($r = 0.08$, $0.21$, $0.43\,\Delta r$) and one beyond `rmax_gather`. The deposition fixture includes 3 particles at $r = 0.3\,\Delta r$, in the fold. The separate $r = 0$ tests pass: the tangents are finite, and they equal the tangents with $\dot x = \dot y = 0$ for those particles (exact for gather, within $10^{-14}$ of the maximum for deposition, which uses atomics).
+
+L1 results, field operators (Section 4.6). Each operator runs through `FieldTangents.apply` on 3 slots that hold $x$, $y$, and $x + \alpha y$, for 3 random draws. The table gives the largest normalized residual over all arrays, modes $m = 0, 1$, and draws (limit $10^{-12}$). The vector transforms use the DHT orders $m \pm 1$, the scalar transforms order $m$.
+
+| Operator | Twin-S grid (800 x 50 physical cells) | 2912 x 1080 physical cells |
+|---|---|---|
+| `spect2interp` E, B | 4.0e-16, 4.2e-16 | 1.1e-15, 9.1e-16 |
+| `interp2spect` E, B, J, `rho_prev`, `rho_next` | 4.6e-16 to 8.1e-16 | 1.6e-15 to 2.5e-15 |
+| `spect2partial_interp` E, `partial_interp2spect` B | 3.1e-16, 3.4e-16 | 7.4e-16, 6.2e-16 |
+| `damp_EB_open_boundary` | 1.3e-16 | 1.5e-16 |
+| `divide_by_volume` rho, J | 1.6e-16, 1.7e-16 | 1.4e-16, 1.6e-16 |
+| `filter_spect` J, `rho_next`, `rho_prev` | 1.7e-16 to 1.9e-16 | 1.7e-16 to 2.5e-16 |
+| `correct_currents` (curl-free) | 2.6e-16 | 1.7e-16 |
+| `push` (PSATD and `push_rho`) | 2.7e-16 | 2.9e-16 |
+| `shift_spect_grid` (3 cells) | 2.6e-16 | 2.7e-16 |
+| `exchange_and_damp_EB` | 5.4e-16 | 1.5e-15 |
+
+The primal spectral arrays are bitwise unchanged after all swapped operations.
+
+$k = 0$ round-trip probe (Appendix A, row 1). Twin-S, nominal $\theta$, `ionization="none"`, 500 steps, then $\mathrm{interp2spect}(\mathrm{spect2interp}(s))$ against $s$ for E and B (`inversion/results/p4_k0_round_trip.json`):
+
+1. The round-trip error is at most $1.3\cdot10^{-15}$ of the array maximum for every array, except mode 1 `Bp` ($2.6\cdot10^{-14}$) and mode 1 `Ep` ($1.7\cdot10^{-12}$).
+2. For $m = 1$, the $k_r$ index 0 column of `Ep`, `Ez`, `Bp`, and `Bz` is exactly 0. The `Em` and `Bm` columns are not zero, and their round-trip error is $9\cdot10^{-16}$. The claim of Appendix A holds.
+
+Acceptance: L1 passes for every kernel and operator. The existing L0 particle tests pass with the extended gather fixture (17 tests). Production code is unchanged.
+
 ## Appendix A. Unverified claims and required probes
 
 | Claim | Probe | Phase |
 |---|---|---|
-| The $k=0$ columns of the $p=m$ and $p=m+1$ components stay zero for $m \ge 1$ | Compare spect with `interp2spect(spect2interp(spect))` after 500 steps. Not run in Phase P2. | P4 |
-| Every field operator used by `step` is linear in the field arrays | Linearity check (Section 4.6) | P4 |
-| Tangent kernels generic over $N_m$ agree with the 5-mode VJP clones | Dot-product test (Section 4.7) | P4 |
+| The $k=0$ columns of the $p=m$ and $p=m+1$ components stay zero for $m \ge 1$ | Closed in Phase P4 (Section 12.6): after 500 Twin-S steps, the $k_r$ index 0 column of mode 1 `Ep`, `Ez`, `Bp`, `Bz` is exactly 0. | P4 |
+| Every field operator used by `step` is linear in the field arrays | Closed in Phase P4 (Section 12.6): all residuals below $3\cdot10^{-15}$ | P4 |
+| Tangent kernels generic over $N_m$ agree with the 5-mode VJP clones | Closed in Phase P4 (Section 12.6): dot products below $4\cdot10^{-17}$ | P4 |
 | `elec_from_N` traps a beam in Twin-S with 2 modes, `p_nt = 8`, at all checked points | Phase P1 steps 5 and 6 | P1 |
 | $E_L$ and $z_f$ are locally identifiable in Twin-S | Phase P1 step 7 | P1 |
 | EV births match the stochastic marginals in open loop | Phase P3 step 2 | P3 |
