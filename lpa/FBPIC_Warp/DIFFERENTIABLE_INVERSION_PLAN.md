@@ -1850,7 +1850,22 @@ Step 6, $\epsilon$ comparison on the reduced Twin-S (`python inversion/p7_jacobi
 
 At $\epsilon = 0$ (frozen equals free), central FD at $h = 10^{-2}$ and $10^{-3}$ differs from the AD column by 99.99% and 99.98%. The AD columns do not converge as $\epsilon \to 0$, and the $\epsilon = 0$ AD column disagrees with its own FD, as on the full Twin-S. So the frozen-against-free difference does not dominate the step 5 error, and $\epsilon \to 0$ or zero-weight creation is not the remedy (Phase P7 step 6). The error comes from the chaotic sensitivity of the trajectories at the full horizon.
 
-Status of Phase P7 (2026-10-31): in progress, checkpointed. Steps 1 and 2 pass. Steps 3, 4, and 6 are reported. Step 5 is partial (solution slice and centers complete). The user chooses the recovery branch (Section 6.4, D32) after step 5 is complete or with the partial numbers.
+Status of Phase P7 (2026-10-31): in progress, checkpointed, final state of the M3 session (commit `1119983` and the commit that adds this conclusion). Steps 1 and 2 pass. Steps 3, 4, and 6 are reported. Step 5 is partial (solution slice and centers complete). P7 is not accepted.
+
+Conclusion of milestone M3 (supported by the data above):
+
+1. The forward-mode gradient through the EV model is correct where FD can check it. L1, L3, and short-horizon L4 on Twin-XS pass (Section 12.9), and on Twin-S the AD gradient matches frozen-decision FD up to $N_t = 500$ ($n_c + 50$), with $e = 1.8\cdot10^{-6}$ to $3.1\cdot10^{-5}$ at the $h$ with $K = 0$ (steps 4 and Section 12.9 step 4).
+2. Past step 1200 the particle dynamics is chaotic: the tangents grow by about a factor of 10 every 120 steps, to $1.7\cdot10^{11}$ per J at step 2000. This is the Lyapunov instability of the particle trajectories, not a code error and not the emission threshold: frozen and free FD agree to 3 digits, and $\epsilon \to 0$ does not change the picture (step 6).
+3. At $N_t = 2000$ the exact frozen-decision Jacobian is unusable for the recovery. Its residual column is 10 to 1000 times the smooth FD secant, with a median column error of 2010 and a median cosine of -0.14 along the solution slice; the error is spread over $10^4$ to $4\cdot10^5$ particles. The bar $\delta \le 0.005$ of Section 6.4 is met only formally ($\delta = 3.5\cdot10^{-3}$ at the T0 solution, where $r_w$ is small).
+4. Response: Track R (Section 7, D33), regular sensitivities by the particle-pdf method of Chung et al. (2020), started by the user on 2026-10-31. Until Track R passes its Phase R4, Phases P8 and P9 use the branch chosen at the end of Phase P7. The M3 recommendation for that branch is the FD fallback (branch 3), with the AD results reported only.
+
+To close Phase P7, a successor must:
+
+1. Read `inversion/notes/m3-state-2026-10-31.md` (rules, resume commands, open issues).
+2. Check `nvidia-smi`, then run the rest of step 5 on one GPU: `python inversion/p7_jacobian.py usability` from `lpa/FBPIC_Warp`, with `CUDA_VISIBLE_DEVICES` set and the `fbpic-warp` environment. It reuses the 47 cached runs in `inversion/runs/p7_fe7188bf9100/` and runs the 76 remaining slice points (about 6.3 h). Do not edit `fbpic/autodiff/*.py`, `forward.py`, `twin_config.py`, or `residual_objective.py` before it ends: the cache key is their hash.
+3. Run `python inversion/p7_jacobian.py report`, and add the false-minimum and far-field slice rows (column error, cosine, smoothed and FD columns) to step 5 above.
+4. Give the user the step 5 and step 6 numbers. The user chooses the recovery branch of Section 6.4 (D32) and records it here; then mark Phase P7 accepted and commit locally.
+
 
 ## Appendix A. Unverified claims and required probes
 
