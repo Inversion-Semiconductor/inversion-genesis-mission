@@ -2,13 +2,13 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). Phase P7 found that exact tangents are unusable at the full horizon because the trapping dynamics is chaotic; Track R (Section 7, D33) started on 2026-10-31. |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
 | Owner | The implementing agent writes all code: kernels, tangents, algorithms, scaffolding, and tests. |
 | Production code | Unchanged. The differentiable path is a separate stepper in `fbpic/autodiff` (D17). |
-| Decisions | D1 to D32 in Section 10. D1, D2, and D21 to D32 are user decisions. The others are planner defaults that the user can change. |
+| Decisions | D1 to D33 in Section 10. D1, D2, and D21 to D33 are user decisions. The others are planner defaults that the user can change. |
 
 ## How to use this plan
 
@@ -853,6 +853,38 @@ Re-plan this block with the Stage A results before it starts.
 
 Acceptance: L4 passes for both tangents, and L6 passes in 2-D on T0′ and T0.
 
+### Track R. Regular sensitivities by the particle-pdf method (research, started 2026-10-31)
+
+Reason. Phase P7 step 4 showed that the exact tangent is accurate up to about step 500 on Twin-S. After step 1200 it grows about tenfold every 120 steps and reaches $1.7\cdot10^{11}$ per J at step 2000. At $N_t = 2000$, the AD residual column is 10 to 1000 times the smooth FD secant and has the opposite sign for 6 of the 11 residuals (Section 12.10). This is the Lyapunov instability of the N-body particle dynamics, not a code error. Chung, Bond, Cyr, and Freund (JCP 400, 108969, 2020) avoid it: they differentiate the Vlasov equation first and then discretize the sensitivity distribution $\delta f$ with particles (D33).
+
+Method in brief:
+
+1. $\delta f$ obeys the linearized Vlasov equation. In the relativistic electromagnetic form, $\partial_t \delta f + \mathbf{v}\cdot\nabla_x \delta f + q(\mathbf{E} + \mathbf{v}\times\mathbf{B})\cdot\nabla_p \delta f = -q(\delta\mathbf{E} + \mathbf{v}\times\delta\mathbf{B})\cdot\nabla_p f - \partial_\theta \mathcal{V}$.
+2. Sensitivity particles move on the unperturbed characteristics, like the plasma particles. Their weights carry $\delta f$ and change by the right-hand side. No trajectory tangent is formed, so no Lyapunov growth occurs.
+3. $\nabla_p f$ comes from a deposit of the plasma particles onto a phase-space mesh. $\delta\mathbf{E}$ and $\delta\mathbf{B}$ come from $\delta\rho$ and $\delta\mathbf{J}$ through the existing linear field tangents (Section 4.6).
+4. EV births are a source of $f$. Their sensitivity is a weight source at the birth point, which the EV tangent $\dot W$ already gives (Section 5.3).
+5. The paper shows the method only for 1D-1V electrostatic plasmas with Maxwellian velocities (Debye shielding, a sheath). The error falls as $N^{-1/2}$, like PIC. The cost is 1.9 to 3 PIC runs. The paper reads the result as consistent with the continuum limit, not exact for the particle model.
+
+Open problems for LWFA:
+
+1. Cold plasma and a thin trapped bunch make $\nabla_p f$ nearly singular. The momentum shape width becomes a smoothing parameter with a bias.
+2. The phase-space mesh spans $(z, r)$, the azimuthal modes, and three momenta. It needs a sparse or adaptive representation.
+3. The relativistic, electromagnetic, quasi-cylindrical form is untested.
+4. The key assumption is that the continuum dynamics is Lyapunov stable for the observable. The paper states that no criterion is known. Evidence for it here: FD secants at $h = 10^{-2}$ and $10^{-3}$ agree at $N_t = 2000$.
+5. The moving window, injection, and removal act as sources and sinks of $\delta f$ at the boundaries.
+
+Variant R-v, to evaluate in Phase R0: keep the verified Lagrangian tangents while they are accurate, then project them periodically into weight form, $\delta f = -\nabla_z\cdot(f\,\xi)$ on a phase-space mesh, and reset the trajectory perturbation $\xi$ to zero. This variant reuses the kernels of Phases P4 to P6.
+
+Phases. Stop and report to the user after each one. The research session leads this track with subagents.
+
+- R0. Study (2 to 4 days). Derive the linearized Vlasov-Maxwell sensitivity for the FBPIC discretization: quasi-cylindrical modes, PSATD, Vay push, moving window, and EV births. Specify the phase-space mesh, the momentum shape, and the source evaluation. Compare the particle-pdf method with variant R-v. Output: a design note in `inversion/notes/` and a decision for the user.
+- R1. Reproduction (2 to 3 days). Build a standalone 1D-1V electrostatic prototype that reproduces the Debye-shielding result of the paper: particle-exact against particle-pdf against a smoothed brute-force reference, and the $N^{-1/2}$ statistics.
+- R2. Cold-beam prototype (3 to 5 days). Test the regularization of $\nabla_p f$ and the continuum-stability assumption on a cold beam with trapping in a wave, in 1D. Compare the particle-pdf method and variant R-v.
+- R3. Implementation (8 to 15 days, rough). Add the chosen method to `fbpic/autodiff` for $E_L$ ($K = 1$), on Twin-XS and then Twin-S. Reuse the field tangents and the EV weight source. Production code stays unchanged (D17). Use `learning-mode-gpu` delivery mode for the kernels.
+- R4. Verification (3 to 5 days). On Twin-S at $N_t = 2000$, compare the regular sensitivity column with the smoothed column of Phase P7 step 5 at the same points. Apply the fixed-point shift bar $\delta \le 0.005$ (D32). At $N_t \le 500$, compare with the verified Lagrangian tangent; expect agreement within the $N^{-1/2}$ statistical error, not to rounding.
+
+Acceptance: R4 passes. Phase P9 may then use the regular Jacobian. Until then, Phases P8 and P9 use the branch chosen at the end of Phase P7. Effort: about 18 to 32 days, with large uncertainty.
+
 ### Phase P10. Documentation (1 day)
 
 1. Add `docs/warp-porting-guide/09-differentiable-step-and-inversion.md` with contracts, measured memory, and gradient accuracy.
@@ -904,6 +936,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | Emission-threshold jumps | Free FD differs from AD by a finite birth-time bias at every plan $h$ | Frozen-decision FD as the only L4 reference, crossing probe, $\epsilon$ sweep as referee (Section 6.3, rule 4) |
 | Removal at the window back is a $\theta$-dependent decision | Tangents attached to removed or wrong particles; FD runs that remove different sets | Removed count recorded (Section 4.5, rule 3) and asserted in every FD run (Section 6.3, rule 2); tangents sliced with the primal range (Section 4.9); L3 on Twin-XS exchange step 154 |
 | Long-horizon gradient fails L4 | Recovery uses an unverified gradient | Recovery gate with three branches (Section 6.4) |
+| Chaotic particle dynamics after trapping (Lyapunov growth of the tangents) | The exact AD Jacobian is unusable at $N_t = 2000$ (Section 12.10) | Track R regular sensitivities (D33); the P7 branch choice meanwhile (D32) |
 
 ## 10. Decisions
 
@@ -941,6 +974,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D30 | FD caches are keyed by code hash. `runs/p3` is frozen as P3 evidence; Phase P9 compares with the recorded P3 results. | User, 2026-10-31 |
 | D31 | Phase P8 runs after M3 from committed code, not in parallel with P6 and P7, because it imports the EV code that P6 edits. | User, 2026-10-31 |
 | D32 | The recovery branch is chosen from the P7 Jacobian usability study: AD usable at a fixed-point shift $\delta \le 0.005$, blend, FD fallback, or exploratory (Section 6.4). Replaces the full-horizon L4 pass as the bar for using AD. | User, 2026-10-31 |
+| D33 | Start Track R (Section 7): regular sensitivities by the particle-pdf method of Chung et al. (2020), as the response to the chaotic long-horizon tangents. The research session leads it with subagents. Until Phase R4 passes, Phases P8 and P9 use the branch chosen at the end of Phase P7. | User, 2026-10-31 |
 
 ## 11. Future work
 
@@ -1743,3 +1777,5 @@ Acceptance: steps 1, 2, and 5 pass; step 3 passes with the accepted deviation at
 | Approximate adjoints | Dwight and Brezillon, AIAA J. 44 (2006) | Verify the exact adjoint before shortcuts |
 | Forward-mode PIC | Qiang, PRAB 26, 024601 (2023) | Precedent for the main engine |
 | Continuous Vlasov adjoints | Bartsch et al., SICON 62 (2024); Albi et al., arXiv:2610.26110 | Future macroscopic adjoint research |
+| Regular PIC sensitivities avoiding chaos | Chung, Bond, Cyr, Freund, JCP 400, 108969 (2020); OSTI 1570259 | Track R method |
+| Gradients through chaotic or stiff simulators | Suh et al., ICML 2022, arXiv:2202.00817 | Why averaged exact gradients have high variance |
