@@ -1,0 +1,24 @@
+r2_pilot.py twin 2.5 1e-9 75 twin_a25_h1e-9_t75.json
+r2_pilot.py obs 2.4500 75 none
+r2_pilot.py obs 2.4550 75 none
+r2_pilot.py obs 2.4600 75 none
+r2_pilot.py obs 2.4650 75 none
+r2_pilot.py obs 2.4700 75 none
+r2_pilot.py obs 2.4750 75 none
+r2_pilot.py obs 2.4800 75 none
+r2_pilot.py obs 2.4850 75 none
+r2_pilot.py obs 2.4900 75 none
+r2_pilot.py obs 2.4950 75 none
+r2_pilot.py obs 2.5000 75 none
+r2_pilot.py obs 2.5050 75 none
+r2_pilot.py obs 2.5100 75 none
+r2_pilot.py obs 2.5150 75 none
+r2_pilot.py obs 2.5200 75 none
+r2_pilot.py obs 2.5250 75 none
+r2_pilot.py obs 2.5300 75 none
+r2_pilot.py obs 2.5350 75 none
+r2_pilot.py obs 2.5400 75 none
+r2_pilot.py obs 2.5450 75 none
+r2_pilot.py obs 2.5500 75 none
+r2_pilot.py obs 2.501000 75 none
+r2_pilot.py obs 2.499000 75 none

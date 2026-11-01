@@ -1,0 +1,10 @@
+central h=0.0025         n=17 kappa med  0.206 p90  0.415 max    0.526 | cos med  0.920 min  0.788
+forward h=0.0025         n=17 kappa med  0.259 p90  0.488 max    0.515 | cos med  0.915 min  0.760
+central h=0.0050         n=17 kappa med  0.223 p90  0.331 max    0.460 | cos med  0.927 min  0.850
+forward h=0.0050         n=17 kappa med  0.192 p90  0.452 max    0.513 | cos med  0.896 min  0.793
+central h=0.0100         n=17 kappa med  0.116 p90  0.249 max    0.264 | cos med  0.963 min  0.856
+forward h=0.0100         n=17 kappa med  0.223 p90  0.501 max    0.510 | cos med  0.865 min  0.715
+central h=0.0200         n=17 kappa med  0.106 p90  0.165 max    0.181 | cos med  0.994 min  0.940
+forward h=0.0200         n=17 kappa med  0.183 p90  0.596 max    0.697 | cos med  0.853 min  0.621
+AD                       n=17 kappa med  1.000 p90  1.000 max    1.001 | cos med  0.210 min -0.681
+null: P(kappa<=0.5 and cos>=0.9) = 0.0

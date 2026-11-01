@@ -2,13 +2,13 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). Phase P7 in progress, checkpointed on 2026-10-31 (Section 12.10). Phase P7 found that exact tangents are unusable at the full horizon because the trapping dynamics is chaotic; Track R (Section 7, D33) started on 2026-10-31. |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). Phase P7 in progress, checkpointed on 2026-10-31 (Section 12.10). Phase P7 found that exact tangents are unusable at the full horizon because the trapping dynamics is chaotic; Track R (Section 7, D33) started on 2026-10-31. On 2026-10-31 the user paused the FD recovery and Phases P8 and P9 to test Track R first (D34). Phase R0 done on 2026-11-01: the study recommends no-go for Track R, and the user decision is open (proposed D35). |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
 | Owner | The implementing agent writes all code: kernels, tangents, algorithms, scaffolding, and tests. |
 | Production code | Unchanged. The differentiable path is a separate stepper in `fbpic/autodiff` (D17). |
-| Decisions | D1 to D33 in Section 10. D1, D2, and D21 to D33 are user decisions. The others are planner defaults that the user can change. |
+| Decisions | D1 to D34 in Section 10. D1, D2, and D21 to D34 are user decisions. The others are planner defaults that the user can change. |
 
 ## How to use this plan
 
@@ -885,6 +885,14 @@ Phases. Stop and report to the user after each one. The research session leads t
 
 Acceptance: R4 passes. Phase P9 may then use the regular Jacobian. Until then, Phases P8 and P9 use the branch chosen at the end of Phase P7. Effort: about 18 to 32 days, with large uncertainty.
 
+Phase R0 result (2026-11-01, D34). A multi-agent study did R0: five derivations, two adversarial critiques, and one synthesis. The design note is `inversion/notes/r0-design-note-2026-10-31.md`; its inputs and CPU scripts are in `inversion/notes/r0-evidence-2026-10-31/`. The note recommends no-go for Track R as the route to multi-parameter optimization. The user decision is open (proposed D35, note Section 10). The main findings:
+
+1. The algebra holds. The source of the linearized Vlasov equation is a phase-space dipole, also for the relativistic magnetic term, so the weight form is a score-function estimator. The adjoint is the exact transpose of the forward weight form.
+2. The weight form needs $\nabla_u \ln f$. This quantity does not exist for the cold Twin-S background or for the EV electrons. A momentum smoothing scale $\sigma_u$ is therefore necessary, and the result is a coarse-grained derivative at that scale.
+3. Twin-S at $N_t = 2000$ has no scale-free derivative. The FD roughness follows $h^{0.73}$ over $h = 10^{-3}$ to $10^{-7}$. On the P7 solution slice, local secants at $h \le 0.01$ differ from the local smooth derivative by 15% to 44% of the column norm.
+4. A forward variant that is credible on cold particles costs about one primal run per parameter, the same as one-sided FD.
+5. The $\delta$ bar of D32 alone is not a valid gate: 19.5% of random columns pass it. The note gives a guarded gate. Central FD at $h = 0.0025$ to $0.02$ passes the guarded gate on the P7 solution slice, and the AD column fails it.
+
 ### Phase P10. Documentation (1 day)
 
 1. Add `docs/warp-porting-guide/09-differentiable-step-and-inversion.md` with contracts, measured memory, and gradient accuracy.
@@ -975,6 +983,7 @@ The CuPy pool and the Warp allocator compete for device memory. Measure the peak
 | D31 | Phase P8 runs after M3 from committed code, not in parallel with P6 and P7, because it imports the EV code that P6 edits. | User, 2026-10-31 |
 | D32 | The recovery branch is chosen from the P7 Jacobian usability study: AD usable at a fixed-point shift $\delta \le 0.005$, blend, FD fallback, or exploratory (Section 6.4). Replaces the full-horizon L4 pass as the bar for using AD. | User, 2026-10-31 |
 | D33 | Start Track R (Section 7): regular sensitivities by the particle-pdf method of Chung et al. (2020), as the response to the chaotic long-horizon tangents. The research session leads it with subagents. Until Phase R4 passes, Phases P8 and P9 use the branch chosen at the end of Phase P7. | User, 2026-10-31 |
+| D34 | Do not run the FD recovery now. Pause Phases P8 and P9, defer the P7 branch choice (D32), and skip the rest of the P7 step 5 study (about 6.3 GPU-h). Test the feasibility of Track R first, because the goal is multi-parameter optimization. Phase R0 runs as a multi-agent study and must also cover the multi-parameter cost and an adjoint form. | User, 2026-10-31 |
 
 ## 11. Future work
 

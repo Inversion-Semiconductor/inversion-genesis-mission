@@ -1,0 +1,94 @@
+debye_pdf.py pdf 100000 200000 1 non
+debye_pdf.py pdf 100000 0 1 col
+debye_pdf.py pdf 100000 200000 2 non
+debye_pdf.py pdf 100000 0 2 col
+debye_pdf.py pdf 100000 200000 3 non
+debye_pdf.py pdf 100000 0 3 col
+debye_pdf.py pdf 100000 200000 4 non
+debye_pdf.py pdf 100000 0 4 col
+debye_pdf.py pdf 100000 200000 5 non
+debye_pdf.py pdf 100000 0 5 col
+debye_pdf.py pdf 100000 200000 6 non
+debye_pdf.py pdf 100000 0 6 col
+debye_pdf.py pdf 100000 200000 7 non
+debye_pdf.py pdf 100000 0 7 col
+debye_pdf.py pdf 100000 200000 8 non
+debye_pdf.py pdf 100000 0 8 col
+debye_pdf.py pdf 100000 200000 9 non
+debye_pdf.py pdf 100000 0 9 col
+debye_pdf.py pdf 100000 200000 10 non
+debye_pdf.py pdf 100000 0 10 col
+debye_pdf.py pdf 100000 200000 11 non
+debye_pdf.py pdf 100000 0 11 col
+debye_pdf.py pdf 100000 200000 12 non
+debye_pdf.py pdf 100000 0 12 col
+debye_pdf.py pdf 10000 20000 101 non
+debye_pdf.py pdf 10000 20000 102 non
+debye_pdf.py pdf 10000 20000 103 non
+debye_pdf.py pdf 10000 20000 104 non
+debye_pdf.py pdf 10000 20000 105 non
+debye_pdf.py pdf 10000 20000 106 non
+debye_pdf.py pdf 10000 20000 107 non
+debye_pdf.py pdf 10000 20000 108 non
+debye_pdf.py pdf 10000 20000 109 non
+debye_pdf.py pdf 10000 20000 110 non
+debye_pdf.py pdf 10000 20000 111 non
+debye_pdf.py pdf 10000 20000 112 non
+debye_pdf.py pdf 10000 20000 113 non
+debye_pdf.py pdf 10000 20000 114 non
+debye_pdf.py pdf 10000 20000 115 non
+debye_pdf.py pdf 10000 20000 116 non
+debye_pdf.py pdf 10000 20000 117 non
+debye_pdf.py pdf 10000 20000 118 non
+debye_pdf.py pdf 10000 20000 119 non
+debye_pdf.py pdf 10000 20000 120 non
+debye_pdf.py pdf 10000 20000 121 non
+debye_pdf.py pdf 10000 20000 122 non
+debye_pdf.py pdf 10000 20000 123 non
+debye_pdf.py pdf 10000 20000 124 non
+debye_pdf.py vlasov 0.02 256 512
+debye_pdf.py vlasov 0.02 512 1024
+debye_pdf.py vlasov 0.1 256 512
+r2_pilot.py obs 2.4500 58 none
+r2_pilot.py obs 2.4550 58 none
+r2_pilot.py obs 2.4600 58 none
+r2_pilot.py obs 2.4650 58 none
+r2_pilot.py obs 2.4700 58 none
+r2_pilot.py obs 2.4750 58 none
+r2_pilot.py obs 2.4800 58 none
+r2_pilot.py obs 2.4850 58 none
+r2_pilot.py obs 2.4900 58 none
+r2_pilot.py obs 2.4950 58 none
+r2_pilot.py obs 2.5000 58 none
+r2_pilot.py obs 2.5050 58 none
+r2_pilot.py obs 2.5100 58 none
+r2_pilot.py obs 2.5150 58 none
+r2_pilot.py obs 2.5200 58 none
+r2_pilot.py obs 2.5250 58 none
+r2_pilot.py obs 2.5300 58 none
+r2_pilot.py obs 2.5350 58 none
+r2_pilot.py obs 2.5400 58 none
+r2_pilot.py obs 2.5450 58 none
+r2_pilot.py obs 2.5500 58 none
+r2_pilot.py obs 2.501000 58 none
+r2_pilot.py obs 2.499000 58 none
+r2_pilot.py obs 2.500100 58 none
+r2_pilot.py obs 2.499900 58 none
+r2_pilot.py obs 2.500010 58 none
+r2_pilot.py obs 2.499990 58 none
+r2_pilot.py obs 2.4800 58 1
+r2_pilot.py obs 2.5200 58 1
+r2_pilot.py obs 2.4800 58 2
+r2_pilot.py obs 2.5200 58 2
+r2_pilot.py obs 2.4800 58 3
+r2_pilot.py obs 2.5200 58 3
+r2_pilot.py obs 2.4800 58 4
+r2_pilot.py obs 2.5200 58 4
+r2_pilot.py obs 2.4800 58 5
+r2_pilot.py obs 2.5200 58 5
+r2_pilot.py obs 2.4800 58 6
+r2_pilot.py obs 2.5200 58 6
+r2_pilot.py obs 2.4800 58 7
+r2_pilot.py obs 2.5200 58 7
+r2_pilot.py obs 2.4800 58 8
+r2_pilot.py obs 2.5200 58 8

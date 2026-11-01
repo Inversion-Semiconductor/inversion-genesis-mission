@@ -1,0 +1,14 @@
+ residual    | D_0.01 | D_0.02 | D_0.04 | max rel diff | spread(0.01) | pass(10%+2sd)
+ logQ        |     0.6 |     1.6 |     3.6 |  0.83 |    0.7 | False
+ <x>         |  -115.5 |  -101.0 |   -51.9 |  0.55 |    8.1 | False
+ <ux>        |   -75.5 |   -69.3 |   -40.1 |  0.47 |   10.3 | True
+ <zeta>      |    26.0 |     1.3 |   -34.9 |  1.75 |   12.2 | False
+ <uz>        |    24.9 |    20.5 |    16.5 |  0.34 |    3.9 | True
+ log sx      |   -44.6 |   -27.3 |     0.3 |  1.01 |    9.5 | False
+ log sux     |   -20.4 |    -8.3 |    13.5 |  1.66 |    5.3 | False
+ log sy      |   -48.5 |   -26.0 |     1.4 |  1.03 |   10.8 | False
+ log suy     |   -33.1 |   -13.5 |     9.8 |  1.30 |    8.3 | False
+ log szeta   |   -55.7 |   -32.8 |    -2.1 |  0.96 |   20.2 | True
+ log spread  |   -21.0 |   -14.9 |     8.2 |  1.39 |   11.0 | True
+observables passing: 4 of 11
+column rel diff D_0.01 vs D_0.04: 1.0508382301544703

@@ -1,0 +1,15 @@
+T=5.0: |t| median 2.02, p99 55.4; kappa median 0.696, p99.9 1.84e+03
+  per-particle SD: lag 0.0137, libp 0.0122; |nu| median 0.823 p99 3.5
+  top 0.1% |libp|: median kappa-rank 0.3151, median |t|-rank 0.981, median |xi|-rank 0.969
+  share of sum of squares from top 0.1%: libp 0.544, lag 0.622
+  corr(log|libp|, log kappa*|nu|) = -0.006
+T=10.0: |t| median 4.13, p99 399; kappa median 0.473, p99.9 665
+  per-particle SD: lag 20.7, libp 8.29e+04; |nu| median 0.882 p99 6.12
+  top 0.1% |libp|: median kappa-rank 0.9974, median |t|-rank 0.000, median |xi|-rank 0.886
+  share of sum of squares from top 0.1%: libp 1.000, lag 0.791
+  corr(log|libp|, log kappa*|nu|) = -0.184
+T=15.0: |t| median 10.6, p99 1.5e+03; kappa median 0.673, p99.9 1.62e+03
+  per-particle SD: lag 165, libp 1.11e+03; |nu| median 1.02 p99 7.38
+  top 0.1% |libp|: median kappa-rank 0.9970, median |t|-rank 0.104, median |xi|-rank 0.545
+  share of sum of squares from top 0.1%: libp 0.999, lag 0.908
+  corr(log|libp|, log kappa*|nu|) = 0.017

@@ -1,0 +1,25 @@
+exact d<psi>/dtheta = 0 for every psi
+random  eps=0.0 N=  2001 n= 5 xi=3.10e+01 | rms: LAG_in 3.68e+00 CONF_in 3.68e+00 BRK_in 3.68e+00 | LAG_out 1.20e+01 CONF_out 1.28e+00 BRK_out 1.20e+01 | xi/sqrtN 6.93e-01
+random  eps=0.0 N=  2001 n=10 xi=1.02e+03 | rms: LAG_in 8.22e+01 CONF_in 8.22e+01 BRK_in 8.22e+01 | LAG_out 4.67e+02 CONF_out 4.05e+01 BRK_out 4.67e+02 | xi/sqrtN 2.29e+01
+random  eps=0.0 N=  2001 n=15 xi=3.28e+04 | rms: LAG_in 1.81e+03 CONF_in 1.81e+03 BRK_in 1.81e+03 | LAG_out 1.03e+04 CONF_out 1.43e+03 BRK_out 1.03e+04 | xi/sqrtN 7.33e+02
+random  eps=0.0 N=  2001 n=20 xi=1.05e+06 | rms: LAG_in 8.79e+04 CONF_in 8.79e+04 BRK_in 8.79e+04 | LAG_out 4.30e+05 CONF_out 6.23e+04 BRK_out 4.30e+05 | xi/sqrtN 2.34e+04
+random  eps=0.0 N= 20001 n= 5 xi=3.10e+01 | rms: LAG_in 9.54e-01 CONF_in 9.54e-01 BRK_in 9.54e-01 | LAG_out 2.35e+00 CONF_out 1.37e-01 BRK_out 2.35e+00 | xi/sqrtN 2.19e-01
+random  eps=0.0 N= 20001 n=10 xi=1.02e+03 | rms: LAG_in 2.53e+01 CONF_in 2.53e+01 BRK_in 2.53e+01 | LAG_out 1.11e+02 CONF_out 3.47e+00 BRK_out 1.11e+02 | xi/sqrtN 7.23e+00
+random  eps=0.0 N= 20001 n=15 xi=3.28e+04 | rms: LAG_in 9.39e+02 CONF_in 9.39e+02 BRK_in 9.39e+02 | LAG_out 2.37e+03 CONF_out 1.42e+02 BRK_out 2.37e+03 | xi/sqrtN 2.32e+02
+random  eps=0.0 N= 20001 n=20 xi=1.05e+06 | rms: LAG_in 2.54e+04 CONF_in 2.54e+04 BRK_in 2.54e+04 | LAG_out 1.87e+05 CONF_out 3.95e+03 BRK_out 1.87e+05 | xi/sqrtN 7.41e+03
+lattice eps=0.0 N=  2001 n= 5 xi=3.10e+01 | rms: LAG_in 1.18e-15 CONF_in 4.44e-15 BRK_in 1.82e-14 | LAG_out 6.68e-14 CONF_out 3.10e-29 BRK_out 2.04e-14 | xi/sqrtN 6.93e-01
+lattice eps=0.0 N=  2001 n=10 xi=1.02e+03 | rms: LAG_in 9.96e-12 CONF_in 1.01e-11 BRK_in 9.57e-12 | LAG_out 6.22e-10 CONF_out 4.99e-25 BRK_out 6.24e-10 | xi/sqrtN 2.29e+01
+lattice eps=0.0 N=  2001 n=15 xi=3.28e+04 | rms: LAG_in 1.65e-09 CONF_in 1.65e-09 BRK_in 1.65e-09 | LAG_out 5.04e-08 CONF_out 7.12e-21 BRK_out 5.05e-08 | xi/sqrtN 7.33e+02
+lattice eps=0.0 N=  2001 n=20 xi=1.05e+06 | rms: LAG_in 6.57e-07 CONF_in 6.57e-07 BRK_in 6.57e-07 | LAG_out 7.13e-05 CONF_out 3.45e-16 BRK_out 7.13e-05 | xi/sqrtN 2.34e+04
+lattice eps=0.0 N= 20001 n= 5 xi=3.10e+01 | rms: LAG_in 6.66e-16 CONF_in 3.70e-15 BRK_in 6.00e-15 | LAG_out 1.33e-15 CONF_out 3.94e-31 BRK_out 3.55e-14 | xi/sqrtN 2.19e-01
+lattice eps=0.0 N= 20001 n=10 xi=1.02e+03 | rms: LAG_in 6.99e-13 CONF_in 6.83e-13 BRK_in 5.38e-12 | LAG_out 2.71e-11 CONF_out 5.52e-26 BRK_out 2.99e-12 | xi/sqrtN 7.23e+00
+lattice eps=0.0 N= 20001 n=15 xi=3.28e+04 | rms: LAG_in 1.04e-09 CONF_in 1.04e-09 BRK_in 9.65e-10 | LAG_out 3.57e-08 CONF_out 1.62e-22 BRK_out 3.54e-08 | xi/sqrtN 2.32e+02
+lattice eps=0.0 N= 20001 n=20 xi=1.05e+06 | rms: LAG_in 8.14e-08 CONF_in 8.14e-08 BRK_in 8.08e-08 | LAG_out 5.49e-05 CONF_out 6.08e-18 BRK_out 5.49e-05 | xi/sqrtN 7.41e+03
+lattice eps=0.3 N=  2001 n= 5 xi=3.10e+01 | rms: LAG_in 5.55e-02 CONF_in 5.55e-02 BRK_in 5.55e-02 | LAG_out 2.61e+00 CONF_out 1.34e-02 BRK_out 2.61e+00 | xi/sqrtN 6.93e-01
+lattice eps=0.3 N=  2001 n=10 xi=1.02e+03 | rms: LAG_in 8.56e+01 CONF_in 8.56e+01 BRK_in 8.56e+01 | LAG_out 3.15e+02 CONF_out 4.70e+01 BRK_out 3.15e+02 | xi/sqrtN 2.29e+01
+lattice eps=0.3 N=  2001 n=15 xi=3.28e+04 | rms: LAG_in 1.76e+03 CONF_in 1.76e+03 BRK_in 1.76e+03 | LAG_out 1.34e+04 CONF_out 7.92e+02 BRK_out 1.34e+04 | xi/sqrtN 7.33e+02
+lattice eps=0.3 N=  2001 n=20 xi=1.05e+06 | rms: LAG_in 1.27e+05 CONF_in 1.27e+05 BRK_in 1.27e+05 | LAG_out 2.24e+05 CONF_out 5.06e+04 BRK_out 2.24e+05 | xi/sqrtN 2.34e+04
+lattice eps=0.3 N= 20001 n= 5 xi=3.10e+01 | rms: LAG_in 4.78e-03 CONF_in 4.78e-03 BRK_in 4.78e-03 | LAG_out 3.96e-02 CONF_out 7.78e-06 BRK_out 3.96e-02 | xi/sqrtN 2.19e-01
+lattice eps=0.3 N= 20001 n=10 xi=1.02e+03 | rms: LAG_in 2.06e+00 CONF_in 2.06e+00 BRK_in 2.06e+00 | LAG_out 8.85e+01 CONF_out 4.22e-01 BRK_out 8.85e+01 | xi/sqrtN 7.23e+00
+lattice eps=0.3 N= 20001 n=15 xi=3.28e+04 | rms: LAG_in 8.03e+02 CONF_in 8.03e+02 BRK_in 8.03e+02 | LAG_out 5.96e+03 CONF_out 9.69e+01 BRK_out 5.96e+03 | xi/sqrtN 2.32e+02
+lattice eps=0.3 N= 20001 n=20 xi=1.05e+06 | rms: LAG_in 2.61e+04 CONF_in 2.61e+04 BRK_in 2.61e+04 | LAG_out 1.56e+05 CONF_out 2.80e+03 BRK_out 1.56e+05 | xi/sqrtN 7.41e+03

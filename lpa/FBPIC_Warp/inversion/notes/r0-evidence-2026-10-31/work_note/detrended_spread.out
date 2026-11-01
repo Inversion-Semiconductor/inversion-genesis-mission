@@ -1,0 +1,13 @@
+points 41
+deg 3: fit residual rms per residual (whitened units): [0.019 0.159 0.078 0.182 0.055 0.138 0.085 0.148 0.123 0.222 0.103]
+  spread of fitted derivative itself over centers: 0.212
+  h=0.0025: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.436  (roughness only)
+  h=0.0050: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.381  (roughness only)
+  h=0.0100: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.279  (roughness only)
+  h=0.0200: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.091  (roughness only)
+deg 5: fit residual rms per residual (whitened units): [0.013 0.036 0.036 0.101 0.025 0.07  0.038 0.084 0.067 0.111 0.059]
+  spread of fitted derivative itself over centers: 0.324
+  h=0.0025: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.309  (roughness only)
+  h=0.0050: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.244  (roughness only)
+  h=0.0100: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.150  (roughness only)
+  h=0.0200: mean ||D_c - Dfit_c(h)||/||J_sm|| = 0.028  (roughness only)

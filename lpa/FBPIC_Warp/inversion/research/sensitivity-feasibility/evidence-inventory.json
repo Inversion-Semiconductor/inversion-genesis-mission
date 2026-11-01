@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "investigation": "Full-horizon sensitivity feasibility for FBPIC-Warp laser-parameter inversion",
+  "observed_utc": "2026-11-01T08:43:07+00:00",
+  "previous_inventory_utc": "2026-11-01T07:47:09Z",
+  "scope": "File presence and supplied metadata only. Scientific contents are not reviewed in this checkpoint.",
+  "prepared_from": {
+    "path": "qa/new-evidence-inventory.json",
+    "sha256": "d148116b1b7cf82349887b7622a98025379db4fdfada64872596a5ed0413b19c",
+    "location": "Codex Planning QA workspace"
+  },
+  "files": [
+    {
+      "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/results/q1_tangent_growth_m1.json",
+      "sha256": "0c0b7275858b855f52070ad1a04578f8f1acde028ca7f8fcb444b54a7cfc743f",
+      "bytes": 45012,
+      "particle_multiplier": 1,
+      "normalized_point": 0.588,
+      "saved_row_count": 40,
+      "status": "Available; not interpreted in this workflow QA."
+    },
+    {
+      "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/results/q1_tangent_growth_m4.json",
+      "sha256": "92a2cd195630d04feb49e0cd1915f58194e0c7519be13596d20d84c91794c802",
+      "bytes": 45217,
+      "particle_multiplier": 4,
+      "normalized_point": 0.588,
+      "saved_row_count": 40,
+      "status": "Available; not interpreted in this workflow QA."
+    }
+  ],
+  "interpretation_limit": "File presence and metadata only. No experiment or source-analysis script was run. This does not establish completion of the roughness diagnostic, acceptance of a research decision, or a new scientific conclusion.",
+  "tested_code_state": "Not established by this metadata-only observation.",
+  "decision_status": "D34 pause remains recorded. D35 remains proposed. No new user decision is established.",
+  "roughness_diagnostic_status": "Completion and particle-count scaling are not established by these tangent-growth file metadata.",
+  "checkpoint_2026_11_01_session_2553145c": {
+    "observed_local": "2026-11-01T02:10:00-08:00",
+    "scope": "Files written or analyzed in session 2553145c. Contents inspected and analyzed for findings 4 to 6.",
+    "files": [
+      {
+        "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/q1_roughness.py",
+        "sha256": "5f541a875da8f996adb9b61ceed2a99c34e6b42dd3564b8e01ec5da7347bd537",
+        "bytes": 7316,
+        "kind": "script",
+        "note": "current revision; 1x and 4x scans ran with an earlier revision with the same worker"
+      },
+      {
+        "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/q1_tangent_growth.py",
+        "sha256": "43016269fae333b7668bbbef073c8790e86c69c6ec3e0872b23f3a0f6af9187b",
+        "bytes": 3051,
+        "kind": "script"
+      },
+      {
+        "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/results/q1_roughness.json",
+        "sha256": "927c3b484b3fa75080f004834e0689f8f177a8c12681e1938dfa574ea5c66b02",
+        "bytes": 10354,
+        "kind": "measurements",
+        "status": "inspected"
+      },
+      {
+        "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/results/q1_tangent_growth_m1.json",
+        "sha256": "0c0b7275858b855f52070ad1a04578f8f1acde028ca7f8fcb444b54a7cfc743f",
+        "bytes": 45012,
+        "kind": "measurements",
+        "status": "inspected"
+      },
+      {
+        "canonical_path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/results/q1_tangent_growth_m4.json",
+        "sha256": "92a2cd195630d04feb49e0cd1915f58194e0c7519be13596d20d84c91794c802",
+        "bytes": 45217,
+        "kind": "measurements",
+        "status": "inspected"
+      }
+    ],
+    "run_directory": {
+      "path": "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/runs/q1/",
+      "git": "ignored",
+      "json_files": [
+        "m1_default_0.578000.json",
+        "m1_default_0.585000.json",
+        "m1_default_0.587000.json",
+        "m1_default_0.587700.json",
+        "m1_default_0.587900.json",
+        "m1_default_0.588000.json",
+        "m1_default_0.588100.json",
+        "m1_default_0.588300.json",
+        "m1_default_0.589000.json",
+        "m1_default_0.591000.json",
+        "m1_default_0.598000.json",
+        "m1_s1_0.578000.json",
+        "m1_s1_0.588000.json",
+        "m1_s1_0.598000.json",
+        "m1_s2_0.578000.json",
+        "m1_s2_0.588000.json",
+        "m1_s2_0.598000.json",
+        "m1_s3_0.578000.json",
+        "m1_s3_0.588000.json",
+        "m1_s3_0.598000.json",
+        "m2r_default_0.578000.json",
+        "m2r_default_0.588000.json",
+        "m2r_default_0.598000.json",
+        "m2t_default_0.578000.json",
+        "m2t_default_0.588000.json",
+        "m2t_default_0.598000.json",
+        "m4_default_0.578000.json",
+        "m4_default_0.585000.json",
+        "m4_default_0.587000.json",
+        "m4_default_0.587700.json",
+        "m4_default_0.587900.json",
+        "m4_default_0.588000.json",
+        "m4_default_0.588100.json",
+        "m4_default_0.588300.json",
+        "m4_default_0.589000.json",
+        "m4_default_0.591000.json",
+        "m4_default_0.598000.json",
+        "m4_s1_0.588000.json",
+        "m8_default_0.578000.json",
+        "m8_default_0.588000.json",
+        "m8_default_0.598000.json"
+      ]
+    },
+    "evidence_directories": [
+      "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/notes/gpt-evidence-2026-11-01/",
+      "/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees/dev-autodiff/lpa/FBPIC_Warp/inversion/notes/option-c-evidence-2026-11-01/"
+    ],
+    "decision_status": "D34 remains the latest plan decision. D35 remains proposed. User intent of 2026-11-01 (option C, forward mode, FD set aside for now) is recorded in technical-record.md Section 12.5."
+  }
+}

@@ -1,0 +1,12 @@
+N=  1000 K= 4 random         rms(P xi)/2^n = 8.006e-02   N^-1/2 = 3.162e-02
+N=  1000 K= 4 lattice+chaos  rms(P xi)/2^n = 2.351e-03   N^-1/2 = 3.162e-02
+N=  1000 K=16 random         rms(P xi)/2^n = 1.937e-01   N^-1/2 = 3.162e-02
+N=  1000 K=16 lattice+chaos  rms(P xi)/2^n = 1.268e-02   N^-1/2 = 3.162e-02
+N= 10000 K= 4 random         rms(P xi)/2^n = 2.095e-02   N^-1/2 = 1.000e-02
+N= 10000 K= 4 lattice+chaos  rms(P xi)/2^n = 6.467e-04   N^-1/2 = 1.000e-02
+N= 10000 K=16 random         rms(P xi)/2^n = 4.685e-02   N^-1/2 = 1.000e-02
+N= 10000 K=16 lattice+chaos  rms(P xi)/2^n = 5.140e-03   N^-1/2 = 1.000e-02
+N=100000 K= 4 random         rms(P xi)/2^n = 1.032e-02   N^-1/2 = 3.162e-03
+N=100000 K= 4 lattice+chaos  rms(P xi)/2^n = 1.576e-04   N^-1/2 = 3.162e-03
+N=100000 K=16 random         rms(P xi)/2^n = 1.680e-02   N^-1/2 = 3.162e-03
+N=100000 K=16 lattice+chaos  rms(P xi)/2^n = 1.104e-03   N^-1/2 = 3.162e-03

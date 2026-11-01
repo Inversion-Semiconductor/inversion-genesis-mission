@@ -1,0 +1,12 @@
+== sheet K=2.0 n_f=6: reference +0.4438
+  N=  20000 lag                mean +0.5006 sd 0.0508 err +0.0568 |xi|_end 2.12e+01 removed-frac 0.000
+  N=  20000 conf Kf=4 T=1      mean +0.7091 sd 0.0712 err +0.2653 |xi|_end 5.36e+00 removed-frac 0.243
+  N=  20000 conf Kf=8 T=1      mean +0.4740 sd 0.1282 err +0.0302 |xi|_end 7.24e+00 removed-frac 0.152
+  N=  20000 conf Kf=8 T=3      mean +0.4724 sd 0.0997 err +0.0286 |xi|_end 2.14e+01 removed-frac 0.011
+  N=  20000 brk M=16 T=1       mean +0.5305 sd 0.0669 err +0.0867 |xi|_end 1.32e+01 removed-frac 0.087
+== sheet K=2.0 n_f=9: reference -1.2017
+  N=  20000 lag                mean -1.5754 sd 0.8083 err -0.3737 |xi|_end 1.94e+02 removed-frac 0.000
+  N=  20000 conf Kf=4 T=1      mean -0.0325 sd 0.0953 err +1.1692 |xi|_end 4.53e+00 removed-frac 0.405
+  N=  20000 conf Kf=8 T=1      mean -0.3439 sd 0.1473 err +0.8578 |xi|_end 1.52e+01 removed-frac 0.267
+  N=  20000 conf Kf=8 T=3      mean -0.4106 sd 0.3618 err +0.7911 |xi|_end 4.95e+01 removed-frac 0.460
+  N=  20000 brk M=16 T=1       mean -0.3714 sd 0.4882 err +0.8303 |xi|_end 5.22e+01 removed-frac 0.190

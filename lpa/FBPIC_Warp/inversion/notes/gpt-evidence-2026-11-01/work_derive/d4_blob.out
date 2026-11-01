@@ -1,0 +1,14 @@
+   reference SE 0.0041
+== blob K=1.5 n_f=8: reference +0.7758
+  N=  20000 lag                mean +0.7475 sd 0.1137 err -0.0283 |xi|_end 2.13e+01 removed-frac 0.000
+  N=  20000 conf Kf=4 T=1      mean +0.7532 sd 0.0638 err -0.0226 |xi|_end 5.06e+00 removed-frac 0.174
+  N=  20000 conf Kf=8 T=1      mean +0.7534 sd 0.0581 err -0.0224 |xi|_end 7.07e+00 removed-frac 0.131
+  N=  20000 conf Kf=8 T=3      mean +0.8055 sd 0.0290 err +0.0296 |xi|_end 1.01e+01 removed-frac 0.269
+  N=  20000 brk M=16 T=1       mean +0.7699 sd 0.0333 err -0.0059 |xi|_end 1.03e+01 removed-frac 0.048
+   reference SE 0.0575
+== blob K=1.5 n_f=12: reference +0.9026
+  N=  20000 lag                mean +0.6267 sd 1.2411 err -0.2759 |xi|_end 2.79e+02 removed-frac 0.000
+  N=  20000 conf Kf=4 T=1      mean +0.2885 sd 0.0527 err -0.6141 |xi|_end 1.04e+01 removed-frac 0.242
+  N=  20000 conf Kf=8 T=1      mean +0.5001 sd 0.3870 err -0.4025 |xi|_end 1.32e+01 removed-frac 0.198
+  N=  20000 conf Kf=8 T=3      mean +0.4576 sd 0.2924 err -0.4450 |xi|_end 2.62e+01 removed-frac 0.472
+  N=  20000 brk M=16 T=1       mean +1.3604 sd 0.2912 err +0.4578 |xi|_end 2.32e+01 removed-frac 0.156
