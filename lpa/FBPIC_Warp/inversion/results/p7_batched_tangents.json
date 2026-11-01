@@ -1,0 +1,31 @@
+{
+ "size": "twin_xs",
+ "config_sha256": "1ee8ee928ee30a2b88ab57c26d1b902a548662034e2e78d0db84b70462990d97",
+ "n_steps": 10,
+ "births": 7867,
+ "seeds": [
+  "E_L",
+  "synthetic (random interp fields, seed 0, 1e-3 x max)"
+ ],
+ "rows": [
+  {
+   "seed": "E_L",
+   "K2_vs_K1": 5.459244410272532e-13,
+   "K2_vs_K1_worst": "electrons.inv_gamma",
+   "repeat_K1": 7.449964542392957e-13,
+   "repeat_K1_worst": "elec_from_N.uz",
+   "tolerance": 7.449964542392958e-12,
+   "pass": true
+  },
+  {
+   "seed": "synthetic",
+   "K2_vs_K1": 6.618863162102566e-13,
+   "K2_vs_K1_worst": "electrons.inv_gamma",
+   "repeat_K1": 6.617791194629577e-13,
+   "repeat_K1_worst": "electrons.inv_gamma",
+   "tolerance": 6.617791194629577e-12,
+   "pass": true
+  }
+ ],
+ "pass": true
+}

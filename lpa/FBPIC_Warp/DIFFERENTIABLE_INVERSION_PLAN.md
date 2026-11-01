@@ -2,7 +2,7 @@
 
 | Item | Value |
 |---|---|
-| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). Phase P7 found that exact tangents are unusable at the full horizon because the trapping dynamics is chaotic; Track R (Section 7, D33) started on 2026-10-31. |
+| Status | Phases P0 to P5 done; milestone M1 reached with the Stage A gate (Section 12.5); milestone M2 reached with deviations (Sections 12.6 and 12.7). Revised on 2026-10-30 with the optimizer of Section 2.5 (D26) and the one-parameter Stage A (Section 2.6, D28). Phases P6 to P9 re-planned on 2026-10-31 (Section 12.8, D29 to D32). Phase P6 done on 2026-10-31, with one accepted deviation (Section 12.9). Phase P7 in progress, checkpointed on 2026-10-31 (Section 12.10). Phase P7 found that exact tangents are unusable at the full horizon because the trapping dynamics is chaotic; Track R (Section 7, D33) started on 2026-10-31. |
 | Date | 2026-10-26 |
 | Branch | `snidhan/dev-autodiff` (base commit `92352b8`) |
 | Scope | One GPU. Lab frame. Stage A: one parameter ($E_L$) from Phase P3 to Phase P9. Stage B: both parameters ($E_L$, $z_f$). Forward-mode tangents. Twin experiment with noise-free synthetic data. |
@@ -905,9 +905,9 @@ Estimates. Phases P1, P3, and P7 replace them with measurements.
 | EV births | measured in Phase P3 | 11.9 to 16.3 M births, 4 to 6 x the 2.69 M loaded background; 6.4 to 7.5 M live `elec_from_N` at $N_t$ (6.66 M at the nominal $\theta$) |
 | Tangent state, $K$ tangents | $K$ x (7 field arrays x $N_m$, plus 112 B per particle, plus 32 B per N ion). The 112 B are the 64 B state tangents plus 48 B of gathered-field tangents held between the separate gather and push kernels (Section 4.7). | about 0.9 GB per tangent (8 M live particles): 0.9 GB in Stage A, 1.8 GB in Stage B |
 | Per-step stash | primal `u` and `inv_gamma` before the Vay push (Section 4.3, rule 2); the gathered-field tangents are counted in the tangent-state row | about 0.3 to 0.45 GB |
-| Device peak | primal + tangents + stash + production workspace | about 5 GB used, 7.5 to 8 GB reserved (estimate). Phase P7 measures it. |
+| Device peak | primal + tangents + stash + production workspace | measured in Phase P7 (Section 12.10): mempool 3.78 GB used, 6.85 GB reserved for a $K = 1$ gradient on Twin-S with EV |
 | Forward run time | measured in Phase P3: 88.8 s per Twin-S EV run at the nominal $\theta$ (86 to 101 s over the checked points) | One run saturates the GPU: 25 runs in parallel batches took 2158 s (86 s each), about the same as serial. Count cost in serial run-equivalents of about 90 s. |
-| Gradient cost | 1 primal + $K$ tangents in one pass | Stage A: about 2 to 2.5 run-equivalents, 180 to 225 s. Stage B: about 3 to 4 run-equivalents, 270 to 360 s (estimates) |
+| Gradient cost | 1 primal + $K$ tangents in one pass | Stage A, measured in Phase P7: 3.47 run-equivalents, 298 s (the deposit tangents take half of the step). Stage B: about 5 to 6 run-equivalents (extrapolated) |
 | Central FD, for comparison | 2 runs per parameter | Stage A: 2 run-equivalents, about 180 s. Stage B: 4, about 360 s |
 | Phase P7 sweep and Phase P9 L6 | from the rows above | about 1.8 to 3.5 h for the P7 step 4 sweep; 10 to 30 h serial for L6 |
 
@@ -1724,6 +1724,133 @@ Step 5, crossing probe (`inversion/results/p6_crossing_probe.json`). Twin-XS, 20
 $g_{above} = 1.2211$ and $g_{below} = 1.5294$ are the frozen slopes on the two branches. The second term is the $O(1)$ slope difference over the part of the stencil past $a_c$; Section 6.3 rule 5 states only the leading term $\Delta J/(2h)$. Pass.
 
 Acceptance: steps 1, 2, and 5 pass; step 3 passes with the accepted deviation at $N_t = 28$; step 4 is reported. Production code is unchanged.
+
+### 12.10 Phase P7. Loss Jacobian, horizon sweep, and Jacobian usability
+
+Run on 2026-10-31 on physical GPU 1 (RTX 6000 Ada), code on top of commit `4c5ff56`. Stage A: one tangent ($K = 1$, $E_L$), $\alpha_D = 0$ (D29).
+
+Files:
+
+1. `fbpic/autodiff/loss.py`: `ResidualObjective`, `ResidualValue`, `observables`. `fbpic/autodiff/driver.py`: `value_and_grad` accepts a residual objective and returns `residuals`, `jacobian`, and `jacobian_hat` ($J = \lVert r_w\rVert^2$, gradient $2J_r^Tr_w$).
+2. `inversion/residual_objective.py` (the objective of a twin target), `inversion/verify_batched_tangents.py` (step 2), `inversion/p7_jacobian.py` (steps 3, 5, 6), and `--loss-target` in `inversion/verify_param_gradient.py` (step 4).
+3. Tests: `tests/test_autodiff_residual.py`.
+
+Design. The 11 whitened residuals depend on the particles only through 13 weighted sums: $S_0 = \sum w\sigma$, $A_k = \sum w\sigma\xi_k$, and $B_k = \sum w\sigma\xi_k^2$. With $D = S_0 + Q_f/e$, $m_k = A_k/D$, $M_k = B_k/D$, and $s_k = \sqrt{\max(M_k - m_k^2, 0)}$, every observable of Section 2.4 is a function of these sums. The objective computes the sums and the $11 \times 13$ host Jacobian $L^{-1}\,\partial v/\partial(\text{sums})$, and contracts each tangent into the 13 sum tangents with 13 device reductions. It does not form the 11 particle gradients, which would take about 4 GB at 7M particles. Where $s_k = 0$ (an empty selection), $\dot s_k := 0$; every sum tangent is then 0 as well, because $\sigma' = 0$ outside the selection band.
+
+Step 1, L1 (`python -m pytest tests/test_autodiff_residual.py -q -s`). The reference is the independent host code of Phase P3 (`observable.beam_statistics`, `whitened_residuals`), with a random lower-triangular $L$ so that the off-diagonal path is tested.
+
+| Check | Result | Limit |
+|---|---|---|
+| Residuals against the P3 host code (2000 particles) | 3.5e-14 relative | 1e-11 |
+| Residuals at the target beam | below 1e-9 | 1e-9 |
+| `check_jvp`, normal beam, 3 directions | best errors 1.1e-9, 1.3e-9, 1.5e-9; pair rule holds | 1e-6 |
+| Empty selection (all $\sigma = 0$) | residuals finite and equal to the host code; contraction exactly 0; FD exactly 0 | finite, FD |
+| Nearly empty selection (one particle with $\sigma = 10^{-6}$) | residuals finite; best errors 1.5e-9, 1.6e-9, 4.4e-10 | 1e-6 |
+| Explicit sum gradients against the contraction | 1.1e-15 | 1e-12 |
+
+Step 2, $K = 2$ (`python inversion/verify_batched_tangents.py`; `inversion/results/p7_batched_tangents.json`). Twin-XS with EV, nominal $\theta$, $N_t = 10$ (7867 births). Seeds: $E_L$, and a synthetic seed (random interp fields, seed 0, $10^{-3}$ of the largest laser field). The difference of every tangent array (spectral fields per mode; particle and EV arrays by tracker ID) is relative to the largest entry of that array.
+
+| Seed | $K = 2$ row against the $K = 1$ run | Repeated $K = 1$ runs ($d_{rep}$) | Limit $\max(10 d_{rep}, 10^{-13})$ |
+|---|---|---|---|
+| $E_L$ | 5.5e-13 (electron `inv_gamma`) | 7.5e-13 | 7.4e-12: pass |
+| synthetic | 6.6e-13 (electron `inv_gamma`) | 6.6e-13 | 6.6e-12: pass |
+
+The $K = 2$ rows differ from the $K = 1$ runs by no more than two $K = 1$ runs differ from each other (deposit atomics).
+
+Step 3, cost (`python inversion/p7_jacobian.py cost`; `inversion/results/p7_jacobian.json`, key `cost`). Twin-S with EV at $\hat\theta = (0.588, 0.4)$, 2000 steps, T0 residual objective, $K = 1$. One primal run and one gradient run, twice, interleaved, each in its own process.
+
+| Quantity | Primal EV run | `value_and_grad` ($K = 1$) |
+|---|---|---|
+| Wall time of the steps | 85.9 s, 86.0 s | 299.4 s, 298.1 s |
+| CUDA mempool high-water mark, used / reserved | 2.53 / 3.42 to 3.49 GB | 3.78 / 6.64 to 6.85 GB |
+| Device memory in use at the end | 3.9 to 4.0 GB | 7.1 to 7.3 GB |
+| Host peak RSS | 1.42 GB | 1.02 to 1.22 GB |
+| Births | 12.68M | 12.68M |
+
+A gradient costs 3.47 run-equivalents, against 3 runs (center and $\pm h$) for one central-FD dogbox iteration in one parameter. Section 8 estimated 2 to 2.5; without EV, Phase P5 measured 1.96 (Section 12.7). Profile of 100 tangent steps at step 1200 (9.8M `elec_from_N`, synchronized hooks): 228 ms per step, of which the J deposit tangent takes 81 ms and the `rho_next` deposit tangent 40 ms, against 24 ms and 14 ms for the primal deposits. The deposit tangent of Phase P4 runs one thread per cell and loops over the particles of the cell; the EV births pack `elec_from_N` densely into few cells, so this loop serializes. A faster deposit tangent (for example, a split of dense cells) would change a verified Phase P4 kernel and is left as a follow-up. The gradient also does not need a second residual run: the residuals come from the same pass.
+
+Step 4, horizon sweep (`python inversion/verify_param_gradient.py l4 twin_s --ionization ev --steps 2000 --horizons 1 10 50 460 500 650 1000 2000 --h 1e-2 1e-3 1e-4 1e-5 1e-6 1e-7 --slice-points 0 --key-stride 256 --loss-target T0 --tag _sweep`; `inversion/results/p7_sweep_twin_s.json`). Twin-S with EV at the nominal $\theta$, $J_{chk}$, frozen emissions (13.16M births), sampled cell keys (stride 256). The AD run took 157 ms per step. Total $J_{chk}$:
+
+| $N_t$ | $g^{AD}$ ($\hat\theta$) | $e$ at $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ / $10^{-5}$ / $10^{-6}$ / $10^{-7}$ | Sampled $K(h)$ |
+|---|---|---|---|
+| 1 | 2.5e-45 | (rounding noise; the laser has not reached the particles) | 0 at every $h$ |
+| 10 | 5.4e-44 | (rounding noise) | 0 |
+| 50 | -22.8 | 3.0e-6 / 1.4e-5 / 1.4e-5 / 5.0e-3 / 5.0e-3 / 0.40 | 56 / 7 / 2 / 0 / 0 / 0 |
+| 460 | 2.14e9 | 3.0e-2 / 4.7e-3 / 1.8e-3 / 3.0e-4 / 3.3e-4 / 3.1e-5 | 107637 / 12492 / 1495 / 292 / 5 / 0 |
+| 500 | 2.70e9 | 0.18 / 2.9e-2 / 5.1e-3 / 3.9e-4 / 2.9e-4 / 1.8e-6 | 270155 / 32884 / 3605 / 580 / 22 / 0 |
+| 650 | 1.97e10 | 0.43 / 0.53 / 0.42 / 0.26 / 5.3e-2 / 5.7e-3 | 2.3M / 443k / 59k / 8113 / 688 / 57 |
+| 1000 | 3.41e10 | 0.23 / 0.33 / 0.30 / 7.7e-2 / 2.5e-2 / 1.2e-2 | 19.7M / 8.0M / 2.1M / 415k / 57k / 5892 |
+| 2000 | -2.26e13 | 1.0 at every $h$ | 109M / 59M / 20.7M / 5.1M / 942k / 166k |
+
+At $N_t = 50$, rule 7 rejects $h \le 10^{-5}$ (noise term above $10^{-3}$); the usable $h$ agree to $1.4\cdot10^{-5}$ with $K > 0$. At $N_t = 460$ and 500, AD matches FD at the only $h$ with $K = 0$ (as in Phase P6 step 4). From $N_t = 650$, $e$ still falls with $h$, but $K(h) > 0$ at every $h$. Rule 2: from iteration 854 ($h = 10^{-2}$) to 1148 ($h = 10^{-7}$), the removed counts of the FD runs differ from those of the AD run, so FD at $N_t = 1000$ (for $h \ge 10^{-5}$) and at $N_t = 2000$ (every $h$) is not a frozen-decision reference. The five base runs reproduce every decision of the AD run.
+
+Tangent growth (infinity norms per J of $E_L$, every 100 steps in the record):
+
+| Step | 300 | 450 | 500 | 600 | 650 | 800 | 1000 | 1200 | 1500 | 1800 | 2000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| $\lvert\partial u_x/\partial E_L\rvert$ | 4.5 | 2.8e3 | 2.3e4 | 1.1e6 | 2.9e6 | 1.1e6 | 1.2e6 | 2.3e6 | 1.5e8 | 8.7e10 | 1.7e11 |
+| $\lvert\partial x/\partial E_L\rvert$ [m/J] | 8.1e-7 | 1.4e-4 | 2.8e-3 | 7.8e-2 | 0.37 | 5.8 | 6.8 | 22 | 53 | 1.6e4 | 1.3e5 |
+| spectral $\lvert\partial E_p/\partial E_L\rvert$ | 0.77 | 164 | 376 | 1.2e3 | 1.9e3 | 3.8e3 | 4.7e3 | 5.6e3 | 2.3e4 | 2.0e6 | 1.6e7 |
+
+Up to step 1200 the particle tangent saturates near $10^6$ per J, as without EV (Section 12.7). After step 1200 it grows by about a factor of 10 every 120 steps. The field tangent follows from step 1500.
+
+Loss part at $N_t = 2000$ (T0 target, nominal $\theta$, $J = 204.7$). AD column against central FD ($\hat\theta$ units):
+
+| Residual | AD | FD at $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ / $10^{-5}$ / $10^{-6}$ / $10^{-7}$ |
+|---|---|---|
+| $\log(Q+Q_f)$ | 17.7 | 6.8 / 4.9 / 20.1 / 33.4 / -8.9 / 77.4 |
+| $\langle x\rangle$ | 1.86e3 | 24.1 / 24.0 / 12.6 / 30.1 / -159 / 33.6 |
+| $\langle u_x\rangle$ | 1.80e4 | 5.8 / 14.1 / -18.4 / -32.0 / -230 / 409 |
+| $\langle\zeta\rangle$ | 447 | -75.6 / -75.4 / -99.0 / -147 / -13.4 / -92.7 |
+| $\langle u_z\rangle$ | 58.3 | 5.4 / 4.0 / -22.7 / -42.8 / -13.8 / -149 |
+| $\log\sigma_x$ | -950 | 38.3 / 39.3 / 30.7 / 98.6 / -23.1 / -62.9 |
+| $\log\sigma_{u_x}$ | -3.65e3 | 37.5 / 43.1 / 35.8 / 78.6 / -80.1 / -140 |
+| $\log\sigma_y$ | -648 | 38.9 / 46.6 / 59.3 / 37.4 / 21.2 / 38.4 |
+| $\log\sigma_{u_y}$ | -3.60e3 | 38.9 / 46.2 / 57.5 / 13.5 / -17.0 / -15.4 |
+| $\log\sigma_\zeta$ | -283 | 41.6 / 51.0 / 60.4 / 112 / 60.9 / 64.1 |
+| $\log(\sigma_{u_z}/\langle u_z\rangle)$ | 1.06e3 | 22.2 / 33.8 / 72.3 / 190 / 126 / 494 |
+| $J$ | 1.18e5 | -3.2e3 / -3.6e3 / -4.4e3 / -7.0e3 / -1.5e3 / -3.2e3 |
+
+FD at $h = 10^{-2}$ and $10^{-3}$ agree with each other for most residuals (the smooth secant). Below $h = 10^{-4}$, FD scatters (roughness and changed removals). The AD column is 10 to 1000 times larger than the secant and has the opposite sign for 6 of 11 residuals and for $J$. The frozen-decision derivative at $N_t = 2000$ is dominated by the exponentially growing tangents after step 1200. Section 12.8 (row 3) anticipated this; step 5 measures what it means for dogbox.
+
+Step 5, Jacobian usability on T0 at $N_t = 2000$ (`python inversion/p7_jacobian.py usability`, then `report`; `inversion/results/p7_jacobian.json`, key `usability`). Status: partial, checkpointed on 2026-10-31 when the session was shut down. Done: the three center runs (AD column, frozen and free central FD at small $h$, and the particle-contribution diagnostic), the complete 41-point slice around the T0 solution, 5 of 41 points of the false-minimum slice, and 1 of 41 of the far-field slice. Not done: the remaining 76 slice points (about 6.3 h at 298 s each). The completed runs are cached in `inversion/runs/p7_fe7188bf9100/`, and the stage resumes from them.
+
+Solution slice ($\hat E_L = 0.538$ to 0.638, $\hat z_f = 0.4$; the slice minimum is $J = 3.74$ at 0.588):
+
+| Quantity | Value |
+|---|---|
+| Column error $\lVert J_{AD} - J_{sm}\rVert / \lVert J_{sm}\rVert$ over the 41 points | median 2010, 90th percentile 7103 |
+| Cosine of $J_{AD}$ and $J_{sm}$ | median -0.14, minimum -0.68 |
+| Fixed-point shift $\delta$ at the T0 solution (0.588) | $3.5\cdot10^{-3}$ |
+| Gradient $\partial J/\partial\hat E_L$ at 0.588, AD / smoothed | -1.34e4 / -11.7 |
+
+$J_{sm}$ is the derivative of a cubic least-squares fit of each residual over the slice. At 0.588, the AD column is (-1962, 17299, -36696, 5924, -335, -7841, -28407, -5581, -11810, 564, -4400), and the smoothed column is (1.7, -108, -76, 4.8, 20, -31, -12, -30, -16, -36, -19).
+
+Central FD at the three centers, relative to the AD column ($\lVert\mathrm{FD} - J_{AD}\rVert/\lVert J_{AD}\rVert$) and as a column norm:
+
+| Center | $\lVert J_{AD}\rVert$ | Frozen FD, $h = 10^{-2}$ / $10^{-3}$ / $10^{-4}$ / $10^{-5}$: norm (relative to AD) | Free FD, $h = 10^{-3}$ / $10^{-4}$ / $10^{-5}$: norm |
+|---|---|---|---|
+| T0 solution (0.588), $J = 3.74$ | 5.2e4 | 172, 239, 273, 424 (0.998 to 0.999) | 239, 273, 425 |
+| False minimum (0.545), $J = 12.0$ | 2.0e4 | 252, 222, 129, 262 (0.996 to 0.999) | 222, 129, 262 |
+| Far field (0.75), $J = 104$ | 3.8e7 | 64, 67, 173, 423 (1.000) | 67, 173, 423 |
+
+1. Frozen against free (birth-time term, Section 6.3 rule 4): frozen and free FD agree to 3 digits at every $h$ at all three centers. The birth-time term is negligible at these $h$.
+2. AD against frozen FD (code against chaos): they differ by 99.6% to 100% at every $h$ down to $10^{-5}$. With the tangent growth of step 4 ($\lvert\partial x/\partial E_L\rvert \approx 10^5$ m/J at step 2000), the frozen-decision map is linear only over a range far below $h = 10^{-5}$, so frozen FD cannot check the AD column there. The AD column is the derivative of a chaotic map; it does not describe the response of the residuals to any usable step.
+3. Particle contributions (center runs): the AD column is a sum over particles. For most residuals, 50% of $\sum_i\lvert c_{ji}\rvert$ comes from $10^4$ to $7\cdot10^4$ particles, and 90% from $2\cdot10^5$ to $4\cdot10^5$ of the 1.7M selected particles. The top 10 particles hold 1% to 25%. The error is spread over the beam, not carried by a few outliers, so clipping outliers does not remove it.
+4. The value $\delta = 3.5\cdot10^{-3}$ meets the "AD usable" bar of Section 6.4 ($\delta \le 0.005$) formally, but $\delta$ is a poor indicator here. At the solution $r_w$ is small, so $\delta$ is small for any column; it does not see that $J_{AD}$ has the wrong direction (cosine below 0 at most points) and a magnitude 100 to $10^5$ times too large away from the solution. A dogbox iteration from the false minimum or the far field with $J_{AD}$ would take steps of about $10^{-3}$ to $10^{-6}$ of the secant step, in a direction that is wrong about half the time.
+
+Step 6, $\epsilon$ comparison on the reduced Twin-S (`python inversion/p7_jacobian.py epsilon`; key `epsilon`). $\hat\theta = (0.588, 0.4)$, residuals against T0 ($J = 1829$, because the reduced configuration does not match T0; the columns, not $J$, are compared).
+
+| $\epsilon$ | Births | $\lVert J_{AD} - J_{AD}^{\epsilon=0}\rVert / \lVert J_{AD}^{\epsilon=0}\rVert$ | Cosine to $\epsilon = 0$ | $\partial J/\partial\hat E_L$ (AD) | Run time | Mempool used / reserved |
+|---|---|---|---|---|---|---|
+| $10^{-4}$ | 0.91M | 3.12 | 0.32 | 1.30e5 | 93 s | 0.87 / 1.17 GB |
+| $10^{-5}$ | 1.11M | 3.04 | -0.40 | 2.63e6 | 101 s | 0.93 / 1.34 GB |
+| $10^{-6}$ | 1.33M | 1.58 | -0.46 | 1.13e6 | 111 s | 0.99 / 1.41 GB |
+| 0 | 13.71M | 0 | 1 | -4.85e6 | 426 s | 4.58 / 8.99 GB |
+
+At $\epsilon = 0$ (frozen equals free), central FD at $h = 10^{-2}$ and $10^{-3}$ differs from the AD column by 99.99% and 99.98%. The AD columns do not converge as $\epsilon \to 0$, and the $\epsilon = 0$ AD column disagrees with its own FD, as on the full Twin-S. So the frozen-against-free difference does not dominate the step 5 error, and $\epsilon \to 0$ or zero-weight creation is not the remedy (Phase P7 step 6). The error comes from the chaotic sensitivity of the trajectories at the full horizon.
+
+Status of Phase P7 (2026-10-31): in progress, checkpointed. Steps 1 and 2 pass. Steps 3, 4, and 6 are reported. Step 5 is partial (solution slice and centers complete). The user chooses the recovery branch (Section 6.4, D32) after step 5 is complete or with the partial numbers.
 
 ## Appendix A. Unverified claims and required probes
 

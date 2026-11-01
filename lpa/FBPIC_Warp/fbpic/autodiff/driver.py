@@ -49,6 +49,9 @@ class GradResult:
             without bounds.
         terms: Per-term values and gradients when the objective returns terms.
         info: Memory peaks, timings, and tangent norms.
+        residuals: r_w, shape (R,), when the objective returns residuals.
+        jacobian: dr_w/dtheta, shape (R, K), with residuals.
+        jacobian_hat: dr_w/dtheta_hat, shape (R, K), with residuals and bounds.
     """
 
     J: float
@@ -56,6 +59,9 @@ class GradResult:
     grad_hat: np.ndarray | None
     terms: dict
     info: dict
+    residuals: np.ndarray | None = None
+    jacobian: np.ndarray | None = None
+    jacobian_hat: np.ndarray | None = None
 
 
 def resolve_seeds(sim, profile, theta, seeds) -> list:
@@ -230,7 +236,10 @@ def value_and_grad(
     Args:
         theta: Parameter vector.
         objective: objective(state) -> (J, g_s), or a dict of terms
-            {name: (J_term, g_term)}, whose values and gradients add up.
+            {name: (J_term, g_term)}, whose values and gradients add up, or
+            a residual value with `residuals` (R,) and `contract(tangents)`
+            -> dr/dtheta (R, K), such as `loss.ResidualObjective`. Then
+            J = |r|^2, grad = 2 J_r^T r, and the result holds the Jacobian.
         build: build(theta) -> (sim, species, profile).
         n_steps: Horizon N_t.
         seeds: One seed per tangent; the gradient has one entry per seed.
@@ -239,6 +248,25 @@ def value_and_grad(
     """
     result = jvp(theta, build, seeds, n_steps, **jvp_kwargs)
     value = objective(result.state)
+    scale = None
+    if bounds is not None:
+        lo, hi = (np.asarray(b, float)[: result.tangents.K] for b in bounds)
+        scale = hi - lo
+    if hasattr(value, "residuals"):
+        r = np.asarray(value.residuals, float)
+        jac = value.contract(result.tangents)
+        grad = 2.0 * jac.T @ r
+        result.info["decisions"] = result.decisions
+        return GradResult(
+            J=float(r @ r),
+            grad=grad,
+            grad_hat=None if scale is None else scale * grad,
+            terms={},
+            info=result.info,
+            residuals=r,
+            jacobian=jac,
+            jacobian_hat=None if scale is None else jac * scale[None, :],
+        )
     terms = value if isinstance(value, dict) else {"total": value}
     out_terms = {}
     J, grad = 0.0, np.zeros(result.tangents.K)
@@ -248,10 +276,9 @@ def value_and_grad(
         J += float(J_term)
         grad += d
     grad_hat = None
-    if bounds is not None:
-        lo, hi = (np.asarray(b, float)[: result.tangents.K] for b in bounds)
-        grad_hat = (hi - lo) * grad
+    if scale is not None:
+        grad_hat = scale * grad
         for term in out_terms.values():
-            term["grad_hat"] = (hi - lo) * term["grad"]
+            term["grad_hat"] = scale * term["grad"]
     result.info["decisions"] = result.decisions
     return GradResult(J, grad, grad_hat, out_terms, result.info)

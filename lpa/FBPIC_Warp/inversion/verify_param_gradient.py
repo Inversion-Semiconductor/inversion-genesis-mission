@@ -214,12 +214,15 @@ def primal_run(
     hooks=None,
     begin_kwargs=None,
     emit_masks=None,
+    loss=None,
 ):
     """Plain `step` run; J_chk terms at each horizon and the decisions.
 
     Args:
         emit_masks: {iteration: device array of parent IDs} for every step,
             from the AD run (frozen emissions), or None (thresholds active).
+        loss: (objective, horizon): also store the residuals r_w of the
+            residual objective at that horizon under the key "r_w".
     """
     from fbpic.autodiff.stepper import begin, step
 
@@ -235,6 +238,8 @@ def primal_run(
         decisions.append(step(state)[2])
         if n in horizons:
             values[n] = _terms({k: v[0] for k, v in check(state).items()})
+        if loss is not None and n == loss[1]:
+            values.setdefault(n, {})["r_w"] = loss[0](state).residuals
     return values, _decision_record(decisions)
 
 
@@ -254,7 +259,9 @@ def emission_masks(decisions) -> dict | None:
     }
 
 
-def ad_run(build, theta, horizons, n_steps, functional, bounds, begin_kwargs=None):
+def ad_run(
+    build, theta, horizons, n_steps, functional, bounds, begin_kwargs=None, loss=None
+):
     """`jvp` run with the E_L tangent; J and dJ/dtheta_hat per term and horizon."""
     import cupy
 
@@ -278,6 +285,12 @@ def ad_run(build, theta, horizons, n_steps, functional, bounds, begin_kwargs=Non
                 )
             out["values"][n] = _terms(values)
             out["grad_hat"][n] = _terms(grads)
+        if loss is not None and n == loss[1]:
+            value = loss[0](state)
+            out["loss"] = {
+                "r_w": value.residuals,
+                "jac_hat": value.contract(tangents)[:, 0] * (hi[0] - lo[0]),
+            }
         if n % 5 == 0 or n <= 10:
             norms = tangent_norms(tangents)[0]
             out["norms"].append({"step": n, **norms})
@@ -348,6 +361,52 @@ def evaluate(g_ad, fd, sigma, slope, horizon):
     return {"g_ad": g_ad, "rows": rows, "sigma_J": sigma, "verdict": verdict}
 
 
+def _loss_results(ad_loss, base, fd, h_values, horizon):
+    """Section 6.4 errors of each residual column and of J = |r_w|^2."""
+    r0 = np.asarray(ad_loss["r_w"])
+    jac = np.asarray(ad_loss["jac_hat"])
+    reps = [np.asarray(b[horizon]["r_w"]) for b in base]
+    sigma_r = np.max([np.abs(a - b) for a, b in pairwise(reps + reps[:1])], axis=0)
+    J_reps = [float(r @ r) for r in reps]
+    sigma_J = max(abs(a - b) for a, b in pairwise(J_reps + J_reps[:1]))
+    out = {"r_w": r0.tolist(), "J": float(r0 @ r0), "residuals": []}
+    for j in range(r0.size):
+        terms_fd = {
+            h: {
+                "g_fd": (
+                    fd[h]["plus"][horizon]["r_w"][j] - fd[h]["minus"][horizon]["r_w"][j]
+                )
+                / (2 * h),
+                "K": fd[h]["K"],
+                "counts_valid": all(count_valid(m, horizon) for m in fd[h]["mismatch"]),
+            }
+            for h in h_values
+        }
+        out["residuals"].append(
+            evaluate(float(jac[j]), terms_fd, float(sigma_r[j]), None, horizon)
+        )
+    terms_fd = {
+        h: {
+            "g_fd": (
+                float(fd[h]["plus"][horizon]["r_w"] @ fd[h]["plus"][horizon]["r_w"])
+                - float(fd[h]["minus"][horizon]["r_w"] @ fd[h]["minus"][horizon]["r_w"])
+            )
+            / (2 * h),
+            "K": fd[h]["K"],
+            "counts_valid": all(count_valid(m, horizon) for m in fd[h]["mismatch"]),
+        }
+        for h in h_values
+    }
+    out["J_gradient"] = evaluate(float(2 * jac @ r0), terms_fd, sigma_J, None, horizon)
+    for j, row in enumerate(out["residuals"]):
+        es = " ".join(f"{r['e']:.1e}" for r in row["rows"])
+        print(f"loss r_{j:2d}: g_AD={row['g_ad']:+.4e} e(h)={es} -> {row['verdict']}")
+    row = out["J_gradient"]
+    es = " ".join(f"{r['e']:.1e}" for r in row["rows"])
+    print(f"loss J: g_AD={row['g_ad']:+.4e} e(h)={es} -> {row['verdict']}")
+    return out
+
+
 def slice_slopes(points, values):
     """Linear and quadratic least-squares slopes at the center of a slice."""
     x = np.asarray(points) - np.mean(points)
@@ -367,6 +426,7 @@ def run_l4(
     key_stride: int = 1,
     ionization: str = "none",
     horizons_override=None,
+    loss_target: str | None = None,
 ):
     from fbpic.autodiff.loss import CheckFunctional
 
@@ -421,6 +481,12 @@ def run_l4(
         "h_values": list(h_values),
     }
     t0 = time.perf_counter()
+    loss = None
+    if loss_target is not None:
+        from residual_objective import residual_objective
+
+        loss = (residual_objective(config, loss_target), n_steps)
+        record["loss"] = {"target": loss_target, "horizon": n_steps}
     ad = ad_run(
         build,
         theta0,
@@ -429,10 +495,11 @@ def run_l4(
         functional,
         (lo, hi),
         begin_kwargs,
+        loss,
     )
     masks = ad.pop("emit_masks")
     record["births_per_step"] = ad.pop("births")
-    run_kwargs = {"begin_kwargs": begin_kwargs, "emit_masks": masks}
+    run_kwargs = {"begin_kwargs": begin_kwargs, "emit_masks": masks, "loss": loss}
     record["check_functional"] = functional(_FakeState(build, theta0)).record()
     record["ad_info"] = ad["info"]
     record["tangent_norms"] = ad["norms"]
@@ -536,6 +603,10 @@ def run_l4(
             row["slice_values"] = [s[n][t] for s in slices]
             results[n][t] = row
     record["results"] = results
+    if loss is not None:
+        record["loss"]["results"] = _loss_results(
+            ad["loss"], base, fd, h_values, n_steps
+        )
     record["fd"] = {
         h: {
             "K": fd[h]["K"],
@@ -598,6 +669,11 @@ def main():
     parser.add_argument("--ionization", default="none", choices=("none", "ev"))
     parser.add_argument("--horizons", type=int, nargs="+", default=None)
     parser.add_argument(
+        "--loss-target",
+        default=None,
+        help="also check the residual Jacobian against this target at --steps",
+    )
+    parser.add_argument(
         "--key-stride",
         type=int,
         default=1,
@@ -617,6 +693,7 @@ def main():
             args.key_stride,
             args.ionization,
             args.horizons,
+            args.loss_target,
         )
 
 
