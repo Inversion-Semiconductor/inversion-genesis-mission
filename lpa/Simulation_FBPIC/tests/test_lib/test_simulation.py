@@ -436,12 +436,30 @@ class TestSimulationAssembly:
         with pytest.raises(ValueError, match="No DensityProfile"):
             Simulation(elements=[hyp, las])
 
-    def test_missing_laser_raises(self) -> None:
+    def test_missing_laser_and_beam_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 
         hyp, den, _ = _make_simulation_elements()
-        with pytest.raises(ValueError, match="No LaserPulse"):
+        with pytest.raises(ValueError, match="No LaserPulse or ParticleBeam"):
             Simulation(elements=[hyp, den])
+
+    def test_particle_beam_permits_missing_laser(self) -> None:
+        from inversion_fbpic.lib.particle_beam import ParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, den, _ = _make_simulation_elements()
+        beam = ParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+
+        simulation = Simulation(elements=[hyp, den, beam])
+
+        assert simulation.lasers == []
+        assert simulation.beams == [beam]
 
     def test_duplicate_hyperparameters_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation

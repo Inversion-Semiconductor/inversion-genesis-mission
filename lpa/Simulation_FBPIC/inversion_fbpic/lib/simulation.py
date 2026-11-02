@@ -404,12 +404,12 @@ class Simulation(SerializableConfig):
             raise ValueError(
                 "No DensityProfile objects found. Please provide a DensityProfile object or a path to a file or directory containing a DensityProfile object."
             )
-        if len(self.lasers) == 0:
+        if len(self.lasers) == 0 and len(self.beams) == 0:
             self._logger.critical(
-                "No LaserPulse objects found. Please provide a LaserPulse object or a path to a file or directory containing a LaserPulse object."
+                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object or a path to a file or directory containing a LaserPulse or ParticleBeam object."
             )
             raise ValueError(
-                "No LaserPulse objects found. Please provide a LaserPulse object or a path to a file or directory containing a LaserPulse object."
+                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object or a path to a file or directory containing a LaserPulse or ParticleBeam object."
             )
 
     @property
