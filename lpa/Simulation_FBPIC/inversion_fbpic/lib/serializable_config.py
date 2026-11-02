@@ -385,7 +385,9 @@ def _resolve_input_paths(
             continue
         value = resolved.get(field.name)
         if value is not None:
-            resolved[field.name] = SerializableConfig._resolve_config_path(value)
+            resolved[field.name] = SerializableConfig._resolve_config_path(
+                value, accept_dir=bool(field.metadata.get("input_path_directory"))
+            )
     return resolved
 
 
