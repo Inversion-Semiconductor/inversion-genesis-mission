@@ -1,0 +1,20 @@
+python3 -I fd_batch.py 0.03 all 4 1 out/fd4/fd_0.03_4_1.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1001 0.03 lr all 4 out/ens/c2_0.03_4_1001.json 75
+python3 -I fd_batch.py 0.03 all 4 2 out/fd4/fd_0.03_4_2.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1002 0.03 lr all 4 out/ens/c2_0.03_4_1002.json 75
+python3 -I fd_batch.py 0.03 all 4 3 out/fd4/fd_0.03_4_3.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1003 0.03 lr all 4 out/ens/c2_0.03_4_1003.json 75
+python3 -I fd_batch.py 0.03 all 4 4 out/fd4/fd_0.03_4_4.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1004 0.03 lr all 4 out/ens/c2_0.03_4_1004.json 75
+python3 -I fd_batch.py 0.03 all 4 5 out/fd4/fd_0.03_4_5.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1005 0.03 lr all 4 out/ens/c2_0.03_4_1005.json 75
+python3 -I fd_batch.py 0.03 all 4 6 out/fd4/fd_0.03_4_6.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1006 0.03 lr all 4 out/ens/c2_0.03_4_1006.json 75
+python3 -I fd_batch.py 0.03 all 4 7 out/fd4/fd_0.03_4_7.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1007 0.03 lr all 4 out/ens/c2_0.03_4_1007.json 75
+python3 -I fd_batch.py 0.03 all 4 8 out/fd4/fd_0.03_4_8.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1008 0.03 lr all 4 out/ens/c2_0.03_4_1008.json 75
+python3 -I fd_batch.py 0.03 all 4 9 out/fd4/fd_0.03_4_9.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1009 0.03 lr all 4 out/ens/c2_0.03_4_1009.json 75
+python3 -I fd_batch.py 0.03 all 4 10 out/fd4/fd_0.03_4_10.json 0.0,0.02,-0.02,0.04,-0.04
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1010 0.03 lr all 4 out/ens/c2_0.03_4_1010.json 75

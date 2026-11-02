@@ -6,10 +6,10 @@ Verification level: saved outputs inspected; analysis computed in this session f
 
 ## Conclusion and tested conditions
 
-1. At the current resolution (1x: `p_nz` 1, `p_nr` 2, `p_nt` 8), the central secant at \(h = 10^{-2}\) is a reproducible quantity. Over 4 plasma-injection seeds, its relative spread is 3.5% to 4.1% at every snapshot from step 1400 to 2000, and every seed column has cosine 1.000 with the seed mean.
-2. Below that step the secants are rough. At 1x, the secant at \(h\) differs from the \(h = 10^{-2}\) secant by 23% to 66% of its norm for \(h = 3\cdot10^{-3}\) to \(10^{-4}\).
+1. At the current resolution (1x: `p_nz` 1, `p_nr` 2, `p_nt` 8), the central secant at \(h = 10^{-2}\) is a reproducible quantity. Over 4 plasma-injection seeds, its relative spread is 3.5% to 4.1% at every snapshot from step 1400 to 2000, and every seed column has cosine at least 0.999 with the seed mean.
+2. Below that step the secants are rough. At 1x and at steps 1520 to 2000, the secant at \(h\) differs from the \(h = 10^{-2}\) secant by 23% to 66% of its norm for \(h = 3\cdot10^{-3}\) to \(10^{-4}\).
 3. The roughness is already present at step 1520 (laser exit from the plasma) with about the same size as at step 2000. It forms inside the plasma, not at the density cliff or in the vacuum drift.
-4. At 4x particles (`p_nr` 4, `p_nt` 16), the secants stay within 4% to 9% of the \(h = 10^{-2}\) secant down to \(h = 10^{-3}\). The roughness amplitude ratio \(A_4/A_1\) is 0.11 to 0.23 at \(h = 10^{-3}\) and \(3\cdot10^{-3}\) for steps 1520 to 2000. At \(h = 10^{-4}\) the ratio is 0.77 to 1.34, so the smallest scale stays rough.
+4. At 4x particles (`p_nr` 4, `p_nt` 16) and steps 1520 to 2000, the secants stay within 4% to 9% of the \(h = 10^{-2}\) secant down to \(h = 10^{-3}\). The roughness amplitude ratio \(A_4/A_1\) is 0.11 to 0.23 at \(h = 10^{-3}\) and \(3\cdot10^{-3}\) for steps 1520 to 2000. At \(h = 10^{-4}\) the ratio is 0.77 to 1.34, so the smallest scale stays rough.
 5. The exact forward tangent grows collectively. The median momentum tangent of the background electrons and of the injected bunch both grow from about step 1450. At 4x particles the growth rates fall by only 10% to 30%, and the step-2000 tangents are as large or larger (table below).
 
 All runs: Twin-S, expected-value (EV) ionization with free emission thresholds, \(\hat E_L = 0.588 \pm h\), \(\hat z_f = \hat z_f^\ast = 0.4\), \(N_t = 2000\), snapshots at steps 1200, 1400, 1520, 1640, 1760, 1880, 2000. Residuals are the 11 whitened T0 residuals; at snapshots before step 2000 only their differences in \(\theta\) are meaningful.

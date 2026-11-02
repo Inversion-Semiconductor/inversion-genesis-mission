@@ -1,6 +1,6 @@
 # Finding 6 (2026-11-01): methods for a macroscopic gradient from particle trajectories, status at this checkpoint
 
-Status: in progress. The option C evaluation (toy and 1D-wake prototypes, two critics, synthesis) was still running at this checkpoint.
+Status: current; the option C evaluation finished later on 2026-11-01 and is recorded in [finding 8](2026-11-01-option-c-likelihood-ratio-no-go.md), which supersedes items 5 and 6 below for option C.
 Sources: agent study sections, 2026-11-01. Gauge-projected tangent study (stopped by the agent after its derivation, literature, and alternatives sections): [gpt-evidence](../../../notes/gpt-evidence-2026-11-01/). Option C study (running): [option-c-evidence](../../../notes/option-c-evidence-2026-11-01/), a partial snapshot of `sec_theory.md`, `sec_lit.md`, and `work_theory/`.
 Verification level: agent reports read; their CPU scripts were not rerun by this checkpoint. Paper statements were checked on the page images of Chung et al. (2020) in this session.
 

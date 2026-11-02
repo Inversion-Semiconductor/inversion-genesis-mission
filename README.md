@@ -1,6 +1,8 @@
 # inversion-genesis-mission
 Repository for Genesis mission-related code.
 
+Read the [current sensitivity-feasibility position](lpa/FBPIC_Warp/inversion/research/sensitivity-feasibility/current.md) before following historical research plans.
+
 | Folder | What it contains | Key tech
 | - | - | -
 **`lpa/Simulation_FBPIC`** | PIC simulations for LPA injectors | FBPIC

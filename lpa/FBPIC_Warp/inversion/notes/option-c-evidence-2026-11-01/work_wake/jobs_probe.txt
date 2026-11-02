@@ -1,0 +1,12 @@
+python3 -I wake_lr.py 2.5 1 0.1 lr beam 1 out/probe/lrb_0.1_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.03 lr beam 1 out/probe/lrb_0.03_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.3 lr beam 1 out/probe/lrb_0.3_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.1 path all 1 out/probe/path_0.1_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.3 path all 1 out/probe/path_0.3_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.1 lr all 4 out/probe/lr_0.1_4.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.3 lr all 1 out/probe/lr_0.3_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.3 lr all 4 out/probe/lr_0.3_4.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.1 primal all 1 out/probe/pr_0.1_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.3 primal all 1 out/probe/pr_0.3_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.03 primal all 1 out/probe/pr_0.03_1.json > /dev/null
+python3 -I wake_lr.py 2.5 1 0.0 primal all 1 out/probe/pr_0_1.json > /dev/null

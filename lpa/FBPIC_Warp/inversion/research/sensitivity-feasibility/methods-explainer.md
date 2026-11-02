@@ -59,7 +59,7 @@ Idea: particles are interchangeable, so \(\xi\) and \(\xi + \eta\) give the same
 \]
 In the continuum this keeps \(\delta f\) and every beam moment and removes only the relabeling part; it is the Otto-Wasserstein tangent. It handles the doubling map correctly in the continuum. Why it was not adopted: on a cold sheet the relabeling part is small and the explosion is a real change of density along the sheet; on finite particles, every "gauge removal" is a basis truncation, that is, coarse-graining ([finding 6](findings/2026-11-01-macroscopic-gradient-methods.md), item 2).
 
-## 7. Option C: noise-regularized likelihood-ratio weights (under study)
+## 7. Option C: noise-regularized likelihood-ratio weights (studied, no-go in 1D)
 
 Model change: add a small controlled momentum noise \(\sigma\,dW\) to the particle push. The expected observable \(\mathbb E[J]\) of the noisy model is smooth in \(\theta\). The noise level is an explicit smoothing scale, with a physical reading (temperature, collisions, shot-to-shot jitter).
 
@@ -72,11 +72,11 @@ Algorithm (mean-field form):
 
 This is the paper's method with \(\nabla_u\ln f\) replaced by the particle's own noise increment (Girsanov). It needs no mesh and works on a cold plasma for \(\sigma > 0\). The mixed identity \(\partial_\theta\mathbb E[g] = \mathbb E[\omega\,g + \xi\cdot\nabla g]\) allows any part of the force tangent to be carried by paths instead of weights, for example in the laser region.
 
-Trade-off: bias grows with \(\sigma\) (the noise changes the physics); variance grows roughly as \(\int\lvert\delta F\rvert^2/\sigma^2\,dt\), linearly in time unless collective modes amplify it. Known obstacles: laser-quiver variance, a noise feedback loop, and cost per parameter ([finding 6](findings/2026-11-01-macroscopic-gradient-methods.md), items 4 to 6).
+Trade-off: bias grows with \(\sigma\) (the noise changes the physics); variance grows roughly as \(\int\lvert\delta F\rvert^2/\sigma^2\,dt\), linearly in time unless collective modes amplify it. Result of the 1D study: correct for the noisy model, but no noise level is both physics-preserving and low-variance; the growth moves from trajectories to the field tangent, and an information floor \(\mathrm{SE}/\lvert\delta m\rvert \gtrsim s_g/(u_n\sqrt{N_{\mathrm{eff}}})\) limits score-type estimators on cold, thin bunches ([finding 8](findings/2026-11-01-option-c-likelihood-ratio-no-go.md)).
 
 ## 8. Resolution caveat
 
-The Twin-S Jacobian depends strongly on the radial macroparticle count `p_nr`: its direction reverses from 2 to 4, and its norm falls 2.7 times from 4 to 8 ([finding 5](findings/2026-11-01-radial-particle-convergence.md)). A trustworthy reference gradient needs a converged resolution first.
+The Twin-S Jacobian depends strongly on the radial macroparticle count `p_nr`: its direction reverses from 2 to 4, its norm falls 2.7 times from 4 to 8, and it changes by about 10% from 8 to 16 ([finding 5](findings/2026-11-01-radial-particle-convergence.md)). At `p_nr` = 8 the FD Jacobian is a well-defined target, and exact AD misses it by about \(10^4\) ([finding 7](findings/2026-11-01-converged-model-ad-versus-fd.md)).
 
 ## Literature pointers
 

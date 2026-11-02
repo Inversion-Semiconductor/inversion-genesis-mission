@@ -1,0 +1,24 @@
+python3 -I wake_lr.py 2.5 1 0.03 lr all 1 out/grow/g_0.03_1.json 30 > out/grow/g_0.03_1.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.03 lr all 1 out/grow/n_0.03_1.json 30 > out/grow/n_0.03_1.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.03 lr all 4 out/grow/g_0.03_4.json 30 > out/grow/g_0.03_4.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.03 lr all 4 out/grow/n_0.03_4.json 30 > out/grow/n_0.03_4.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.03 lr all 16 out/grow/g_0.03_16.json 30 > out/grow/g_0.03_16.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.03 lr all 16 out/grow/n_0.03_16.json 30 > out/grow/n_0.03_16.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.1 lr all 1 out/grow/g_0.1_1.json 30 > out/grow/g_0.1_1.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.1 lr all 1 out/grow/n_0.1_1.json 30 > out/grow/n_0.1_1.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.1 lr all 4 out/grow/g_0.1_4.json 30 > out/grow/g_0.1_4.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.1 lr all 4 out/grow/n_0.1_4.json 30 > out/grow/n_0.1_4.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.1 lr all 16 out/grow/g_0.1_16.json 30 > out/grow/g_0.1_16.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.1 lr all 16 out/grow/n_0.1_16.json 30 > out/grow/n_0.1_16.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.3 lr all 1 out/grow/g_0.3_1.json 30 > out/grow/g_0.3_1.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.3 lr all 1 out/grow/n_0.3_1.json 30 > out/grow/n_0.3_1.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.3 lr all 4 out/grow/g_0.3_4.json 30 > out/grow/g_0.3_4.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.3 lr all 4 out/grow/n_0.3_4.json 30 > out/grow/n_0.3_4.log 2>&1
+python3 -I wake_lr.py 2.5 1 0.3 lr all 16 out/grow/g_0.3_16.json 30 > out/grow/g_0.3_16.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 0.3 lr all 16 out/grow/n_0.3_16.json 30 > out/grow/n_0.3_16.log 2>&1
+python3 -I wake_lr.py 2.5 1 1.0 lr all 1 out/grow/g_1.0_1.json 30 > out/grow/g_1.0_1.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 1.0 lr all 1 out/grow/n_1.0_1.json 30 > out/grow/n_1.0_1.log 2>&1
+python3 -I wake_lr.py 2.5 1 1.0 lr all 4 out/grow/g_1.0_4.json 30 > out/grow/g_1.0_4.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 1.0 lr all 4 out/grow/n_1.0_4.json 30 > out/grow/n_1.0_4.log 2>&1
+python3 -I wake_lr.py 2.5 1 1.0 lr all 16 out/grow/g_1.0_16.json 30 > out/grow/g_1.0_16.log 2>&1
+NOFB=1 python3 -I wake_lr.py 2.5 1 1.0 lr all 16 out/grow/n_1.0_16.json 30 > out/grow/n_1.0_16.log 2>&1

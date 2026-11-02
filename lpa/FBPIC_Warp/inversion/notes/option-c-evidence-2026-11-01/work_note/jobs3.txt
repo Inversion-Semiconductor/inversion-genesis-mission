@@ -1,0 +1,12 @@
+T_ON=30 python -I fd_win.py 0.3 all 4 1 out/fd/w30s_0.3_4_1.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 2 out/fd/w30s_0.3_4_2.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 3 out/fd/w30s_0.3_4_3.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 4 out/fd/w30s_0.3_4_4.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 5 out/fd/w30s_0.3_4_5.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 6 out/fd/w30s_0.3_4_6.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 7 out/fd/w30s_0.3_4_7.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 8 out/fd/w30s_0.3_4_8.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 9 out/fd/w30s_0.3_4_9.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 10 out/fd/w30s_0.3_4_10.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 11 out/fd/w30s_0.3_4_11.json 0.0,0.005,-0.005,0.01,-0.01
+T_ON=30 python -I fd_win.py 0.3 all 4 12 out/fd/w30s_0.3_4_12.json 0.0,0.005,-0.005,0.01,-0.01

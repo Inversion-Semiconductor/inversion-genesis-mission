@@ -262,9 +262,84 @@ These are conversation statements, not plan decisions.
 | "you can keep focusing on forward mode for now please" | Forward mode only for now |
 | "We need to come up with a novel way of differentiating through particle trajectory macroscopically somehow, that is the inherent novelty of this work I feel like" | Research direction |
 | "let's not use A right now, let's focus on C with subagents deriving, evaluating, reviewing with a concrete goal of capturing the macrosopic gradients from particles trajectory" | FD-type Jacobians set aside for now; option C study authorized |
+| "keep crunching" (before sleep) | Continue authorized work overnight |
+| "Yes, stop C" (in reply to the option C no-go recommendation) | Option C stops at the 1D stage; no `fbpic/autodiff` implementation; Gate B not run |
 
 The agent's proposal to run FD recovery for Stage A in parallel was not accepted. D35 stays a proposal.
 
 ### 12.6 Restart context (reference only)
 
 When the option C workflow ends: read its note (`lr/option-c-note.md` in the session scratchpad), copy `lr/` into `inversion/notes/option-c-evidence-2026-11-01/`, and add a finding. When the `16r` runs end: compare the step-2000 secant with `p_nr` 8 (finding 5 table). Neither step authorizes Twin-S implementation work.
+
+### 12.7 Runs started near or after the first session-2553145c checkpoint (2026-11-01, about 02:00 to 04:10 PST; two `16r` runs started before commit `a0d1bd2`)
+
+The `16r` runs started at about 01:59 PST as an agent follow-up of U21; the other runs started under U25 ("keep crunching"). Same environment as 12.1.
+
+| Family | Command or call (from `lpa/FBPIC_Warp`) | GPU | Outputs |
+|---|---|---|---|
+| Radial 16 | `q._child('16r', None, x)` for \(x\) = 0.578, 0.588, 0.598 | 0, 1 | `runs/q1/m16r_default_*` |
+| AD columns | `python inversion/q1_tangent_growth.py 1 _ad`, then `8 _ad` | 0 | `inversion/results/q1_tangent_growth_m{1,8}_ad.json` (keys `rows`, `ad_columns`) |
+| FD small h at `p_nr` 8 | `q._child('8', None, 0.588 ± h)`, \(h = 3\cdot10^{-3}, 10^{-3}\) | 1 | `runs/q1/m8_default_{0.585,0.587,0.589,0.591}000.json` |
+| Seed spread at `p_nr` 8 | `q._child('8', s, 0.588 ± 0.01)`, \(s\) = 1, 2 | 0, 1 | `runs/q1/m8_s{1,2}_*` |
+
+`q1_tangent_growth.py` was extended in this period to record the AD residual column at the snapshot steps and to take a label and an output suffix. The earlier 1x and 4x tangent-growth files were produced by the previous revision.
+
+### 12.8 Option C study completion
+
+The workflow finished about 11:50 PST. All of `lr/` except downloaded PDFs and `.npy`/`.npz` files was copied to [option-c-evidence-2026-11-01](../../notes/option-c-evidence-2026-11-01/). Its `.gitignore` keeps 1077 per-seed run JSON files (about 20 MB, `work_*/out/*/*.json`) on disk but out of Git. The synthesis agent ran for about 8 hours. Finding 8 records the result.
+
+## 13. Whole-investigation checkpoint, 2026-11-01 12:45 PST
+
+This section covers the investigation from 2026-10-26 to 2026-11-01. It adds the decision log ([decisions.md](decisions.md)), the run ledger ([run-ledger.md](run-ledger.md)), and the branch record below.
+
+### 13.1 Branches and worktrees (inspected 2026-11-01)
+
+Repository: `snidhan-dt:/mnt/work/snidhan/projects/applied-research/solvers/fbpic/inversion-genesis-mission-worktrees` (bare `.bare` with worktrees).
+
+| Branch | Local head | Upstream | Worktree | Role |
+|---|---|---|---|---|
+| `snidhan/dev-autodiff` | `a0d1bd2` (plus this checkpoint, uncommitted) | `origin/snidhan/dev-autodiff` at `b3e03f2` (local is 1 commit ahead) | `dev-autodiff` | All work of this investigation |
+| `snidhan/dev-main` | `9a32b2e` | level | `dev-main` | Base of `snidhan/dev-autodiff` (merge base `9a32b2e`) |
+| `snidhan/dev-nccl` | `3c0c192` | level | `dev-nccl` | Unrelated (NCCL multi-GPU) |
+| `main` | `9f3a161` | level | `main` | Unrelated |
+| `snidhan/perl-main-run`, `snidhan/perl-warp-run` | `6dceda2`, `b1d181f` | level | same names | Unrelated performance work |
+
+Commits of `snidhan/dev-autodiff` above `snidhan/dev-main` (date is author date, local time; the U07 rebase set the commit date of `e322185`, `dae1757`, and `7c20336` to 2026-10-30):
+
+| Commit | Date | Content |
+|---|---|---|
+| `e322185`, `dae1757` | 2026-10-16 | FP64 operator derivatives and baseline adaptation (before this investigation) |
+| `7c20336` | 2026-10-26 | Plan, first version (U04) |
+| `f2260a3`, `b51be53`, `0743bdf`, `74c21bd` | 2026-10-30 | Plan review, copy-kernel fix, forward mode (U06), FD recovery gate |
+| `9a65f19`, `227304f`, `1d9272e`, `41e471a` | 2026-10-30 to 31 | Milestone M1: P0 baseline, P1 twins, P2 stepper, P3 EV model and FD gate |
+| `6e855cb` | 2026-10-31 | Plan review fixes, Stage A scope |
+| `7c5aa8f`, `84a9426` | 2026-10-31 | Milestone M2: P4 tangent kernels, P5 tangent step and driver |
+| `1c0f458`, `94d9ffb` | 2026-10-31 | Re-plan of P6 to P9 (U16); deferred M1 fixes, FD caches keyed by code |
+| `4c5ff56`, `5de9dca`, `1119983`, `b3e03f2` | 2026-10-31 | Milestone M3: P6 EV tangents, Track R plan text, P7 checkpoint and conclusion |
+| `a0d1bd2` | 2026-11-01 | Research checkpoint: D34, R0 note, Q1 scripts and results, method-study evidence, findings 4 to 6 |
+
+Branch history and preserved commits. Session 2553145c moved `snidhan/dev-autodiff` from the `origin/main` line to the `snidhan/dev-main` base on 2026-10-30 (U07; force-with-lease against `8c1054c`). Session 03e9733c deleted temporary and performance branches the same evening (U08 and user commands in that session). This checkpoint first created local annotated `archive/*` tags for the 9 deleted tips that no branch still reaches. A check then showed that the changes of 8 of them are present in the trees of the kept branches (`main`, `snidhan/dev-main`, `snidhan/dev-autodiff`, `snidhan/dev-nccl`, `snidhan/perl-main-run`, `snidhan/perl-warp-run`), sometimes folded into other commits. The user said: "I don't think we need the worktrees in the archive/*. All relevant work should be either capture in main, perl-*, dev-autodiff and dev-nccl" (2026-11-01). Those 8 tags were deleted. The user chose to keep the ninth ("leave it"). It is local and not pushed.
+
+| Tag | Commit | Former branch | Why kept |
+|---|---|---|---|
+| `archive/perf-hankel` | `00a38af` | `snidhan/perf-hankel` | An empty commit whose message holds the full-case nsys evidence for the tiled z-r copy kernels (2026-10-26); no kept branch has it |
+
+Deleted tips whose changes are on the kept branches, with no tag: `8c1054c` (`snidhan/dev-autodiff` before U07), `88861b9` (`tmp/autodiff-on-devmain`), `241eac5` (`tmp/perf-port-trial`), and `1863095`, `e480f5d`, `848d390`, `19bc69e`, `2e0b84f` (`snidhan/perf-alloc`, `-btdiag`, `-exchange`, `-lanes`, `-sorting`). Git may garbage-collect these commits.
+
+Deleted tips that a branch still reaches were not tagged: `snidhan/dev-main-perf` (`9a32b2e` = `snidhan/dev-main`), `snidhan/perf-all` (`cc24abc`) and `snidhan/perf-capacity` (`b1d181f`), both reachable from `snidhan/perl-warp-run`.
+
+### 13.2 Uncommitted state at this checkpoint
+
+Modified: `../../../CLAUDE.md` and the repository `README.md` (research-continuity pointers to `current.md`, written by an earlier documentation workflow), `inversion/q1_tangent_growth.py` (AD columns, label, suffix), and the research records. Untracked: findings 7 and 8, `decisions.md`, `run-ledger.md`, `q1_tangent_growth_m{1,8}_ad.json`, and the rest of the option C evidence (the note, `sec_toy`, `sec_wake`, both critiques, and `work_{crit_evidence,crit_math,note,toy,wake}/`, with a `.gitignore` for per-seed JSON); `sec_lit.md`, `sec_theory.md`, and `work_theory/` were committed in `a0d1bd2`. Git-ignored: `inversion/runs/` (all run caches, including `runs/q1/`).
+
+### 13.3 Coverage of this checkpoint
+
+| Source | Coverage |
+|---|---|
+| Transcript 2553145c (main session) | All user messages extracted with timestamps; decision entries quoted verbatim |
+| Transcripts 456db7ef (M1), 6419d8dd (M2), 627703fd (M3), 52f20739 (adversarial review), 03e9733c (branch migration) | User messages extracted; M3 and review sessions contain no direct user decisions (gate questions were relayed through 2553145c) |
+| Plan Section 10 (D21 to D34) | Read; D21 to D24 have no located verbatim source |
+| Plan Section 12 and notes | Compiled into the run ledger by a reader agent (see `run-ledger.md`, Section 1 source note) |
+| Git refs, worktrees, reachability | Inspected with read-only Git commands; tags created as listed |
+
+No experiment was run and no check was rerun for this checkpoint.

@@ -1,0 +1,8 @@
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1001 0.03 lr all 16 out/ens/c2_0.03_16_1001.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1002 0.03 lr all 16 out/ens/c2_0.03_16_1002.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1003 0.03 lr all 16 out/ens/c2_0.03_16_1003.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1004 0.03 lr all 16 out/ens/c2_0.03_16_1004.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1005 0.03 lr all 16 out/ens/c2_0.03_16_1005.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1006 0.03 lr all 16 out/ens/c2_0.03_16_1006.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1007 0.03 lr all 16 out/ens/c2_0.03_16_1007.json 75
+CENTER=2 NOJOINT=1 python3 -I wake_lr_c.py 2.5 1008 0.03 lr all 16 out/ens/c2_0.03_16_1008.json 75

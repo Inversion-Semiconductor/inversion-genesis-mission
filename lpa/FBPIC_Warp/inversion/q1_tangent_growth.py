@@ -12,7 +12,10 @@ momentum tangent |du/dtheta_hat_E| and of the position tangent
 |dx/dtheta_hat_E|. If the growth rate after trapping falls with m, the
 chaos is of N-body type and more particles help AD; if it does not, the
 growth is collective (mean-field) or physical.
-Writes inversion/results/q1_tangent_growth_m<m>.json.
+At the snapshot steps of `q1_roughness.py` it also records the exact AD
+residual column (as `p7_jacobian.py` computes it). Usage with a label of
+`q1_roughness.py` (for example 8) and an optional output suffix.
+Writes inversion/results/q1_tangent_growth_m<m><suffix>.json.
 """
 
 from __future__ import annotations
@@ -27,13 +30,14 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from q1_roughness import X0, _config  # noqa: E402
-from twin_config import theta_from_hat  # noqa: E402
+from q1_roughness import SIZE, SNAPS, TARGET, X0, _config  # noqa: E402
+from residual_objective import residual_objective  # noqa: E402
+from twin_config import load_config, theta_from_hat  # noqa: E402
 
 EVERY = 50
 
 
-def main(m):
+def main(m, suffix=""):
     import cupy
 
     from builders import twin_builder
@@ -56,8 +60,18 @@ def main(m):
             "max": float(a[-1]) * scale,
         }
 
+    objective = residual_objective(load_config(SIZE), TARGET)
+    columns = {}
+
     def callback(state, tangents, decisions):
         it = int(state.sim.iteration)
+        if it in SNAPS:
+            value = objective(state)
+            col = value.contract(tangents)[:, 0] * scale
+            columns[str(it)] = {
+                "r_w": np.asarray(value.residuals, float).tolist(),
+                "jac_hat": np.asarray(col, float).tolist(),
+            }
         if it % EVERY:
             return
         row = {"step": it}
@@ -90,10 +104,11 @@ def main(m):
     )
     out = {"m": m, "x": X0, "every": EVERY, "wall_s": time.perf_counter() - t0}
     out["rows"] = rows
-    path = HERE / "results" / f"q1_tangent_growth_m{m}.json"
+    out["ad_columns"] = columns
+    path = HERE / "results" / f"q1_tangent_growth_m{m}{suffix}.json"
     path.write_text(json.dumps(out, indent=1) + "\n")
     print(f"wrote {path} ({out['wall_s']:.0f} s)")
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]))
+    main(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "")

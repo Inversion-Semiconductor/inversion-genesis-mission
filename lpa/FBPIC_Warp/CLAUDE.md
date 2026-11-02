@@ -5,6 +5,13 @@ FBPIC-Warp is a fork of [FBPIC](https://github.com/fbpic/fbpic) with its GPU ker
 [CONTRIBUTING.md](CONTRIBUTING.md) has the workflow and test commands.
 This file records the rules that an agent cannot derive from the code.
 
+## Research continuity
+
+Read the [current sensitivity-feasibility position](inversion/research/sensitivity-feasibility/current.md) before following historical research plans.
+It records the question, evidence limits, and latest recorded research decisions.
+Before a consequential research run, record its code state, dirty changes, configuration, environment, command, and output paths.
+Use the existing experiment record.
+
 ## Rules
 
 1. **Pin the GPU stack.** Use Warp 1.18.0 (CUDA 12 wheel) and CuPy 14.2 from conda-forge, as in `environment.yml`.

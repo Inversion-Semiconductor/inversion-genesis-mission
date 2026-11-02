@@ -1,0 +1,2 @@
+# Per-seed raw run outputs stay on disk; summaries and scripts are tracked.
+work_*/out/*/*.json
