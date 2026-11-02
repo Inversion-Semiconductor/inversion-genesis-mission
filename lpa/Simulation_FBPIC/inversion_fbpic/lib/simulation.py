@@ -17,6 +17,7 @@ from inversion_fbpic.lib.datapoint import Parameters
 from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.lib.density_core import _DensityProfile
 from inversion_fbpic.lib.laser import _DERIVED_YAML_KEYS, _LaserPulse
+from inversion_fbpic.lib.particle_beam import _ParticleBeam
 
 from fbpic.main import Simulation as FBPICSimulation, Particles
 from fbpic.utils.random_seed import set_random_seed
@@ -336,6 +337,7 @@ class Simulation(SerializableConfig):
     hyparams: SimulationHyperparameters | None = attrs.field(default=None, init=False)
     densities: List[_DensityProfile] = attrs.field(factory=list, init=False)
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
+    beams: List[_ParticleBeam] = attrs.field(factory=list, init=False)
     diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
     parameters: List[Parameters] = attrs.field(factory=list, init=False)
 
@@ -493,6 +495,9 @@ class Simulation(SerializableConfig):
                 (self._laser_hash_payload(las) for las in self.lasers),
                 key=_canonical_json,
             ),
+            "particle_beams": sorted(
+                (beam.to_dict() for beam in self.beams), key=_canonical_json
+            ),
         }
         digest_input = _canonical_json(payload)
         return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
@@ -554,6 +559,8 @@ class Simulation(SerializableConfig):
             self.densities.append(payload)
         elif isinstance(payload, _LaserPulse):
             self.lasers.append(payload)
+        elif isinstance(payload, _ParticleBeam):
+            self.beams.append(payload)
         elif isinstance(payload, _Diagnostic):
             if not isinstance(payload.RUN_BEFORE_SIMULATION, bool):
                 raise ValueError(
@@ -566,15 +573,15 @@ class Simulation(SerializableConfig):
         else:
             if skip_incompatible:
                 self._logger.warning(
-                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 return
             else:
                 self._logger.critical(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 raise ValueError(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
                 )
 
         if path is not None:
@@ -659,23 +666,27 @@ class Simulation(SerializableConfig):
         This is the total simulation length (maximal extent) divided by the time to traverse.
 
         Args:
-            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the wavelength is calculated from the mean group velocity of the first laser to have a `wavelength` attribute.
+            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the largest mean group beta is returned across every laser with a `wavelength` attribute.
             num_samples: (int) |OPTIONAL| Number of samples to take along the plasma profile. Defaults to 1000.
         Returns:
             (float) [c] The mean group velocity of the EM wave in the plasma normalized to c.
         """
 
         if wavelength is None:
-            for laser in self.lasers:
-                if hasattr(laser, "wavelength"):
-                    wavelength = laser.wavelength
-                    break
-
-        if wavelength is None:
-            self._logger.warning(
-                "No wavelength found for any LaserPulse objects. Setting beta_window to 1.0."
+            wavelengths = [
+                laser.wavelength
+                for laser in self.lasers
+                if hasattr(laser, "wavelength")
+            ]
+            if not wavelengths:
+                self._logger.warning(
+                    "No wavelength found for any LaserPulse objects; defaulting mean group beta to 1.0."
+                )
+                return 1.0
+            return max(
+                self.calculate_mean_group_beta(wavelength, num_samples)
+                for wavelength in wavelengths
             )
-            return 1.0
 
         zs: np.ndarray = np.linspace(
             self.z_extent[0], self.z_extent[1], num_samples, endpoint=False
@@ -689,6 +700,37 @@ class Simulation(SerializableConfig):
         betas = self.calculate_group_beta(wavelength, total_axial_density)
         mean_beta = float(len(betas)) / sum(1.0 / betas)
         return mean_beta
+
+    def resolve_beta_window(self, num_samples: int = 1000) -> float:
+        """Return the fastest applicable moving-window beta.
+
+        The result is the largest mean plasma group beta across lasers with a
+        wavelength and the kinematic beta ``sqrt(1 - gamma0**-2)`` across
+        particle beams with ``gamma0``. When neither source is available, the
+        window defaults to the speed of light.
+
+        Args:
+            num_samples: (int) |OPTIONAL| Number of longitudinal samples used for each laser's mean group beta. Defaults to 1000.
+
+        Returns:
+            (float) [c] Moving-window beta.
+        """
+        betas = [
+            self.calculate_mean_group_beta(laser.wavelength, num_samples)
+            for laser in self.lasers
+            if hasattr(laser, "wavelength")
+        ]
+        betas.extend(
+            float(np.sqrt(1.0 - beam.gamma0**-2))
+            for beam in self.beams
+            if hasattr(beam, "gamma0")
+        )
+        if not betas:
+            self._logger.warning(
+                "No laser wavelength or particle-beam gamma0 found; defaulting beta_window to 1.0."
+            )
+            return 1.0
+        return max(betas)
 
     @staticmethod
     def _normalize_working_directory(
@@ -806,7 +848,7 @@ class Simulation(SerializableConfig):
         v_window = None
         beta_window = self.hyparams.beta_window
         if beta_window is None:
-            beta_window = self.calculate_mean_group_beta()
+            beta_window = self.resolve_beta_window()
         if np.isclose(beta_window, 0.0):
             self._logger.error(
                 f"Window velocity is near zero. beta_window: {beta_window}"
@@ -863,9 +905,13 @@ class Simulation(SerializableConfig):
         # Add the particles and particle diagnostics
         final_iteration = self.num_steps
         number_dumps = self.hyparams.number_dumps
-        diagnostics_requested = self.hyparams.field_diagnostics is not None or any(
-            density.elec_name is not None or density.ion_name is not None
-            for density in self.densities
+        diagnostics_requested = (
+            self.hyparams.field_diagnostics is not None
+            or any(
+                density.elec_name is not None or density.ion_name is not None
+                for density in self.densities
+            )
+            or any(beam.particle_name is not None for beam in self.beams)
         )
         if number_dumps == 0 and diagnostics_requested:
             self._logger.warning(
@@ -913,27 +959,26 @@ class Simulation(SerializableConfig):
         else:
             boosted_diagnostic_ranges = []
 
-        # check for duplicate elec names in the un-boosted case (FBPIC glitch)
+        # FBPIC particle diagnostics cannot distinguish duplicate unboosted names.
         if boost is None:
-            elec_names = [
-                density.elec_name
+            particle_names = [
+                name
                 for density in self.densities
-                if density.elec_name is not None
+                for name in (density.elec_name, density.ion_name)
+                if name is not None
+            ] + [
+                beam.particle_name
+                for beam in self.beams
+                if beam.particle_name is not None
             ]
-            ion_names = [
-                density.ion_name
-                for density in self.densities
-                if density.ion_name is not None
-            ]
-            if len(elec_names) != len(set(elec_names)) or len(ion_names) != len(
-                set(ion_names)
-            ):
-                self._logger.critical(
-                    "Duplicate species names found in un-boosted case. The unboosted FBPIC particle diagnostics does not properly handle overlapping names. Please ensure that all species have unique names."
+            if len(particle_names) != len(set(particle_names)):
+                message = (
+                    "Duplicate species names found in un-boosted case. The unboosted "
+                    "FBPIC particle diagnostics does not properly handle overlapping "
+                    "names. Please ensure that all species have unique names."
                 )
-                raise ValueError(
-                    "Duplicate species names found in un-boosted case. The unboosted FBPIC particle diagnostics does not properly handle overlapping names. Please ensure that all species have unique names."
-                )
+                self._logger.critical(message)
+                raise ValueError(message)
 
         elecs: List[Particles] = []
         ions: List[Particles] = []
@@ -1005,6 +1050,54 @@ class Simulation(SerializableConfig):
             if self.hyparams.track_electrons and not self.hyparams.use_restart:
                 elec.track(self.simulation.comm)
         # /Add the particles and particle diagnostics
+
+        # Add externally injected particle beams and their optional diagnostics.
+        for beam in self.beams:
+            particle = beam.add_to_simulation(self.simulation, boost=boost)
+            if beam.particle_name is None or number_dumps == 0:
+                continue
+            if boost is not None:
+                for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
+                    self.simulation.diags.append(
+                        BackTransformedParticleDiagnostic(
+                            self.hyparams.zmin,
+                            self.hyparams.zmax,
+                            v_window,
+                            dt_lab_diag_period,
+                            snapshot_count,
+                            boost.gamma0,
+                            self.hyparams.write_period,
+                            self.simulation.fld,
+                            species={beam.particle_name: particle},
+                            select=beam.particle_select,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            **snapshot_kwargs,
+                        )
+                    )
+            else:
+                if regular_diagnostic_kwargs is not None:
+                    self.simulation.diags.append(
+                        ParticleDiagnostic(
+                            species={beam.particle_name: particle},
+                            select=beam.particle_select,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            **regular_diagnostic_kwargs,
+                        )
+                    )
+                if write_final_diagnostic:
+                    self.simulation.diags.append(
+                        ParticleDiagnostic(
+                            period=1,
+                            species={beam.particle_name: particle},
+                            select=beam.particle_select,
+                            comm=self.simulation.comm,
+                            write_dir=save_directory_absolute,
+                            iteration_min=final_iteration,
+                            iteration_max=final_iteration + 1,
+                        )
+                    )
 
         # Add the laser pulses
         # One-time (possibly collective) setup first, e.g. LasyLaserPulse writes

@@ -6,6 +6,7 @@ from .datapoint import Parameters
 from .density_core import _DensityProfile
 from .diagnostics import _Diagnostic
 from .laser import _LaserPulse
+from .particle_beam import _ParticleBeam
 from .serializable_config import SerializableConfig
 from fbpic.main import Simulation as FBPICSimulation, Particles
 from pathlib import Path
@@ -26,6 +27,7 @@ class Simulation(SerializableConfig):
     hyparams: SimulationHyperparameters | None
     densities: List[_DensityProfile]
     lasers: List[_LaserPulse]
+    beams: List[_ParticleBeam]
     diagnostics: List[_Diagnostic]
     parameters: List[Parameters]
     simulation: FBPICSimulation
@@ -89,10 +91,24 @@ class Simulation(SerializableConfig):
         This is the total simulation length (maximal extent) divided by the time to traverse.
 
         Args:
-            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the wavelength is calculated from the mean group velocity of the first laser to have a `wavelength` attribute.
+            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the largest mean group beta is returned across every laser with a `wavelength` attribute.
             num_samples: (int) |OPTIONAL| Number of samples to take along the plasma profile. Defaults to 1000.
         Returns:
             (float) [c] The mean group velocity of the EM wave in the plasma normalized to c."""
+        ...
+    def resolve_beta_window(self, num_samples: int=1000) -> float:
+        """Return the fastest applicable moving-window beta.
+
+        The result is the largest mean plasma group beta across lasers with a
+        wavelength and the kinematic beta ``sqrt(1 - gamma0**-2)`` across
+        particle beams with ``gamma0``. When neither source is available, the
+        window defaults to the speed of light.
+
+        Args:
+            num_samples: (int) |OPTIONAL| Number of longitudinal samples used for each laser's mean group beta. Defaults to 1000.
+
+        Returns:
+            (float) [c] Moving-window beta."""
         ...
     @property
     def num_steps(self) -> int:

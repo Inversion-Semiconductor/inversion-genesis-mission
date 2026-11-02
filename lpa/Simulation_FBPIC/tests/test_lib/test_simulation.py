@@ -291,6 +291,55 @@ class TestCalculateGroupBeta:
         result = sim.calculate_mean_group_beta(8e-7)
         assert result == pytest.approx(0.999857)
 
+    def test_mean_group_beta_uses_all_laser_wavelengths(self) -> None:
+        from inversion_fbpic.lib.laser import GaussianLaserPulse
+
+        hyp, density, laser = _make_simulation_elements()
+        second_laser = GaussianLaserPulse(
+            energy=5.0, **{**LASER_BASE_KWARGS, "wavelength": 1.0e-6}
+        )
+        from inversion_fbpic.lib.simulation import Simulation
+
+        simulation = Simulation(elements=[hyp, density, laser, second_laser])
+        expected = max(
+            simulation.calculate_mean_group_beta(laser.wavelength),
+            simulation.calculate_mean_group_beta(second_laser.wavelength),
+        )
+
+        assert simulation.calculate_mean_group_beta() == pytest.approx(expected)
+
+    def test_resolve_beta_window_uses_fastest_laser_or_beam(self) -> None:
+        from inversion_fbpic.lib.particle_beam import ParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        beam = ParticleBeam(
+            gamma0=100.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+        simulation = Simulation(elements=[hyp, density, laser, beam])
+
+        expected = max(
+            simulation.calculate_mean_group_beta(laser.wavelength),
+            np.sqrt(1.0 - beam.gamma0**-2),
+        )
+        assert simulation.resolve_beta_window() == pytest.approx(expected)
+
+    def test_beta_defaults_warn_when_no_sources_are_available(self, caplog) -> None:
+        simulation = _make_simulation()
+        simulation.lasers.clear()
+        simulation.beams.clear()
+
+        with caplog.at_level(logging.WARNING, logger="Simulation"):
+            assert simulation.calculate_mean_group_beta() == 1.0
+            assert simulation.resolve_beta_window() == 1.0
+
+        assert "defaulting mean group beta to 1.0" in caplog.text
+        assert "defaulting beta_window to 1.0" in caplog.text
+
 
 # ===================================================================
 # Simulation._normalize_working_directory
