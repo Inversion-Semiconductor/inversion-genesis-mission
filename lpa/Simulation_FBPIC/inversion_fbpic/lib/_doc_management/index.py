@@ -27,6 +27,7 @@ _LIB_MODULE_STEMS = (
     "density_profiles",
     "density_modifiers",
     "math_expression",
+    "particle_beam",
     "laser",
     "simulation",
 )
