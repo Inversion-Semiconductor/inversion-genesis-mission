@@ -52,6 +52,87 @@ class _ParticleBeam(SerializableConfig):
         """Add this beam to an initialized FBPIC simulation."""
         ...
 
+class ExpressionParticleBeam(_ParticleBeam):
+    """A grid-initialized particle beam via FBPIC ``add_particle_bunch``.
+
+    Args:
+        q: (float) [C] |OPTIONAL| Particle charge. Defaults to the electron charge.
+        m: (float) [kg] |OPTIONAL| Particle mass. Defaults to the electron mass.
+        z_injection_plane: (float|None) [m] |OPTIONAL| Optional lab-frame ballistic-injection plane. Defaults to None.
+        initialize_self_field: (bool) |OPTIONAL| Whether FBPIC initializes the bunch space-charge fields. Defaults to True.
+        particle_name: (str|None) |OPTIONAL| Species name for FBPIC particle diagnostics. Defaults to None.
+        particle_select: (dict[str, list[float|None]]|None) |OPTIONAL| Particle-diagnostic filters. Defaults to None.
+        gamma0: (float) Lorentz factor of the particles.
+        n: (float) [m^-3] Bunch density.
+        p_zmin: (float) [m] Lower longitudinal particle bound.
+        p_zmax: (float) [m] Upper longitudinal particle bound.
+        p_rmin: (float) [m] |OPTIONAL| Lower radial particle bound. Defaults to 0.0.
+        p_rmax: (float) [m] Upper radial particle bound.
+        p_nr: (int) |OPTIONAL| Number of macroparticles per cell radially. Defaults to 2.
+        p_nz: (int) |OPTIONAL| Number of macroparticles per cell longitudinally. Defaults to 2.
+        p_nt: (int) |OPTIONAL| Number of macroparticles per cell azimuthally. Defaults to 4.
+        dens_func: (MathExpression|None) |OPTIONAL| Relative density function in ``z``, ``r``, or both. Defaults to None.
+        direction: (Literal["forward", "backward"]) |OPTIONAL| Beam propagation direction. Defaults to ``"forward"``.
+        boost_positions_in_dens_func: (bool) |OPTIONAL| Whether FBPIC boosts positions passed to ``dens_func``. Defaults to False."""
+    SUBCLASS: ClassVar[str]
+    gamma0: float
+    n: float
+    p_zmin: float
+    p_zmax: float
+    p_rmin: float
+    p_rmax: float
+    p_nr: int
+    p_nz: int
+    p_nt: int
+    dens_func: MathExpression | None
+    direction: Literal['forward', 'backward']
+    boost_positions_in_dens_func: bool
+    def __init__(
+        self,
+        *,
+        q: float = -e,
+        m: float = m_e,
+        z_injection_plane: float | None = None,
+        initialize_self_field: bool = True,
+        particle_name: str | None = None,
+        particle_select: dict[str, list[float | None]] | None = None,
+        gamma0: float,
+        n: float,
+        p_zmin: float,
+        p_zmax: float,
+        p_rmin: float = 0.0,
+        p_rmax: float,
+        p_nr: int = 2,
+        p_nz: int = 2,
+        p_nt: int = 4,
+        dens_func: MathExpression | None = None,
+        direction: Literal['forward', 'backward'] = 'forward',
+        boost_positions_in_dens_func: bool = False,
+    ) -> None:
+        """A grid-initialized particle beam via FBPIC ``add_particle_bunch``.
+
+        Args:
+            q: (float) [C] |OPTIONAL| Particle charge. Defaults to the electron charge.
+            m: (float) [kg] |OPTIONAL| Particle mass. Defaults to the electron mass.
+            z_injection_plane: (float|None) [m] |OPTIONAL| Optional lab-frame ballistic-injection plane. Defaults to None.
+            initialize_self_field: (bool) |OPTIONAL| Whether FBPIC initializes the bunch space-charge fields. Defaults to True.
+            particle_name: (str|None) |OPTIONAL| Species name for FBPIC particle diagnostics. Defaults to None.
+            particle_select: (dict[str, list[float|None]]|None) |OPTIONAL| Particle-diagnostic filters. Defaults to None.
+            gamma0: (float) Lorentz factor of the particles.
+            n: (float) [m^-3] Bunch density.
+            p_zmin: (float) [m] Lower longitudinal particle bound.
+            p_zmax: (float) [m] Upper longitudinal particle bound.
+            p_rmin: (float) [m] |OPTIONAL| Lower radial particle bound. Defaults to 0.0.
+            p_rmax: (float) [m] Upper radial particle bound.
+            p_nr: (int) |OPTIONAL| Number of macroparticles per cell radially. Defaults to 2.
+            p_nz: (int) |OPTIONAL| Number of macroparticles per cell longitudinally. Defaults to 2.
+            p_nt: (int) |OPTIONAL| Number of macroparticles per cell azimuthally. Defaults to 4.
+            dens_func: (MathExpression|None) |OPTIONAL| Relative density function in ``z``, ``r``, or both. Defaults to None.
+            direction: (Literal["forward", "backward"]) |OPTIONAL| Beam propagation direction. Defaults to ``"forward"``.
+            boost_positions_in_dens_func: (bool) |OPTIONAL| Whether FBPIC boosts positions passed to ``dens_func``. Defaults to False."""
+    def add_to_simulation(self, simulation: 'FBPICSimulation', *, boost: 'BoostConverter | None'=None) -> 'Particles':
+        ...
+
 class FileParticleBeam(_ParticleBeam):
     """A particle beam loaded from an FBPIC ``.npz`` file.
 
@@ -228,86 +309,5 @@ class OpenPMDParticleBeam(_ParticleBeam):
             species: (str|None) |OPTIONAL| openPMD species name. Defaults to None.
             select: (dict[str, Any]|None) |OPTIONAL| openPMD particle-selection mapping. Defaults to None.
             iteration: (int|None) |OPTIONAL| openPMD iteration. Defaults to None."""
-    def add_to_simulation(self, simulation: 'FBPICSimulation', *, boost: 'BoostConverter | None'=None) -> 'Particles':
-        ...
-
-class ParticleBeam(_ParticleBeam):
-    """A grid-initialized particle beam via FBPIC ``add_particle_bunch``.
-
-    Args:
-        q: (float) [C] |OPTIONAL| Particle charge. Defaults to the electron charge.
-        m: (float) [kg] |OPTIONAL| Particle mass. Defaults to the electron mass.
-        z_injection_plane: (float|None) [m] |OPTIONAL| Optional lab-frame ballistic-injection plane. Defaults to None.
-        initialize_self_field: (bool) |OPTIONAL| Whether FBPIC initializes the bunch space-charge fields. Defaults to True.
-        particle_name: (str|None) |OPTIONAL| Species name for FBPIC particle diagnostics. Defaults to None.
-        particle_select: (dict[str, list[float|None]]|None) |OPTIONAL| Particle-diagnostic filters. Defaults to None.
-        gamma0: (float) Lorentz factor of the particles.
-        n: (float) [m^-3] Bunch density.
-        p_zmin: (float) [m] Lower longitudinal particle bound.
-        p_zmax: (float) [m] Upper longitudinal particle bound.
-        p_rmin: (float) [m] |OPTIONAL| Lower radial particle bound. Defaults to 0.0.
-        p_rmax: (float) [m] Upper radial particle bound.
-        p_nr: (int) |OPTIONAL| Number of macroparticles per cell radially. Defaults to 2.
-        p_nz: (int) |OPTIONAL| Number of macroparticles per cell longitudinally. Defaults to 2.
-        p_nt: (int) |OPTIONAL| Number of macroparticles per cell azimuthally. Defaults to 4.
-        dens_func: (MathExpression|None) |OPTIONAL| Relative density function in ``z``, ``r``, or both. Defaults to None.
-        direction: (Literal["forward", "backward"]) |OPTIONAL| Beam propagation direction. Defaults to ``"forward"``.
-        boost_positions_in_dens_func: (bool) |OPTIONAL| Whether FBPIC boosts positions passed to ``dens_func``. Defaults to False."""
-    SUBCLASS: ClassVar[str]
-    gamma0: float
-    n: float
-    p_zmin: float
-    p_zmax: float
-    p_rmin: float
-    p_rmax: float
-    p_nr: int
-    p_nz: int
-    p_nt: int
-    dens_func: MathExpression | None
-    direction: Literal['forward', 'backward']
-    boost_positions_in_dens_func: bool
-    def __init__(
-        self,
-        *,
-        q: float = -e,
-        m: float = m_e,
-        z_injection_plane: float | None = None,
-        initialize_self_field: bool = True,
-        particle_name: str | None = None,
-        particle_select: dict[str, list[float | None]] | None = None,
-        gamma0: float,
-        n: float,
-        p_zmin: float,
-        p_zmax: float,
-        p_rmin: float = 0.0,
-        p_rmax: float,
-        p_nr: int = 2,
-        p_nz: int = 2,
-        p_nt: int = 4,
-        dens_func: MathExpression | None = None,
-        direction: Literal['forward', 'backward'] = 'forward',
-        boost_positions_in_dens_func: bool = False,
-    ) -> None:
-        """A grid-initialized particle beam via FBPIC ``add_particle_bunch``.
-
-        Args:
-            q: (float) [C] |OPTIONAL| Particle charge. Defaults to the electron charge.
-            m: (float) [kg] |OPTIONAL| Particle mass. Defaults to the electron mass.
-            z_injection_plane: (float|None) [m] |OPTIONAL| Optional lab-frame ballistic-injection plane. Defaults to None.
-            initialize_self_field: (bool) |OPTIONAL| Whether FBPIC initializes the bunch space-charge fields. Defaults to True.
-            particle_name: (str|None) |OPTIONAL| Species name for FBPIC particle diagnostics. Defaults to None.
-            particle_select: (dict[str, list[float|None]]|None) |OPTIONAL| Particle-diagnostic filters. Defaults to None.
-            gamma0: (float) Lorentz factor of the particles.
-            n: (float) [m^-3] Bunch density.
-            p_zmin: (float) [m] Lower longitudinal particle bound.
-            p_zmax: (float) [m] Upper longitudinal particle bound.
-            p_rmin: (float) [m] |OPTIONAL| Lower radial particle bound. Defaults to 0.0.
-            p_rmax: (float) [m] Upper radial particle bound.
-            p_nr: (int) |OPTIONAL| Number of macroparticles per cell radially. Defaults to 2.
-            p_nz: (int) |OPTIONAL| Number of macroparticles per cell longitudinally. Defaults to 2.
-            p_nt: (int) |OPTIONAL| Number of macroparticles per cell azimuthally. Defaults to 4.
-            dens_func: (MathExpression|None) |OPTIONAL| Relative density function in ``z``, ``r``, or both. Defaults to None.
-            direction: (Literal["forward", "backward"]) |OPTIONAL| Beam propagation direction. Defaults to ``"forward"``.
-            boost_positions_in_dens_func: (bool) |OPTIONAL| Whether FBPIC boosts positions passed to ``dens_func``. Defaults to False."""
     def add_to_simulation(self, simulation: 'FBPICSimulation', *, boost: 'BoostConverter | None'=None) -> 'Particles':
         ...

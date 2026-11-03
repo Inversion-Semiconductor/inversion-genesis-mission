@@ -14,14 +14,14 @@ from inversion_fbpic.lib.particle_beam import (
     FileParticleBeam,
     GaussianParticleBeam,
     OpenPMDParticleBeam,
-    ParticleBeam,
+    ExpressionParticleBeam,
 )
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 
 
 @pytest.fixture
-def direct_beam() -> ParticleBeam:
-    return ParticleBeam(
+def direct_beam() -> ExpressionParticleBeam:
+    return ExpressionParticleBeam(
         gamma0=100.0,
         n=1.0e22,
         p_zmin=-2.0e-6,
@@ -32,7 +32,7 @@ def direct_beam() -> ParticleBeam:
 
 
 def test_particle_beam_forwards_grid_initializer(
-    monkeypatch: pytest.MonkeyPatch, direct_beam: ParticleBeam
+    monkeypatch: pytest.MonkeyPatch, direct_beam: ExpressionParticleBeam
 ) -> None:
     captured: dict[str, Any] = {}
     expected = object()
@@ -120,7 +120,7 @@ def test_particle_beam_forwards_other_fbpci_initializers(
 @pytest.mark.parametrize(
     "beam",
     [
-        ParticleBeam(
+        ExpressionParticleBeam(
             gamma0=100.0,
             n=1.0e22,
             p_zmin=-2.0e-6,
@@ -142,7 +142,9 @@ def test_particle_beam_forwards_other_fbpci_initializers(
         ),
     ],
 )
-def test_particle_beam_round_trips(beam: ParticleBeam, tmp_path: Path) -> None:
+def test_particle_beam_round_trips(
+    beam: ExpressionParticleBeam, tmp_path: Path
+) -> None:
     if isinstance(beam, OpenPMDParticleBeam):
         path = tmp_path / "openpmd"
         path.mkdir()
@@ -159,7 +161,10 @@ def test_particle_beam_round_trips(beam: ParticleBeam, tmp_path: Path) -> None:
 
 
 def test_simulation_sorts_particle_beams(
-    minimal_hyperparameters, minimal_density, minimal_laser, direct_beam: ParticleBeam
+    minimal_hyperparameters,
+    minimal_density,
+    minimal_laser,
+    direct_beam: ExpressionParticleBeam,
 ) -> None:
     from inversion_fbpic.lib.simulation import Simulation
 
@@ -174,7 +179,7 @@ def test_simulation_adds_particle_beams(
     minimal_hyperparameters,
     minimal_density,
     minimal_laser,
-    direct_beam: ParticleBeam,
+    direct_beam: ExpressionParticleBeam,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -193,7 +198,7 @@ def test_simulation_adds_particle_beams(
         diagnostics.append(kwargs)
         return kwargs
 
-    monkeypatch.setattr(ParticleBeam, "add_to_simulation", add_to_simulation)
+    monkeypatch.setattr(ExpressionParticleBeam, "add_to_simulation", add_to_simulation)
     monkeypatch.setattr(simulation_module, "ParticleDiagnostic", particle_diagnostic)
     direct_beam = attrs.evolve(
         direct_beam,
@@ -220,7 +225,7 @@ def test_particle_beam_rejects_unrelated_density_variables(
     variables: tuple[str, ...],
 ) -> None:
     with pytest.raises(ValueError, match="drawn"):
-        ParticleBeam(
+        ExpressionParticleBeam(
             gamma0=100.0,
             n=1.0e22,
             p_zmin=-2.0e-6,

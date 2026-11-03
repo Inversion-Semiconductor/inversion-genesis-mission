@@ -95,7 +95,7 @@ class ExampleDensityProfile(_DensityProfile):
 
 
 @attrs.define(kw_only=True, slots=False, frozen=True)
-class GeneralDensityProfile(_DensityProfile):
+class ExpressionDensityProfile(_DensityProfile):
     """A serializable density profile defined by a one- or two-dimensional expression.
 
     The expression can use ``z``, ``r``, or both, and should return the
@@ -111,7 +111,7 @@ class GeneralDensityProfile(_DensityProfile):
         r_max: (float|None) [m] Upper radial support bound. ``None`` uses the simulation grid. Defaults to None.
     """
 
-    SUBCLASS: ClassVar[str] = "general_expression"
+    SUBCLASS: ClassVar[str] = "expression"
 
     function: MathExpression = attrs.field(converter=MathExpression.from_any)
     z_min: float = attrs.field(converter=float)

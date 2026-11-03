@@ -309,11 +309,11 @@ class TestCalculateGroupBeta:
         assert simulation.calculate_mean_group_beta() == pytest.approx(expected)
 
     def test_resolve_beta_window_uses_fastest_laser_or_beam(self) -> None:
-        from inversion_fbpic.lib.particle_beam import ParticleBeam
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
         from inversion_fbpic.lib.simulation import Simulation
 
         hyp, density, laser = _make_simulation_elements()
-        beam = ParticleBeam(
+        beam = ExpressionParticleBeam(
             gamma0=100.0,
             n=1.0e22,
             p_zmin=-2.0e-6,
@@ -456,11 +456,11 @@ class TestSimulationAssembly:
             Simulation(elements=[hyp, den])
 
     def test_particle_beam_permits_missing_density_and_laser(self) -> None:
-        from inversion_fbpic.lib.particle_beam import ParticleBeam
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
         from inversion_fbpic.lib.simulation import Simulation
 
         hyp, _, _ = _make_simulation_elements()
-        beam = ParticleBeam(
+        beam = ExpressionParticleBeam(
             gamma0=1_000.0,
             n=1.0e22,
             p_zmin=-2.0e-6,

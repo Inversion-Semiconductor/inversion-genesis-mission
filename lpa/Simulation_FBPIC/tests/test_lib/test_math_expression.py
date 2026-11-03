@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from inversion_fbpic.lib.density_core import _DensityProfile
-from inversion_fbpic.lib.density_profiles import GeneralDensityProfile
+from inversion_fbpic.lib.density_profiles import ExpressionDensityProfile
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from inversion_fbpic.lib.math_expression import MathExpression
 
@@ -65,7 +65,7 @@ def test_function_rejects_executable_python_syntax(expression: str) -> None:
 
 
 def test_general_density_profile_round_trips_and_builds_2d_function() -> None:
-    profile = GeneralDensityProfile(
+    profile = ExpressionDensityProfile(
         nominal_density=1.0e24,
         p_nz=1,
         p_nr=1,
@@ -82,7 +82,7 @@ def test_general_density_profile_round_trips_and_builds_2d_function() -> None:
 
     reloaded = _DensityProfile.from_json(profile.to_json())
 
-    assert isinstance(reloaded, GeneralDensityProfile)
+    assert isinstance(reloaded, ExpressionDensityProfile)
     assert reloaded.get_z_extent() == (0.0, 4.0e-6)
     assert reloaded.get_r_extent() == 2.0e-6
     np.testing.assert_array_equal(
@@ -119,7 +119,7 @@ def test_general_density_profile_accepts_one_dimensional_functions(
     r: np.ndarray,
     expected: np.ndarray,
 ) -> None:
-    profile = GeneralDensityProfile(
+    profile = ExpressionDensityProfile(
         nominal_density=1.0e24,
         p_nz=1,
         p_nr=1,
@@ -134,7 +134,7 @@ def test_general_density_profile_accepts_one_dimensional_functions(
 
 def test_general_density_profile_rejects_unrelated_function_variables() -> None:
     with pytest.raises(ValueError, match="drawn"):
-        GeneralDensityProfile(
+        ExpressionDensityProfile(
             nominal_density=1.0e24,
             p_nz=1,
             p_nr=1,

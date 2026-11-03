@@ -79,7 +79,7 @@ class _ParticleBeam(SerializableConfig):
 
 
 @attrs.define(kw_only=True, slots=False, frozen=True)
-class ParticleBeam(_ParticleBeam):
+class ExpressionParticleBeam(_ParticleBeam):
     """A grid-initialized particle beam via FBPIC ``add_particle_bunch``.
 
     Args:
@@ -97,7 +97,7 @@ class ParticleBeam(_ParticleBeam):
         boost_positions_in_dens_func: (bool) |OPTIONAL| Whether FBPIC boosts positions passed to ``dens_func``. Defaults to False.
     """
 
-    SUBCLASS: ClassVar[str] = "particle_beam"
+    SUBCLASS: ClassVar[str] = "expression"
 
     gamma0: float = attrs.field(converter=float, validator=attrs.validators.ge(1.0))
     n: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
@@ -168,7 +168,7 @@ class GaussianParticleBeam(_ParticleBeam):
         symmetrize: (bool) |OPTIONAL| Whether to use four-fold rotational symmetry. Defaults to False.
     """
 
-    SUBCLASS: ClassVar[str] = "gaussian_particle_beam"
+    SUBCLASS: ClassVar[str] = "gaussian"
 
     sig_r: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
     sig_z: float = attrs.field(converter=float, validator=attrs.validators.gt(0.0))
@@ -220,7 +220,7 @@ class OpenPMDParticleBeam(_ParticleBeam):
         iteration: (int|None) |OPTIONAL| openPMD iteration. Defaults to None.
     """
 
-    SUBCLASS: ClassVar[str] = "openpmd_particle_beam"
+    SUBCLASS: ClassVar[str] = "openpmd"
 
     ts_path: Path = attrs.field(
         converter=Path,
@@ -262,7 +262,7 @@ class FileParticleBeam(_ParticleBeam):
         direction: (Literal["forward", "backward"]) |OPTIONAL| Beam propagation direction. Defaults to ``"forward"``.
     """
 
-    SUBCLASS: ClassVar[str] = "file_particle_beam"
+    SUBCLASS: ClassVar[str] = "file"
 
     filename: Path = attrs.field(converter=Path, metadata={"input_path": True})
     n_physical_particles: float = attrs.field(
