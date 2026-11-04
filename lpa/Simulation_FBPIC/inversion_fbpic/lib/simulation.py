@@ -400,6 +400,14 @@ class Simulation(SerializableConfig):
         if not self.densities:
             # TODO: When the pending simulation-length-parameter PR lands,
             # require an explicit length for density-free simulations.
+            self._logger.critical(
+                "No DensityProfile found. A density profile is required to determine the simulation extent."
+                "Provide a density profile."
+            )
+            raise ValueError(
+                "No DensityProfile found. A density profile is required to determine the simulation extent."
+                "Provide a density profile."
+            )
             if not (self.lasers or self.beams):
                 self._logger.critical(
                     "No DensityProfile, LaserPulse, or ParticleBeam objects found. "
