@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import importlib
 import json
 import math
 from numbers import Real
 from pathlib import Path
 import subprocess
+import sys
 import time
 from typing import Any, Mapping
 
@@ -118,9 +120,12 @@ class FBPICRunExecutor:
         return result
 
     def _write_entrypoint(self, run_directory: Path, manifest: RunManifest) -> None:
-        hyperparameters = dict(self.config.execution["hyperparameters"])
+        hyperparameters = self.config.template_hyperparameters()
         hyperparameters["lasy_file"] = str(run_directory / "experimental_laser")
         hyperparameters["lab_diagnostic_directory"] = str(run_directory / "lab_diags")
+        record_gpu_assignments = bool(
+            self.config.execution.get("record_gpu_assignments", False)
+        )
         contents = f'''"""Generated FBPIC entry point. Do not edit; see run_manifest.json."""
 from pathlib import Path
 import sys
@@ -131,15 +136,34 @@ from {self.config.template_script.stem} import {self.config.template_class}
 
 PHYSICAL_PARAMETERS = {manifest.parameters!r}
 HYPERPARAMETERS = {hyperparameters!r}
+RECORD_GPU_ASSIGNMENTS = {record_gpu_assignments!r}
 
 if __name__ == "__main__":
+    if RECORD_GPU_ASSIGNMENTS:
+        import json
+        import os
+        import socket
+
+        rank = os.environ.get("SLURM_PROCID", str(os.getpid()))
+        assignment = {{
+            "rank": rank,
+            "local_rank": os.environ.get("SLURM_LOCALID", ""),
+            "node_id": os.environ.get("SLURM_NODEID", ""),
+            "hostname": socket.gethostname(),
+            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+            "slurm_step_gpus": os.environ.get("SLURM_STEP_GPUS", ""),
+            "slurm_job_gpus": os.environ.get("SLURM_JOB_GPUS", ""),
+        }}
+        Path(f"gpu_assignment_rank_{{rank}}.json").write_text(
+            json.dumps(assignment, indent=2, sort_keys=True) + "\\n",
+            encoding="utf-8",
+        )
     {self.config.template_class}(PHYSICAL_PARAMETERS, HYPERPARAMETERS).run()
 '''
         (run_directory / "run_fbpic.py").write_text(contents, encoding="utf-8")
 
     def _execute(self, run_directory: Path) -> None:
         command = [*self.config.execution.get("launcher", ["python"]), "run_fbpic.py"]
-        timeout_s = float(self.config.execution.get("timeout_s", 21600))
         with (
             (run_directory / "stdout.log").open("w", encoding="utf-8") as stdout,
             (run_directory / "stderr.log").open("w", encoding="utf-8") as stderr,
@@ -148,7 +172,6 @@ if __name__ == "__main__":
                 command,
                 cwd=run_directory,
                 check=True,
-                timeout=timeout_s,
                 stdout=stdout,
                 stderr=stderr,
                 text=True,
@@ -159,8 +182,11 @@ if __name__ == "__main__":
 
         Load the sole ``datapoint`` config in the configured results directory
         (``results`` by default). HDF5 datapoints use the template's ``/results``
-        group. Parameter metadata is ignored, and nested containers are supported.
+        group. The configured template is imported first so template-local
+        diagnostic subclasses are registered. Parameter metadata is ignored,
+        and nested containers are supported.
         """
+        self._load_template_module()
         hyperparameters = self.config.execution.get("hyperparameters", {})
         results_directory = Path(hyperparameters.get("results_directory", "results"))
         if not results_directory.is_absolute():
@@ -217,6 +243,13 @@ if __name__ == "__main__":
         if missing:
             raise ValueError(f"Missing saved exploration features: {missing}")
         return features
+
+    def _load_template_module(self) -> None:
+        """Import the configured template to register local diagnostic classes."""
+        template_directory = str(self.config.template_script.parent)
+        if template_directory not in sys.path:
+            sys.path.insert(0, template_directory)
+        importlib.import_module(self.config.template_script.stem)
 
     @staticmethod
     def finalize(

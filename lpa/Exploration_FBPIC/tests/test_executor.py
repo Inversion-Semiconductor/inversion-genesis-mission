@@ -78,6 +78,26 @@ def test_prepare_run_imports_the_configured_template_module_and_class(
     )
 
 
+def test_prepare_run_optionally_records_gpu_assignments(tmp_path: Path) -> None:
+    campaign = Campaign.from_file(CONFIG)
+    config = replace(
+        campaign.config,
+        run_root=tmp_path,
+        execution={**campaign.config.execution, "record_gpu_assignments": True},
+    )
+
+    run_directory, _ = FBPICRunExecutor(Campaign(config)).prepare_run(
+        "sim_000001", "stage_1"
+    )
+    entrypoint = (run_directory / "run_fbpic.py").read_text(encoding="utf-8")
+
+    assert "RECORD_GPU_ASSIGNMENTS = True" in entrypoint
+    assert (
+        '"cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", "")'
+        in entrypoint
+    )
+
+
 def test_mean_kinetic_energy_uses_all_normalized_momentum_components() -> None:
     particles = np.array([[0.0, 0.0, 0.0, 0.0, 0.0, np.sqrt(3.0)]])
     energy = mean_kinetic_energy_mev(particles, np.array([1.0]))
@@ -163,6 +183,55 @@ def test_extract_features_supports_nested_containers(
         tmp_path / "results" / "datapoint.json"
     )
     assert result_executor.extract_features(tmp_path)["mean_kinetic_energy_MeV"] == 1.25
+
+
+def test_extract_features_imports_template_local_diagnostics(tmp_path: Path) -> None:
+    template = tmp_path / "local_template.py"
+    template.write_text(
+        """import attrs
+from typing import ClassVar
+from inversion_fbpic.lib.diagnostics import _Diagnostic
+
+@attrs.define(kw_only=True, slots=False)
+class LocalDiagnostic(_Diagnostic):
+    SUBCLASS: ClassVar[str] = "executor_local_diagnostic"
+
+    def _analyze(self) -> dict[str, float]:
+        return {"local_feature": 1.0}
+""",
+        encoding="utf-8",
+    )
+    campaign = Campaign.from_file(CONFIG)
+    config = replace(
+        campaign.config,
+        run_root=tmp_path,
+        template_script=template,
+        analysis={"exploration_features": ["local_feature"]},
+    )
+    executor = FBPICRunExecutor(Campaign(config))
+    (tmp_path / "results" / "datapoint.json").parent.mkdir()
+    (tmp_path / "results" / "datapoint.json").write_text(
+        json.dumps(
+            {
+                "config_type": "config_container",
+                "subclass": "config_container",
+                "parameters": {
+                    "configs": [
+                        {
+                            "config_type": "datapoint",
+                            "subclass": "executor_local_diagnostic",
+                            "parameters": {
+                                "data": {"local_feature": 1.0},
+                            },
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert executor.extract_features(tmp_path) == {"local_feature": 1.0}
 
 
 def test_extract_features_does_not_fall_back_to_raw_particles(

@@ -19,25 +19,25 @@ SHOW_PLOTS = True
 PHYSICAL_PARAMETERS = {
     "laser_wavelength_m": 800e-9,
     "laser_energy_J": 2.5,
-    "laser_pulse_duration_fwhm_s": 30e-15, # 30e-15,
+    "laser_pulse_duration_fwhm_s": 38e-15,  # 30e-15,
     # ``"auto"`` derives the transform-limited Gaussian bandwidth from the
     # pulse duration. Use a fixed numeric value to scan duration independently.
     "laser_spectral_bandwidth_rad_s": "auto",
     "laser_cep_phase_rad": 0.0,
     # At 30 fs, +/-1 corresponds to +/-5e-28 s^2 GDD and +/-1e-41 s^3 TOD.
     # Coefficients scale with duration squared/cubed for other pulse widths.
-    "laser_gdd_relative": 0.0,
-    "laser_tod_relative": 0.0,
+    "laser_gdd_relative": -0.5,
+    "laser_tod_relative": 0.5,
     "laser_fod_s4": 0.0,
     "laser_spot_size_m": 24e-6,
     "laser_super_gaussian_order": 3,
-    "laser_focal_position_m": 3.5e-3,
-    "zernike_astigmatism_2": 0.0, #  +/- 0.5
-    "zernike_astigmatism_4": 0.0,
-    "zernike_coma_x": 0.0,  #+/- 0.25
-    "zernike_coma_y": 0.0,
-    "zernike_trefoil_x": 0.0, # +/- 0.75
-    "zernike_trefoil_y": 0.0,
+    "laser_focal_position_m": 5.0e-3,
+    "zernike_astigmatism_2": 0.5,  #  +/- 0.5
+    "zernike_astigmatism_4": 0.5,
+    "zernike_coma_x": 0.25,  # +/- 0.25
+    "zernike_coma_y": 0.25,
+    "zernike_trefoil_x": 0.75,  # +/- 0.75
+    "zernike_trefoil_y": 0.75,
     "zernike_spherical_3": 0.0,  # +/- 0.25
     # the following are higher order terms that I will ignore for the present study
     "zernike_astigmatism_6": 0.00,  # Keep at 0

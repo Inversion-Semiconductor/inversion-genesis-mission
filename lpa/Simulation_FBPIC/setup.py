@@ -28,7 +28,7 @@ setup(
         "pyyaml",
     ],
     extras_require={
-        "dev": ["pytest", "build>=1", "setuptools>=64", "wheel"],
+        "dev": ["pytest>=9.2", "build>=1", "setuptools>=64", "wheel"],
     },
     entry_points={
         "console_scripts": [

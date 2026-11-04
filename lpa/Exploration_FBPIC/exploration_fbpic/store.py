@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-import fcntl
 import pandas as pd
 
 from .executor import EvaluationResult
@@ -26,21 +25,17 @@ class CampaignStore:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         row = self._row(manifest, result.as_dict())
         self.root.mkdir(parents=True, exist_ok=True)
-        with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            current, _ = self._load_locked()
-            if not current.empty and result.run_id in set(current["run_id"]):
-                # Run directories are unique, and finalize writes result.json before append.
-                return
-            self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))
+        current, _ = self._load()
+        if not current.empty and result.run_id in set(current["run_id"]):
+            # Run directories are unique, and finalize writes result.json before append.
+            return
+        self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))
 
     def rebuild(self) -> pd.DataFrame:
         """Recreate the aggregate table from durable per-run result records."""
         rebuilt = self._rebuild_data()
         self.root.mkdir(parents=True, exist_ok=True)
-        with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            self._publish(rebuilt)
+        self._publish(rebuilt)
         return rebuilt
 
     def _row(self, manifest: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -53,8 +48,12 @@ class CampaignStore:
             "wall_s": result.get("wall_s", 0.0),
             "run_directory": result["run_directory"],
         }
-        row.update({f"p:{name}": value for name, value in manifest["parameters"].items()})
-        row.update({f"f:{name}": value for name, value in result.get("features", {}).items()})
+        row.update(
+            {f"p:{name}": value for name, value in manifest["parameters"].items()}
+        )
+        row.update(
+            {f"f:{name}": value for name, value in result.get("features", {}).items()}
+        )
         return row
 
     def _publish(self, data: pd.DataFrame) -> None:
@@ -65,8 +64,8 @@ class CampaignStore:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _load_locked(self) -> tuple[pd.DataFrame, bool]:
-        """Read the aggregate table or rebuild it while the caller holds the lock."""
+    def _load(self) -> tuple[pd.DataFrame, bool]:
+        """Read the aggregate table or rebuild it from per-run result records."""
         if not self.path.exists():
             return pd.DataFrame(), False
         try:
@@ -88,10 +87,8 @@ class CampaignStore:
             if rebuilt.empty:
                 raise
             self.root.mkdir(parents=True, exist_ok=True)
-            with (self.root / ".campaign_runs.lock").open("w", encoding="utf-8") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                repaired, _ = self._load_locked()
-                return repaired
+            self._publish(rebuilt)
+            return rebuilt
 
     def _rebuild_data(self) -> pd.DataFrame:
         rows = []
