@@ -76,14 +76,43 @@ stages:
       - laser_spot_size_m
       - laser_focal_position_m
       - zernike_astigmatism_4
-  stage_2:
-    # Includes all Stage 1 data reused at the nominal values of new inputs.
+  stage_1_continue_test:
+    # Isolated continuation/feasibility test using the original Stage 1 space.
+    # The submission script copies campaign_runs.parquet into history_root.
     continuation: true
-    max_evaluations: 600
+    run_root: ${PSCRATCH}/ionization_injection_stage_1_continue_test/runs
+    history_root: ${PSCRATCH}/ionization_injection_stage_1_continue_test/history
+    max_evaluations: 4
     initial_design_size: 0
-    gpus_per_simulation: 8
-    total_gpus: 32
+    gpus_per_simulation: 4
+    total_gpus: 16
     concurrent_simulations: 4
+    minimum_beam_feasibility: 0.10
+    active_parameters:
+      - peak_neutral_density_cm3
+      - density_fwhm_left_m
+      - density_fwhm_right_m
+      - density_left_ramp_edge_percent
+      - density_right_ramp_edge_percent
+      - laser_energy_J
+      - laser_pulse_duration_fwhm_s
+      - laser_tod_relative
+      - laser_spot_size_m
+      - laser_focal_position_m
+      - zernike_astigmatism_4
+  stage_2:
+    # Reuse Stage 1 data at the nominal new-input slice, then seed the expanded
+    # 16-D space before feasibility-gated adaptive exploration begins.
+    continuation: true
+    # 64 transition seeds, then 3,936 feasibility-gated adaptive evaluations.
+    max_evaluations: 4000
+    initial_design_size: 64
+    gpus_per_simulation: 4
+    total_gpus: 512
+    concurrent_simulations: 128
+    # Keep Xopt feature-ranked candidates with at least a 10% beam probability.
+    # Lower-probability points are used only when a batch cannot otherwise fill.
+    minimum_beam_feasibility: 0.10
     active_parameters:
       - peak_neutral_density_cm3
       - density_fwhm_left_m
@@ -98,8 +127,42 @@ stages:
       - laser_super_gaussian_order
       - laser_focal_position_m
       - zernike_astigmatism_2
+      - zernike_astigmatism_4
       - zernike_coma_y
+      - zernike_coma_x
       - zernike_trefoil_y
+      - zernike_trefoil_x
+  stage_2_test:
+    # Isolated 30-minute continuation smoke test. The submission script copies
+    # campaign_runs.parquet into history_root; neither path modifies Stage 1.
+    continuation: true
+    run_root: ${PSCRATCH}/ionization_injection_stage_2_test/runs
+    history_root: ${PSCRATCH}/ionization_injection_stage_2_test/history
+    max_evaluations: 4
+    initial_design_size: 0
+    gpus_per_simulation: 4
+    total_gpus: 16
+    concurrent_simulations: 4
+    minimum_beam_feasibility: 0.10
+    active_parameters:
+      - peak_neutral_density_cm3
+      - density_fwhm_left_m
+      - density_fwhm_right_m
+      - density_left_ramp_edge_percent
+      - density_right_ramp_edge_percent
+      - laser_energy_J
+      - laser_pulse_duration_fwhm_s
+      - laser_gdd_relative
+      - laser_tod_relative
+      - laser_spot_size_m
+      - laser_super_gaussian_order
+      - laser_focal_position_m
+      - zernike_astigmatism_2
+      - zernike_astigmatism_4
+      - zernike_coma_y
+      - zernike_coma_x
+      - zernike_trefoil_y
+      - zernike_trefoil_x
 
 analysis:
   exploration_features:
