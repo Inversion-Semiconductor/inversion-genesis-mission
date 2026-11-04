@@ -44,7 +44,7 @@ class MathExpression(_MathExpression):
             )
 
     Args:
-        expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and public NumPy/SciPy/math attributes under ``np``, ``numpy``/ ``sp``, ``scipy``/ ``mt``, ``math`` (for example ``np.exp(z)`` or ``sp.special.jv(0, z)``). Python attributes outside those module roots, private attributes, strings, and arbitrary Python callables are rejected.
+        expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and allowlisted NumPy, SciPy-special, or math symbols under ``np``, ``numpy`` / ``sp``, ``scipy`` / ``mt``, ``math`` (for example ``np.exp(z)``, ``sp.special.jv(0, z)``, or ``math.log(z)``). File I/O, pickle loading, FFI, random-state, and unregistered callables are rejected.
         variables: (tuple[str, ...]) Ordered argument names. The function can be one-dimensional or multivariate.
         parameters: (dict[str, float]) Named finite scalar constants used by the expression. Defaults to an empty mapping."""
     SUBCLASS: ClassVar[str]
@@ -90,7 +90,7 @@ class MathExpression(_MathExpression):
                 )
 
         Args:
-            expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and public NumPy/SciPy/math attributes under ``np``, ``numpy``/ ``sp``, ``scipy``/ ``mt``, ``math`` (for example ``np.exp(z)`` or ``sp.special.jv(0, z)``). Python attributes outside those module roots, private attributes, strings, and arbitrary Python callables are rejected.
+            expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and allowlisted NumPy, SciPy-special, or math symbols under ``np``, ``numpy`` / ``sp``, ``scipy`` / ``mt``, ``math`` (for example ``np.exp(z)``, ``sp.special.jv(0, z)``, or ``math.log(z)``). File I/O, pickle loading, FFI, random-state, and unregistered callables are rejected.
             variables: (tuple[str, ...]) Ordered argument names. The function can be one-dimensional or multivariate.
             parameters: (dict[str, float]) Named finite scalar constants used by the expression. Defaults to an empty mapping."""
     @classmethod

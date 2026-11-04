@@ -46,9 +46,9 @@ def test_function_round_trips_without_pickling() -> None:
     assert yaml_reloaded(0.5) == pytest.approx(function(0.5))
 
 
-def test_function_exposes_scipy_submodules_and_numpy_reexports() -> None:
+def test_function_exposes_allowlisted_scipy_numpy_and_math_symbols() -> None:
     function = MathExpression(
-        expression="scipy.special.jv(0, z) + numpy.linalg.norm([z, 0])",
+        expression="scipy.special.jv(0, z) + numpy.linalg.norm([z, 0]) + math.log(1)",
         variables=("z",),
     )
 
@@ -57,7 +57,17 @@ def test_function_exposes_scipy_submodules_and_numpy_reexports() -> None:
 
 @pytest.mark.parametrize(
     "expression",
-    ["__import__('os').system('echo unsafe')", "z.__class__", "[z for z in (1, 2)]"],
+    [
+        "__import__('os').system('echo unsafe')",
+        "z.__class__",
+        "[z for z in (1, 2)]",
+        "np.ctypeslib.load_library(z, z)",
+        "np.memmap(z, dtype=np.uint8)",
+        "np.load(z, allow_pickle=True)",
+        "np.ndarray.tofile(np.array([z]), z)",
+        "scipy.io.loadmat(z)",
+        "np.random.seed(z)",
+    ],
 )
 def test_function_rejects_executable_python_syntax(expression: str) -> None:
     with pytest.raises(ValueError):

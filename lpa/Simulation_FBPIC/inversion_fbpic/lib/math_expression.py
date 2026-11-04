@@ -5,27 +5,207 @@ from __future__ import annotations
 import ast
 import math
 from collections.abc import Mapping, Sequence
-from types import CodeType
+from types import CodeType, SimpleNamespace
 from typing import Any, ClassVar
 
 import attrs
 import numpy as np
 import numpy.typing as npt
-import scipy
+import scipy.special
 
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 
-# Only these module roots are visible to evaluated configuration expressions.
-# Their public submodules and re-exported public attributes remain available.
-_ALLOWED_MODULES = {
-    "np": np,
-    "numpy": np,
-    "sp": scipy,
-    "scipy": scipy,
-    "mt": math,
-    "math": math,
+# Evaluation exposes exact numerical symbols, never the real third-party modules.
+# NumPy/SciPy contain public I/O, pickle, FFI, and mutable-state APIs; exposing a
+# module object would make every one of those APIs reachable from a config.
+_NUMPY_FUNCTION_NAMES = (
+    "all",
+    "allclose",
+    "any",
+    "append",
+    "arange",
+    "argmax",
+    "argmin",
+    "argsort",
+    "array",
+    "array_equal",
+    "atleast_1d",
+    "atleast_2d",
+    "atleast_3d",
+    "average",
+    "broadcast_arrays",
+    "column_stack",
+    "concatenate",
+    "copy",
+    "corrcoef",
+    "cov",
+    "cross",
+    "cumprod",
+    "cumsum",
+    "diag",
+    "diagonal",
+    "diff",
+    "digitize",
+    "dot",
+    "einsum",
+    "expand_dims",
+    "flip",
+    "gradient",
+    "histogram",
+    "hsplit",
+    "hstack",
+    "inner",
+    "interp",
+    "linspace",
+    "logspace",
+    "mean",
+    "median",
+    "meshgrid",
+    "moveaxis",
+    "nanmean",
+    "nanmedian",
+    "nanprod",
+    "nanstd",
+    "nansum",
+    "nanvar",
+    "outer",
+    "percentile",
+    "prod",
+    "ptp",
+    "quantile",
+    "ravel",
+    "repeat",
+    "reshape",
+    "roll",
+    "rot90",
+    "searchsorted",
+    "select",
+    "shape",
+    "sort",
+    "split",
+    "squeeze",
+    "stack",
+    "std",
+    "sum",
+    "take",
+    "tensordot",
+    "tile",
+    "trace",
+    "transpose",
+    "trapezoid",
+    "unique",
+    "var",
+    "vstack",
+    "where",
+)
+_NUMPY_LINALG_FUNCTION_NAMES = (
+    "cholesky",
+    "cond",
+    "det",
+    "eig",
+    "eigh",
+    "eigvals",
+    "eigvalsh",
+    "inv",
+    "lstsq",
+    "matrix_power",
+    "matrix_rank",
+    "multi_dot",
+    "norm",
+    "pinv",
+    "qr",
+    "slogdet",
+    "solve",
+    "svd",
+    "tensorinv",
+    "tensorsolve",
+)
+_SCIPY_SPECIAL_FUNCTION_NAMES = ("log_softmax", "logsumexp", "softmax")
+
+
+def _public_ufuncs(namespace: Mapping[str, Any]) -> dict[str, np.ufunc]:
+    """Return numerical ufuncs only; ufuncs cannot load files or execute Python."""
+    return {
+        name: value
+        for name, value in namespace.items()
+        if not name.startswith("_") and isinstance(value, np.ufunc)
+    }
+
+
+def _named_callables(namespace: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    """Return explicitly reviewed callables that exist in the installed version."""
+    return {
+        name: value
+        for name in names
+        if callable(value := getattr(namespace, name, None))
+    }
+
+
+def _symbol_aliases(
+    prefixes: tuple[str, ...], symbols: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Apply every supported import-style alias to a symbol mapping."""
+    return {
+        f"{prefix}.{name}": value
+        for prefix in prefixes
+        for name, value in symbols.items()
+    }
+
+
+_NUMPY_SYMBOLS = {
+    **_public_ufuncs(vars(np)),
+    **_named_callables(np, _NUMPY_FUNCTION_NAMES),
 }
+_NUMPY_LINALG_SYMBOLS = _named_callables(np.linalg, _NUMPY_LINALG_FUNCTION_NAMES)
+_SCIPY_SPECIAL_SYMBOLS = {
+    **_public_ufuncs(vars(scipy.special)),
+    **_named_callables(scipy.special, _SCIPY_SPECIAL_FUNCTION_NAMES),
+}
+_MATH_SYMBOLS = {
+    name: value
+    for name in dir(math)
+    if not name.startswith("_") and callable(value := getattr(math, name))
+}
+_ALLOWED_SYMBOLS: dict[str, Any] = {
+    **_symbol_aliases(("np", "numpy"), _NUMPY_SYMBOLS),
+    **_symbol_aliases(("np.linalg", "numpy.linalg"), _NUMPY_LINALG_SYMBOLS),
+    **_symbol_aliases(("sp.special", "scipy.special"), _SCIPY_SPECIAL_SYMBOLS),
+    **_symbol_aliases(("mt", "math"), _MATH_SYMBOLS),
+    "np.e": np.e,
+    "np.pi": np.pi,
+    "numpy.e": np.e,
+    "numpy.pi": np.pi,
+    "mt.e": math.e,
+    "mt.pi": math.pi,
+    "mt.tau": math.tau,
+    "math.e": math.e,
+    "math.pi": math.pi,
+    "math.tau": math.tau,
+}
+_ALLOWED_CALLABLES = {
+    path: value for path, value in _ALLOWED_SYMBOLS.items() if callable(value)
+}
+_ALLOWED_MODULES = {"np", "numpy", "sp", "scipy", "mt", "math"}
 _CONSTANTS = {"e": math.e, "pi": math.pi, "i": 1.0j}
+
+
+def _build_namespace(symbols: Mapping[str, Any]) -> dict[str, SimpleNamespace]:
+    """Build read-only-by-validation namespace proxies for dotted safe symbols."""
+    roots: dict[str, SimpleNamespace] = {}
+    for path, value in symbols.items():
+        root, *parts = path.split(".")
+        current = roots.setdefault(root, SimpleNamespace())
+        for part in parts[:-1]:
+            child = getattr(current, part, None)
+            if child is None:
+                child = SimpleNamespace()
+                setattr(current, part, child)
+            current = child
+        setattr(current, parts[-1], value)
+    return roots
+
+
+_ALLOWED_NAMESPACES = _build_namespace(_ALLOWED_SYMBOLS)
 _ALLOWED_BINARY_OPERATORS = (
     ast.Add,
     ast.Sub,
@@ -82,13 +262,22 @@ def _parameters(value: Mapping[str, float]) -> dict[str, float]:
     return parameters
 
 
-def _is_public_module_attribute(node: ast.AST) -> bool:
-    """Return whether *node* is a public attribute chain below an allowed root."""
+def _attribute_path(node: ast.AST) -> str | None:
+    """Return a dotted attribute path rooted at an expression namespace."""
+    parts: list[str] = []
     while isinstance(node, ast.Attribute):
-        if node.attr.startswith("_"):
-            return False
+        parts.append(node.attr)
         node = node.value
-    return isinstance(node, ast.Name) and node.id in _ALLOWED_MODULES
+    if not isinstance(node, ast.Name):
+        return None
+    return ".".join((node.id, *reversed(parts)))
+
+
+def _is_allowed_symbol(path: str) -> bool:
+    """Return whether *path* is a symbol or namespace prefix in the allowlist."""
+    return path in _ALLOWED_SYMBOLS or any(
+        symbol.startswith(f"{path}.") for symbol in _ALLOWED_SYMBOLS
+    )
 
 
 def _validate_expression(expression: str, names: set[str]) -> CodeType:
@@ -102,8 +291,9 @@ def _validate_expression(expression: str, names: set[str]) -> CodeType:
             if node.id not in names and node.id not in _ALLOWED_MODULES:
                 raise ValueError(f"Unsupported name in expression: {node.id!r}.")
         elif isinstance(node, ast.Attribute):
-            if not _is_public_module_attribute(node):
-                raise ValueError("Only public NumPy or SciPy attributes are allowed.")
+            path = _attribute_path(node)
+            if path is None or not _is_allowed_symbol(path):
+                raise ValueError(f"Unsupported numerical symbol: {path!r}.")
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
                 raise ValueError("expression constants must be real numbers.")
@@ -119,8 +309,11 @@ def _validate_expression(expression: str, names: set[str]) -> CodeType:
             ):
                 raise ValueError("Unsupported comparison operator in expression.")
         elif isinstance(node, ast.Call):
-            if not _is_public_module_attribute(node.func):
-                raise ValueError("Only public NumPy or SciPy functions may be called.")
+            path = _attribute_path(node.func)
+            if path not in _ALLOWED_CALLABLES:
+                raise ValueError(
+                    f"Only allowlisted numerical functions may be called: {path!r}."
+                )
         elif isinstance(node, ast.keyword):
             if node.arg is None or not node.arg.isidentifier():
                 raise ValueError("Expression calls cannot unpack keyword arguments.")
@@ -186,7 +379,7 @@ class MathExpression(_MathExpression):
             )
 
     Args:
-        expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and public NumPy/SciPy/math attributes under ``np``, ``numpy``/ ``sp``, ``scipy``/ ``mt``, ``math`` (for example ``np.exp(z)`` or ``sp.special.jv(0, z)``). Python attributes outside those module roots, private attributes, strings, and arbitrary Python callables are rejected.
+        expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and allowlisted NumPy, SciPy-special, or math symbols under ``np``, ``numpy`` / ``sp``, ``scipy`` / ``mt``, ``math`` (for example ``np.exp(z)``, ``sp.special.jv(0, z)``, or ``math.log(z)``). File I/O, pickle loading, FFI, random-state, and unregistered callables are rejected.
         variables: (tuple[str, ...]) Ordered argument names. The function can be one-dimensional or multivariate.
         parameters: (dict[str, float]) Named finite scalar constants used by the expression. Defaults to an empty mapping.
     """
@@ -210,7 +403,7 @@ class MathExpression(_MathExpression):
                 f"received {len(arguments)}."
             )
         namespace: dict[str, Any] = {
-            **_ALLOWED_MODULES,
+            **_ALLOWED_NAMESPACES,
             **_CONSTANTS,
             **self.parameters,
             **dict(zip(self.variables, arguments, strict=True)),
