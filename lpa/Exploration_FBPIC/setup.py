@@ -12,6 +12,8 @@ setup(
         "pyarrow>=14",
         "PyYAML>=6.0",
         "scipy>=1.10",
+        "scikit-learn>=1.3",
+        "matplotlib>=3.7",
         "xopt>=2.6",
     ],
     extras_require={
