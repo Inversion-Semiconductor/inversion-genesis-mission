@@ -139,6 +139,7 @@ def main() -> Simulation:
             zip(flattop_beam[:7], downramp_beam[:7])
         ):
             beam_data[index] = np.concatenate((flattop_data, downramp_data), axis=0)
+        # Index 7 is the particle charge
         beam_analysis = analysis.analyze_beam(*beam_data, flattop_beam[7])
         analysis.print_beam_summary(beam_analysis, PLOTS_DIR / "beam_summary.txt")
         analysis.plot_beam_analysis(
