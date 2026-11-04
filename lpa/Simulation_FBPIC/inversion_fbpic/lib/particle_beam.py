@@ -127,6 +127,7 @@ class ExpressionParticleBeam(_ParticleBeam):
             raise ValueError("p_rmin must be less than p_rmax.")
         if self.direction not in ("forward", "backward"):
             raise ValueError("direction must be 'forward' or 'backward'.")
+        # Validate the expression now; build a fresh FBPIC callable at build time.
         _density_function(self.dens_func)
 
     def add_to_simulation(
