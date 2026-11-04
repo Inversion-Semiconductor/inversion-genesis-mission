@@ -55,6 +55,12 @@ def test_function_exposes_allowlisted_scipy_numpy_and_math_symbols() -> None:
     assert function(1.0) == pytest.approx(1.7651976866)
 
 
+def test_function_exposes_constants_without_module_prefixes() -> None:
+    function = MathExpression(expression="e + pi", variables=("z",))
+
+    assert function(0.0) == pytest.approx(np.e + np.pi)
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -67,6 +73,9 @@ def test_function_exposes_allowlisted_scipy_numpy_and_math_symbols() -> None:
         "np.ndarray.tofile(np.array([z]), z)",
         "scipy.io.loadmat(z)",
         "np.random.seed(z)",
+        "np.e",
+        "numpy.pi",
+        "math.inf",
     ],
 )
 def test_function_rejects_executable_python_syntax(expression: str) -> None:

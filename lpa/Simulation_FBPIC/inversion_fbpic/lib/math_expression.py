@@ -171,22 +171,19 @@ _ALLOWED_SYMBOLS: dict[str, Any] = {
     **_symbol_aliases(("np.linalg", "numpy.linalg"), _NUMPY_LINALG_SYMBOLS),
     **_symbol_aliases(("sp.special", "scipy.special"), _SCIPY_SPECIAL_SYMBOLS),
     **_symbol_aliases(("mt", "math"), _MATH_SYMBOLS),
-    "np.e": np.e,
-    "np.pi": np.pi,
-    "numpy.e": np.e,
-    "numpy.pi": np.pi,
-    "mt.e": math.e,
-    "mt.pi": math.pi,
-    "mt.tau": math.tau,
-    "math.e": math.e,
-    "math.pi": math.pi,
-    "math.tau": math.tau,
+    "e": np.e,
+    "pi": np.pi,
+    "i": 1.0j,
+    "nan": np.nan,
+    "inf": np.inf,
 }
 _ALLOWED_CALLABLES = {
     path: value for path, value in _ALLOWED_SYMBOLS.items() if callable(value)
 }
 _ALLOWED_MODULES = {"np", "numpy", "sp", "scipy", "mt", "math"}
-_CONSTANTS = {"e": math.e, "pi": math.pi, "i": 1.0j}
+_ALLOWED_CONSTANTS = {
+    path: value for path, value in _ALLOWED_SYMBOLS.items() if "." not in path
+}
 
 
 def _build_namespace(symbols: Mapping[str, Any]) -> dict[str, SimpleNamespace]:
@@ -194,6 +191,8 @@ def _build_namespace(symbols: Mapping[str, Any]) -> dict[str, SimpleNamespace]:
     roots: dict[str, SimpleNamespace] = {}
     for path, value in symbols.items():
         root, *parts = path.split(".")
+        if not parts:
+            continue
         current = roots.setdefault(root, SimpleNamespace())
         for part in parts[:-1]:
             child = getattr(current, part, None)
@@ -241,7 +240,7 @@ def _variables(value: Sequence[str]) -> tuple[str, ...]:
     ]
     if invalid:
         raise ValueError(f"variables must be Python identifiers: {invalid!r}.")
-    reserved = set(_ALLOWED_MODULES) | set(_CONSTANTS)
+    reserved = set(_ALLOWED_MODULES) | set(_ALLOWED_CONSTANTS)
     if set(variables) & reserved:
         raise ValueError("variables cannot shadow supported modules or constants.")
     return variables
@@ -256,7 +255,7 @@ def _parameters(value: Mapping[str, float]) -> dict[str, float]:
     ]
     if invalid:
         raise ValueError("parameters must have identifier names and finite values.")
-    reserved = set(_ALLOWED_MODULES) | set(_CONSTANTS)
+    reserved = set(_ALLOWED_MODULES) | set(_ALLOWED_CONSTANTS)
     if set(parameters) & reserved:
         raise ValueError("parameters cannot shadow supported modules or constants.")
     return parameters
@@ -288,7 +287,11 @@ def _validate_expression(expression: str, names: set[str]) -> CodeType:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
-            if node.id not in names and node.id not in _ALLOWED_MODULES:
+            if (
+                node.id not in names
+                and node.id not in _ALLOWED_MODULES
+                and node.id not in _ALLOWED_CONSTANTS
+            ):
                 raise ValueError(f"Unsupported name in expression: {node.id!r}.")
         elif isinstance(node, ast.Attribute):
             path = _attribute_path(node)
@@ -392,7 +395,7 @@ class MathExpression(_MathExpression):
     _code: CodeType = attrs.field(init=False, repr=False, eq=False)
 
     def __attrs_post_init__(self) -> None:
-        names = set(self.variables) | set(self.parameters) | set(_CONSTANTS)
+        names = set(self.variables) | set(self.parameters) | set(_ALLOWED_CONSTANTS)
         object.__setattr__(self, "_code", _validate_expression(self.expression, names))
 
     def __call__(self, *arguments: npt.ArrayLike) -> npt.ArrayLike:
@@ -404,7 +407,7 @@ class MathExpression(_MathExpression):
             )
         namespace: dict[str, Any] = {
             **_ALLOWED_NAMESPACES,
-            **_CONSTANTS,
+            **_ALLOWED_CONSTANTS,
             **self.parameters,
             **dict(zip(self.variables, arguments, strict=True)),
         }
