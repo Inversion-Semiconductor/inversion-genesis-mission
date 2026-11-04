@@ -187,8 +187,8 @@ class SimulationHyperparameters(SerializableConfig):
         nm: (int) Number of angular modes used.
         use_mpi: (bool) Whether to use MPI.
         number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics. Values greater than 1 request at most that many dumps; fewer are written when there are too few simulation steps.
-        simulation_length: (float | None) [m] Fixed interaction length. If None, derive the length from the longitudinal extent of the density profiles.
-        right_buffer: (float | None) |OPTIONAL| Right buffer of the simulation extent. If None, equal to the window size (zmax - zmin).
+        simulation_length: (float | None) [m] Distance the moving window propagates before its leading edge reaches the end of the interaction. If None, derive the distance from the longitudinal extent of the density profiles. The total interaction length also includes `right_buffer` so the full initial window exits the interaction.
+        right_buffer: (float | None) |OPTIONAL| Additional propagation distance after `simulation_length` or the derived density-profile length. If None, equal to the window size (zmax - zmin).
         beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
             the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
             If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
@@ -270,8 +270,8 @@ class SimulationHyperparameters(SerializableConfig):
             nm: (int) Number of angular modes used.
             use_mpi: (bool) Whether to use MPI.
             number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics. Values greater than 1 request at most that many dumps; fewer are written when there are too few simulation steps.
-            simulation_length: (float | None) [m] Fixed interaction length. If None, derive the length from the longitudinal extent of the density profiles.
-            right_buffer: (float | None) |OPTIONAL| Right buffer of the simulation extent. If None, equal to the window size (zmax - zmin).
+            simulation_length: (float | None) [m] Distance the moving window propagates before its leading edge reaches the end of the interaction. If None, derive the distance from the longitudinal extent of the density profiles. The total interaction length also includes `right_buffer` so the full initial window exits the interaction.
+            right_buffer: (float | None) |OPTIONAL| Additional propagation distance after `simulation_length` or the derived density-profile length. If None, equal to the window size (zmax - zmin).
             beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
                 the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
                 If no `wavelength` attribute is found, the moving window velocity is set to 1.0.

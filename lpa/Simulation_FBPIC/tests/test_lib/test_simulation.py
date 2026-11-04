@@ -757,17 +757,28 @@ class TestSupportingElements:
 
 
 class TestAttachedAnalysis:
-    def test_explicit_simulation_length_overrides_density_extent(
-        self, analysis_simulation, tmp_path, monkeypatch
+    @pytest.mark.parametrize("right_buffer", [None, 2e-6])
+    def test_explicit_simulation_length_adds_right_buffer(
+        self, analysis_simulation, tmp_path, monkeypatch, right_buffer
     ) -> None:
         simulation, _, _, _ = analysis_simulation
         assert simulation.hyparams is not None
-        simulation.hyparams = attrs.evolve(simulation.hyparams, simulation_length=4e-6)
+        simulation.hyparams = attrs.evolve(
+            simulation.hyparams,
+            simulation_length=4e-6,
+            right_buffer=right_buffer,
+        )
         monkeypatch.setattr(simulation, "calculate_mean_group_beta", lambda: 1.0)
 
         simulation.setup_simulation(working_directory=tmp_path)
 
-        assert simulation.T_interact == pytest.approx(4e-6 / c)
+        expected_right_buffer = right_buffer
+        if expected_right_buffer is None:
+            expected_right_buffer = simulation.hyparams.zmax - simulation.hyparams.zmin
+        assert simulation.T_interact == pytest.approx(
+            (4e-6 + expected_right_buffer) / c
+        )
+
     def test_zero_dumps_warns_and_skips_requested_diagnostics(
         self, analysis_simulation, tmp_path, caplog
     ) -> None:

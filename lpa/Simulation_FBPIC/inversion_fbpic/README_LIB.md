@@ -400,7 +400,7 @@ attached diagnostics at the selected lifecycle phase.
 
 ## Policies Embedded In `Simulation`
 
-This wrapper incorporates simulation policy as well as object wiring, things that are typically done manually using base FBPIC. It derives interaction length from the union of density-profile extents plus `right_buffer`; when `beta_window` is unset, it estimates the moving-window velocity from the first laser wavelength and summed on-axis plasma density; and it configures a boosted Galilean frame for all relevant components when `gamma_boost` is active.
+This wrapper incorporates simulation policy as well as object wiring, things that are typically done manually using base FBPIC. It derives the propagation distance from the union of density-profile extents, unless `simulation_length` is set explicitly, then adds `right_buffer` so the full initial moving window exits the interaction; when `beta_window` is unset, it estimates the moving-window velocity from the first laser wavelength and summed on-axis plasma density; and it configures a boosted Galilean frame for all relevant components when `gamma_boost` is active.
 
 ## Registry And Serialization
 
