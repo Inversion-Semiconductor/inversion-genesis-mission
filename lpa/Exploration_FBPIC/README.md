@@ -139,6 +139,95 @@ updated. Rebuild that table after an interrupted local run or filesystem issue:
 explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 rebuild-store
 ```
 
+## Compact campaign assessment
+
+The aggregate `campaign_runs.parquet` contains the complete parameter vector,
+run status, and extracted scalar diagnostics for every run. It is sufficient to
+assess sampling coverage and surrogate predictiveness; raw FBPIC diagnostics do
+not need to leave the compute system. Copy this one file from NERSC, or run the
+following directly beside the campaign output:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 analyze-campaign \
+  --output stage_1_analysis
+```
+
+For a downloaded Parquet file, pass it directly rather than setting `PSCRATCH`:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 analyze-campaign \
+  --data /path/to/campaign_runs.parquet --output stage_1_analysis
+```
+
+This writes `campaign-analysis.json` with compatibility/run-health counts,
+unit-cube coverage distances, per-feature five-fold held-out Xopt GP errors,
+and a data-size heuristic. `campaign-projection.png` contains PCA scatter
+projections of the normalized active inputs and scalar-response descriptor.
+The held-out GP is deliberately fitted from the scalar table, so this
+command does not read particle dumps or submit simulations.
+
+Plot the current charge GP across focal position and peak plasma density, with
+all attempted simulations overlaid. The remaining Stage 1 inputs are held at
+their nominal values for the GP slice; white markers have no charge diagnostic
+and were not included in the GP training data.
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 plot-charge-slice \
+  --data /path/to/campaign_runs.parquet --output charge-gp-slice.png
+```
+
+Use `plot-feature-slice` for another configured exploration feature, such as
+the third longitudinal mean-momentum bin:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 plot-feature-slice \
+  --feature longitudinal_mean_uz_02 --data /path/to/campaign_runs.parquet \
+  --output longitudinal-mean-uz-02-gp-slice.png
+```
+
+Plot the separate beam-existence classifier used to prevent feature exploration
+from repeatedly proposing confidently no-beam conditions. The final panel shows
+binary classification entropy, so high values identify the injection boundary.
+The probability panel marks 5%, 10%, 15%, 20%, 25%, and 30% contours. The
+campaign PCA projection also marks each observed no-beam point with a blue `X`
+with feasibility bands: pink at 20-30%, orange at 10-20%, red at 5-10%, and
+maroon below 5%. Green `X` markers identify measured beams where the classifier
+predicts less than 30% feasibility. Beam-present markers use a black-to-blue
+charge scale.
+
+Write additional PC1/3, PC1/4, PC2/3, and PC2/4 views to inspect whether the
+apparent no-beam cluster persists outside the default PC1/PC2 projection:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 \
+  plot-input-pca-projections --data /path/to/campaign_runs.parquet \
+  --output input-pca-projections
+```
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 plot-feasibility-slice \
+  --data /path/to/campaign_runs.parquet --output beam-feasibility-slice.png
+```
+
+`stages.<name>.minimum_beam_feasibility` controls the adaptive exploration
+floor. Candidates at or above the floor retain Xopt's feature-acquisition order;
+below-floor candidates only backfill an otherwise incomplete batch. Stage 2 uses
+`0.10` to suppress confidently no-beam regions without excluding the injection
+boundary.
+
+Preview a batch without creating run directories or submitting work. The JSON
+log records the Xopt generator order, each candidate's feasibility, whether it
+meets the configured floor, marginal relative combined GP uncertainty, and the
+final selected points. The uncertainty is an independent diagnostic; Xopt uses
+joint batch posterior-variance optimization, so return order is not a simple
+per-candidate uncertainty ordering.
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 preview-batch \
+  --data /path/to/campaign_runs.parquet --count 32 \
+  --minimum-beam-feasibility 0.10 --output batch-preview.json
+```
+
 The rebuild scans `sim_*/result.json` below the configured `run_root`; it does not
 rerun FBPIC. Local `evaluate` automatically chooses the next numeric `sim_` ID.
 Pass `--run-id` when an external dispatcher needs a predetermined, unique ID.
@@ -217,6 +306,41 @@ submission format. Its node count, `SLURM_EXACT` settings, and 33-rank `srun`
 launch are coupled to one manager-hosted generator and 32 four-GPU workers; keep
 that allocation pattern intact when changing the production campaign.
 
+Before Stage 2 production, submit the isolated continuation test:
+
+```bash
+sbatch submit_stage_2_test_nersc.sh
+```
+
+It requests four GPU nodes for 30 minutes and starts four four-GPU workers. The
+script copies production `campaign_runs.parquet` into
+`$PSCRATCH/ionization_injection_stage_2_test/history`; all test artifacts are
+written to its separate `runs` directory, leaving the production run root
+unchanged.
+
+To exercise feasibility-gated adaptive point generation in the original Stage 1
+parameter space without modifying its production history, submit:
+
+```bash
+sbatch submit_stage_1_continue_test_nersc.sh
+```
+
+This uses the same four-node, 30-minute allocation and copies only
+`campaign_runs.parquet` into its own history root. Because its
+`initial_design_size` is zero, all four submitted points are generated by Xopt
+then filtered through the 10% feasibility policy.
+
+After the test completes successfully, Stage 2 production uses 128 concurrent
+four-GPU simulations across 128 GPU nodes:
+
+```bash
+sbatch submit_stage_2_nersc.sh
+```
+
+The production script currently requests a 30-hour regular-QoS allocation.
+Confirm the account, QoS, and wallclock against the approved NERSC allocation
+before submission.
+
 ### Single-case NERSC checks
 
 The production campaign's nominal single-case entrypoints are grouped under
@@ -248,17 +372,25 @@ not use the production libEnsemble allocation format.
 
 Set `continuation: true` in a stage to resume an interrupted campaign from its
 existing `run_root`. The driver loads successful records with the same stage and
-campaign fingerprint into Xopt, skips the initial design, and dispatches only the
-unspent portion of `max_evaluations`. Failed and timed-out evaluations consume
-budget but are excluded from GP training. Keep all numerical, analysis, template,
-and parameter settings unchanged when resuming, since changing them changes the
-fingerprint and prevents continuation in that run root.
+campaign fingerprint, then dispatches only the unspent portion of
+`max_evaluations`. A continuation stage may still define its own
+`initial_design_size`: that one-time, stage-local seed design runs before
+adaptive proposals and is offset by already completed runs in the same stage.
+This is useful when a continuation activates new controls, since prior-stage data
+cover those controls only at their nominal values. Initial-design points bypass
+the feasibility gate; subsequent adaptive proposals apply it. Failed and timed-out
+evaluations consume budget but are excluded from GP training. Keep all numerical,
+analysis, template, and parameter settings unchanged when resuming, since changing
+them changes the fingerprint and prevents continuation in that run root.
 
 With `continuation: false`, the libEnsemble driver refuses to start when `run_root`
 already contains any `sim_*` run directory. This prevents different campaigns from
 accidentally sharing output. Local `evaluate` calls may be repeated; each still
 refuses to overwrite an existing run directory. The provided `stage_2` uses
 `continuation: true`, which permits it to reuse the Stage 1 run root and data.
+`stage_2_test` demonstrates isolated continuation instead: its `history_root`
+contains copied scalar history for model training while its stage-specific
+`run_root` receives only test artifacts.
 
 Stages cannot be run in reverse: successful records from a later stage that vary a
 parameter inactive in the requested stage cause the driver to fail before it starts
