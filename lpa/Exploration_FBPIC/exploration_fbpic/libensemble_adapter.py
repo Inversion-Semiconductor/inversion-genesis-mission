@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from libensemble.executors.executor import TimeoutExpired
 
-from .executor import EvaluationResult, FBPICRunExecutor
+from .executor import EvaluationResult, FBPICRunExecutor, NoBeamDetected
 
 
 def run_fbpic_simulation(
@@ -92,6 +92,15 @@ def run_fbpic_simulation(
                 str(error),
                 time.perf_counter() - started,
             )
+        except NoBeamDetected as error:
+            result = EvaluationResult(
+                run_id,
+                "no_beam",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except Exception as error:
             result = EvaluationResult(
                 run_id,
@@ -102,7 +111,10 @@ def run_fbpic_simulation(
                 time.perf_counter() - started,
             )
         executor.finalize(run_directory, manifest, result)
-        out["status_code"][index] = 0 if result.status == "ok" else 1
+        out["status_code"][index] = {
+            "ok": 0,
+            "no_beam": 1,
+        }.get(result.status, 2)
         for feature in result.features:
             if feature in out.dtype.names:
                 out[feature][index] = result.features[feature]

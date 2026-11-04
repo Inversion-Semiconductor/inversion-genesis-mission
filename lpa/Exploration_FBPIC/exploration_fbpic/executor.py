@@ -23,6 +23,10 @@ from inversion_fbpic.utils.distributions import (
 from .campaign import Campaign, RunManifest
 
 
+class NoBeamDetected(ValueError):
+    """A completed simulation produced no injected beam diagnostics."""
+
+
 @dataclass(frozen=True)
 class EvaluationResult:
     """One complete FBPIC evaluation, including failed simulations."""
@@ -85,6 +89,15 @@ class FBPICRunExecutor:
             result = EvaluationResult(
                 run_id,
                 "fbpic_error",
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
+        except NoBeamDetected as error:
+            result = EvaluationResult(
+                run_id,
+                "no_beam",
                 {},
                 run_directory,
                 str(error),
@@ -238,7 +251,7 @@ if __name__ == "__main__":
 
         collect(datapoint)
         if not features:
-            raise ValueError(f"No scalar diagnostic results found in {path}")
+            raise NoBeamDetected(f"No scalar diagnostic results found in {path}")
         missing = sorted(set(self.config.exploration_features) - features.keys())
         if missing:
             raise ValueError(f"Missing saved exploration features: {missing}")

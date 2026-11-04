@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 import json
@@ -83,6 +83,9 @@ class StageConfig:
     total_gpus: int
     concurrent_simulations: int
     continuation: bool = False
+    minimum_beam_feasibility: float = 0.0
+    run_root: Path | None = None
+    history_root: Path | None = None
 
     def validate(self, name: str, parameters: Mapping[str, Parameter]) -> None:
         unknown = set(self.active_parameters) - set(parameters)
@@ -121,6 +124,10 @@ class StageConfig:
             raise ValueError(
                 f"stage {name}: concurrent_simulations exceeds GPU capacity"
             )
+        if not 0.0 <= self.minimum_beam_feasibility <= 1.0:
+            raise ValueError(
+                f"stage {name}: minimum_beam_feasibility must be in [0, 1]"
+            )
 
 
 @dataclass(frozen=True)
@@ -156,18 +163,30 @@ class CampaignConfig:
             parameters[name] = Parameter(name=name, **values)
         for parameter in parameters.values():
             parameter.validate(parameter.nominal)
-        stages = {
-            name: StageConfig(
-                active_parameters=tuple(values["active_parameters"]),
-                max_evaluations=int(values["max_evaluations"]),
-                initial_design_size=int(values["initial_design_size"]),
-                gpus_per_simulation=int(values["gpus_per_simulation"]),
-                total_gpus=int(values["total_gpus"]),
-                concurrent_simulations=int(values["concurrent_simulations"]),
-                continuation=bool(values.get("continuation", False)),
+        stages = {}
+        for name, values in data["stages"].items():
+            stage_values = dict(values)
+            for root_name in ("run_root", "history_root"):
+                root = stage_values.get(root_name)
+                if root is not None:
+                    resolved = Path(os.path.expandvars(str(root))).expanduser()
+                    stage_values[root_name] = (
+                        resolved if resolved.is_absolute() else path.parent / resolved
+                    ).resolve()
+            stages[name] = StageConfig(
+                active_parameters=tuple(stage_values["active_parameters"]),
+                max_evaluations=int(stage_values["max_evaluations"]),
+                initial_design_size=int(stage_values["initial_design_size"]),
+                gpus_per_simulation=int(stage_values["gpus_per_simulation"]),
+                total_gpus=int(stage_values["total_gpus"]),
+                concurrent_simulations=int(stage_values["concurrent_simulations"]),
+                continuation=bool(stage_values.get("continuation", False)),
+                minimum_beam_feasibility=float(
+                    stage_values.get("minimum_beam_feasibility", 0.0)
+                ),
+                run_root=stage_values.get("run_root"),
+                history_root=stage_values.get("history_root"),
             )
-            for name, values in data["stages"].items()
-        }
         for stage, settings in stages.items():
             settings.validate(stage, parameters)
         run_root = Path(os.path.expandvars(str(data["run_root"]))).expanduser()
@@ -285,7 +304,8 @@ class RunManifest:
     def write(self, run_directory: str | Path) -> Path:
         path = Path(run_directory) / "run_manifest.json"
         path.write_text(
-            json.dumps(asdict(self), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            json.dumps(asdict(self), indent=2, sort_keys=True, default=str) + "\n",
+            encoding="utf-8",
         )
         return path
 
@@ -311,3 +331,10 @@ class Campaign:
             template_script=str(self.config.template_script),
             stage_settings=self.config.stage_settings(stage),
         )
+
+    def for_stage(self, stage: str) -> "Campaign":
+        """Return a campaign whose executor writes to the stage-specific root."""
+        stage_settings = self.config.stage_settings(stage)
+        if stage_settings.run_root is None:
+            return self
+        return Campaign(replace(self.config, run_root=stage_settings.run_root))

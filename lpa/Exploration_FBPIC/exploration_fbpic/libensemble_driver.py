@@ -12,6 +12,7 @@ import pandas as pd
 
 from .campaign import Campaign
 from .exploration import XoptFBPICExplorer
+from .feasibility import BeamFeasibilityModel
 from .libensemble_adapter import run_fbpic_simulation
 from .store import CampaignStore
 
@@ -33,6 +34,160 @@ def fallback_design(
     return explorer.model_initial_design(offset + count, seed=0)[offset:]
 
 
+def select_feasible_candidates(
+    candidates: list[dict[str, float]],
+    feasibility: BeamFeasibilityModel,
+    count: int,
+    minimum_probability: float,
+) -> list[dict[str, float]]:
+    """Keep feature-ranked feasible candidates, then backfill by feasibility.
+
+    Xopt orders generated candidates by its feature-exploration acquisition.
+    Candidates at or above the configured probability floor keep that order;
+    only below-floor candidates are reordered for an unavoidable backfill.
+    """
+    return [
+        candidates[index]
+        for index in select_feasible_candidate_indices(
+            candidates, feasibility, count, minimum_probability
+        )
+    ]
+
+
+def select_feasible_candidate_indices(
+    candidates: list[dict[str, float]],
+    feasibility: BeamFeasibilityModel,
+    count: int,
+    minimum_probability: float,
+) -> np.ndarray:
+    """Return selected candidate positions, preserving Xopt order when feasible."""
+    if len(candidates) <= count or not feasibility.is_ready:
+        return np.arange(min(len(candidates), count))
+    probabilities = feasibility.beam_probability(candidates)
+    eligible = np.flatnonzero(probabilities >= minimum_probability)
+    selected = list(eligible[:count])
+    if len(selected) < count:
+        ineligible = np.flatnonzero(probabilities < minimum_probability)
+        backfill = ineligible[np.argsort(probabilities[ineligible])[::-1]]
+        selected.extend(backfill[: count - len(selected)])
+    return np.asarray(selected, dtype=int)
+
+
+def preview_xopt_batch(
+    explorer: XoptFBPICExplorer,
+    data: pd.DataFrame,
+    count: int,
+    minimum_beam_feasibility: float | None = None,
+    candidate_pool_factor: int = 8,
+) -> dict[str, object]:
+    """Return a no-submit preview of the Xopt/feasibility candidate decision."""
+    if count < 1:
+        raise ValueError("count must be positive")
+    if candidate_pool_factor < 1:
+        raise ValueError("candidate_pool_factor must be positive")
+    if minimum_beam_feasibility is None:
+        minimum_beam_feasibility = explorer.campaign.config.stage_settings(
+            explorer.stage
+        ).minimum_beam_feasibility
+    if not 0.0 <= minimum_beam_feasibility <= 1.0:
+        raise ValueError("minimum_beam_feasibility must be in [0, 1]")
+
+    xopt = explorer.make_xopt(data)
+    feasibility = BeamFeasibilityModel(explorer)
+    feasibility.fit_campaign_data(data)
+    pool_count = count * candidate_pool_factor
+    if xopt.data is None or xopt.data.empty:
+        proposed = fallback_design(explorer, 0, pool_count)
+        source = "fallback_design"
+    else:
+        proposed = xopt.generator.generate(pool_count)
+        source = "xopt_generator"
+    probabilities = feasibility.beam_probability(proposed)
+    uncertainty = _relative_combined_gp_uncertainty(explorer, xopt, data, proposed)
+    selected_indices = select_feasible_candidate_indices(
+        proposed, feasibility, count, minimum_beam_feasibility
+    )
+    selection_rank = {
+        int(index): rank + 1 for rank, index in enumerate(selected_indices)
+    }
+    candidates = []
+    for index, point in enumerate(proposed):
+        candidates.append(
+            {
+                "xopt_rank": index + 1,
+                "beam_feasibility": float(probabilities[index]),
+                "relative_combined_gp_uncertainty": (
+                    float(uncertainty[index])
+                    if np.isfinite(uncertainty[index])
+                    else None
+                ),
+                "meets_feasibility_floor": bool(
+                    probabilities[index] >= minimum_beam_feasibility
+                ),
+                "selected_rank": selection_rank.get(index),
+                "model_point": point,
+                "physical_point": explorer.model_to_physical(point),
+            }
+        )
+    return {
+        "stage": explorer.stage,
+        "source": source,
+        "count": count,
+        "candidate_pool_count": pool_count,
+        "candidate_pool_factor": candidate_pool_factor,
+        "minimum_beam_feasibility": minimum_beam_feasibility,
+        "xopt_rank_note": (
+            "Xopt uses joint qPosteriorVariance batch optimization; return order is "
+            "not an independent uncertainty ranking."
+        ),
+        "relative_combined_gp_uncertainty_note": (
+            "RMS posterior standard deviation across exploration features after each "
+            "feature is divided by its observed training standard deviation; normalized "
+            "to the maximum candidate-pool value."
+        ),
+        "candidates": candidates,
+        "selected": [candidates[index] for index in selected_indices],
+    }
+
+
+def _relative_combined_gp_uncertainty(
+    explorer: XoptFBPICExplorer,
+    xopt: Any,
+    raw_data: pd.DataFrame,
+    candidates: list[dict[str, float]],
+) -> np.ndarray:
+    """Calculate marginal multi-feature GP uncertainty for preview diagnostics."""
+    if not candidates:
+        return np.empty(0)
+    try:
+        import torch
+
+        generator = xopt.generator
+        training = explorer.training_data(raw_data)
+        model = generator.train_model(data=training, update_internal=False)
+        inputs = torch.tensor(
+            [
+                [point[name] for name in explorer.variable_bounds]
+                for point in candidates
+            ],
+            **generator.tkwargs,
+        )
+        standard_deviation = (
+            model.posterior(inputs).variance.sqrt().detach().cpu().numpy()
+        )
+        scales = (
+            training.loc[:, list(explorer.feature_names)]
+            .std(axis=0)
+            .to_numpy(dtype=float, copy=True)
+        )
+        scales[scales == 0] = 1.0
+        combined = np.sqrt(np.mean((standard_deviation / scales) ** 2, axis=1))
+        maximum = float(combined.max())
+        return combined / maximum if maximum > 0 else np.zeros(len(combined))
+    except (AttributeError, KeyError, RuntimeError, ValueError):
+        return np.full(len(candidates), np.nan)
+
+
 def persistent_xopt(
     _: np.ndarray,
     persis_info: dict[str, Any],
@@ -51,11 +206,15 @@ def persistent_xopt(
     user = gen_specs["user"]
     explorer = XoptFBPICExplorer(Campaign.from_file(user["config_path"]), user["stage"])
     xopt = explorer.make_xopt()
+    feasibility = BeamFeasibilityModel(explorer)
+    feasibility.fit_campaign_data(explorer.available_data())
     variable_names: tuple[str, ...] = tuple(user["variable_names"])
     feature_names: tuple[str, ...] = tuple(user["feature_names"])
     initial_points: list[dict[str, float]] = user["initial_points"]
     sim_max = int(user["sim_max"])
     fallback_offset = int(user.get("fallback_offset", 0))
+    candidate_pool_factor = int(user.get("candidate_pool_factor", 8))
+    minimum_beam_feasibility = float(user.get("minimum_beam_feasibility", 0.0))
     support = PersistentSupport(libE_info, EVAL_GEN_TAG)
     submitted = 0
     pending = list(initial_points)
@@ -74,7 +233,10 @@ def persistent_xopt(
                     explorer, fallback_offset + submitted, count
                 )
             else:
-                generated = xopt.generator.generate(count)
+                proposed = xopt.generator.generate(count * candidate_pool_factor)
+                generated = select_feasible_candidates(
+                    proposed, feasibility, count, minimum_beam_feasibility
+                )
         candidates = np.zeros(len(generated), dtype=gen_specs["out"])
         for index, point in enumerate(generated):
             for name in variable_names:
@@ -85,6 +247,9 @@ def persistent_xopt(
         if completed is not None and len(completed):
             rows = pd.DataFrame(
                 {name: completed[name] for name in (*variable_names, *feature_names)}
+            )
+            feasibility.add_completed(
+                rows.loc[:, variable_names], completed["status_code"]
             )
             successful = completed["status_code"] == 0
             successful &= np.isfinite(rows.loc[:, feature_names]).all(axis=1).to_numpy()
@@ -127,10 +292,12 @@ def make_ensemble(config_path: str | Path, stage: str):
 
     variables = tuple(explorer.variable_bounds)
     features = explorer.feature_names
-    initial_count = (
-        0
-        if completed_count
-        else min(settings.initial_design_size, remaining_evaluations)
+    # A continuation may expand the active parameter set. Its stage-local
+    # initial design supplies coverage for those newly variable coordinates,
+    # while all prior-stage rows remain available to train the conditional GPs.
+    initial_count = min(
+        max(0, settings.initial_design_size - completed_count),
+        remaining_evaluations,
     )
     ensemble.libE_specs = LibeSpecs(
         comms="mpi",
@@ -170,10 +337,14 @@ def make_ensemble(config_path: str | Path, stage: str):
             "stage": stage,
             "variable_names": variables,
             "feature_names": features,
-            "initial_points": explorer.model_initial_design(initial_count),
+            "initial_points": explorer.model_initial_design(
+                completed_count + initial_count
+            )[completed_count:],
             "sim_max": remaining_evaluations,
             "batch_size": settings.concurrent_simulations,
             "fallback_offset": completed_count,
+            "candidate_pool_factor": 8,
+            "minimum_beam_feasibility": settings.minimum_beam_feasibility,
         },
     )
     ensemble.alloc_specs = AllocSpecs(
@@ -194,7 +365,7 @@ def main() -> None:
     parser.add_argument("config", type=Path)
     parser.add_argument("--stage", default="stage_1")
     args = parser.parse_args()
-    campaign = Campaign.from_file(args.config)
+    campaign = Campaign.from_file(args.config).for_stage(args.stage)
     ensemble = make_ensemble(args.config, args.stage)
     if ensemble.nworkers < ensemble.gen_specs.user["batch_size"]:
         raise RuntimeError(

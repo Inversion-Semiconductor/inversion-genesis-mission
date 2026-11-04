@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Mapping
 
 import numpy as np
@@ -28,12 +27,14 @@ class XoptFBPICExplorer:
         campaign: Campaign,
         stage: str,
     ) -> None:
-        self.campaign = campaign
+        self.campaign = campaign.for_stage(stage)
         self.stage = stage
-        self.parameters = campaign.config.active_parameters(stage)
-        self.feature_names = campaign.config.exploration_features
-        self.executor = FBPICRunExecutor(campaign)
-        self.store = CampaignStore(campaign.config.run_root)
+        self.parameters = self.campaign.config.active_parameters(stage)
+        self.feature_names = self.campaign.config.exploration_features
+        self.executor = FBPICRunExecutor(self.campaign)
+        self.store = CampaignStore(self.campaign.config.run_root)
+        history_root = self.campaign.config.stage_settings(stage).history_root
+        self.history_store = CampaignStore(history_root) if history_root else self.store
 
     @property
     def variable_bounds(self) -> dict[str, list[float]]:
@@ -48,7 +49,9 @@ class XoptFBPICExplorer:
 
     def initial_design(self, n: int, seed: int = 0) -> list[dict[str, float]]:
         """Physical-unit nominal, anchor, and Sobol points for CLI inspection."""
-        nominal = {parameter.name: float(parameter.nominal) for parameter in self.parameters}
+        nominal = {
+            parameter.name: float(parameter.nominal) for parameter in self.parameters
+        }
         points = [nominal]
         for parameter in self.parameters:
             assert parameter.lower is not None and parameter.upper is not None
@@ -58,9 +61,21 @@ class XoptFBPICExplorer:
                 points.append(point)
         fill = max(0, n - len(points))
         if fill:
-            unit = qmc.Sobol(d=len(self.parameters), scramble=True, seed=seed).random(fill)
-            low = np.array([self._to_model_value(parameter, float(parameter.lower)) for parameter in self.parameters])
-            high = np.array([self._to_model_value(parameter, float(parameter.upper)) for parameter in self.parameters])
+            unit = qmc.Sobol(d=len(self.parameters), scramble=True, seed=seed).random(
+                fill
+            )
+            low = np.array(
+                [
+                    self._to_model_value(parameter, float(parameter.lower))
+                    for parameter in self.parameters
+                ]
+            )
+            high = np.array(
+                [
+                    self._to_model_value(parameter, float(parameter.upper))
+                    for parameter in self.parameters
+                ]
+            )
             for row in low + unit * (high - low):
                 points.append(
                     {
@@ -77,14 +92,18 @@ class XoptFBPICExplorer:
     def physical_to_model(self, point: Mapping[str, float]) -> dict[str, float]:
         """Transform active physical inputs into the coordinates seen by Xopt."""
         return {
-            parameter.name: self._to_model_value(parameter, float(point[parameter.name]))
+            parameter.name: self._to_model_value(
+                parameter, float(point[parameter.name])
+            )
             for parameter in self.parameters
         }
 
     def model_to_physical(self, point: Mapping[str, float]) -> dict[str, float]:
         """Transform Xopt/GP coordinates back to physical inputs for FBPIC."""
         return {
-            parameter.name: self._to_physical_value(parameter, float(point[parameter.name]))
+            parameter.name: self._to_physical_value(
+                parameter, float(point[parameter.name])
+            )
             for parameter in self.parameters
         }
 
@@ -101,7 +120,9 @@ class XoptFBPICExplorer:
     def evaluate(self, proposal: Mapping[str, float]) -> dict[str, float | bool | str]:
         """Xopt evaluator function: launch FBPIC and return selected scalar outputs."""
         run_id = f"sim_{self._next_run_number():06d}"
-        result = self.executor.evaluate(run_id, self.stage, self.model_to_physical(proposal))
+        result = self.executor.evaluate(
+            run_id, self.stage, self.model_to_physical(proposal)
+        )
         self.store.append(result)
         outputs: dict[str, float | bool | str] = {
             "status_ok": result.status == "ok",
@@ -114,10 +135,11 @@ class XoptFBPICExplorer:
     def require_fresh_run_root(self) -> None:
         """Require non-continuation stages to start in an empty run root."""
         run_root = self.campaign.config.run_root
-        previous_runs = sorted(
-            path for path in run_root.glob("sim_*") if path.is_dir()
-        )
-        if not self.campaign.config.stage_settings(self.stage).continuation and previous_runs:
+        previous_runs = sorted(path for path in run_root.glob("sim_*") if path.is_dir())
+        if (
+            not self.campaign.config.stage_settings(self.stage).continuation
+            and previous_runs
+        ):
             raise FileExistsError(
                 f"stage {self.stage!r} has continuation disabled, but run root "
                 f"{run_root} already contains previous runs: "
@@ -127,9 +149,7 @@ class XoptFBPICExplorer:
     def require_compatible_run_root(self) -> None:
         """Require every available run manifest to belong to this campaign."""
         run_root = self.campaign.config.run_root
-        previous_runs = sorted(
-            path for path in run_root.glob("sim_*") if path.is_dir()
-        )
+        previous_runs = sorted(path for path in run_root.glob("sim_*") if path.is_dir())
         expected_fingerprint = self.campaign.config.fingerprint()
         incompatible = []
         for run_directory in previous_runs:
@@ -147,35 +167,42 @@ class XoptFBPICExplorer:
                 f"(fingerprint != {expected_fingerprint}): {names}{suffix}"
             )
 
-    def make_xopt(self):
+    def make_xopt(self, data: pd.DataFrame | None = None):
         """Create a generator trained on compatible completed campaign rows."""
         try:
             from xopt import Evaluator, VOCS, Xopt
             from xopt.generators.bayesian import BayesianExplorationGenerator
         except ImportError as error:
-            raise RuntimeError("install exploration_fbpic with xopt before creating an explorer") from error
+            raise RuntimeError(
+                "install exploration_fbpic with xopt before creating an explorer"
+            ) from error
 
         vocs = VOCS(
             variables=self.variable_bounds,
             objectives={feature: "EXPLORE" for feature in self.feature_names},
         )
         generator = BayesianExplorationGenerator(vocs=vocs)
-        xopt = Xopt(generator=generator, evaluator=Evaluator(function=self.evaluate), vocs=vocs)
-        existing = self.training_data()
+        xopt = Xopt(
+            generator=generator, evaluator=Evaluator(function=self.evaluate), vocs=vocs
+        )
+        existing = self.training_data(data)
         if not existing.empty:
             xopt.add_data(existing)
         return xopt
 
-    def training_data(self) -> pd.DataFrame:
+    def training_data(self, data: pd.DataFrame | None = None) -> pd.DataFrame:
         """Load all successful historical rows with the currently active inputs.
 
         Rows from older stages are valid because every run stored every input;
         inactive values form the nominal slice of the expanded model.
         """
-        data = self.store.load()
+        if data is None:
+            data = self.available_data()
         if data.empty:
             return data
-        data = data.loc[data["campaign_fingerprint"] == self.campaign.config.fingerprint()]
+        data = data.loc[
+            data["campaign_fingerprint"] == self.campaign.config.fingerprint()
+        ]
         data = data.loc[data["status"] == "ok"]
         if data.empty:
             return data
@@ -212,6 +239,15 @@ class XoptFBPICExplorer:
             if feature not in selected:
                 selected[feature] = np.nan
         return selected
+
+    def available_data(self) -> pd.DataFrame:
+        """Return copied prior history plus local results, preferring local rows."""
+        local = self.store.load()
+        if self.history_store.path == self.store.path:
+            return local
+        history = self.history_store.load()
+        merged = pd.concat([history, local], ignore_index=True)
+        return merged.drop_duplicates(subset="run_id", keep="last")
 
     def completed_evaluation_count(self) -> int:
         """Count compatible persisted evaluations that consume this stage's budget."""

@@ -6,11 +6,21 @@ import argparse
 import json
 from pathlib import Path
 
+import pandas as pd
+
 from .campaign import Campaign
+from .campaign_analysis import (
+    analyze_campaign,
+    plot_charge_slice,
+    plot_feature_slice,
+    plot_feasibility_slice,
+    plot_input_pca_projections,
+)
 from .density_envelope import plot_density_envelope
 from .density_ramps import plot_density_ramp_parameter_space, plot_density_ramps
 from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
+from .libensemble_driver import preview_xopt_batch
 from .store import CampaignStore
 
 
@@ -60,6 +70,55 @@ def main() -> None:
     density_envelope.add_argument("--random-samples", type=int, default=20)
     density_envelope.add_argument("--seed", type=int, default=0)
     density_envelope.add_argument("--samples", type=int, default=1000)
+    analyze = subparsers.add_parser(
+        "analyze-campaign",
+        help="assess compact scalar results and write a JSON report plus PCA plots",
+    )
+    analyze.add_argument("--output", type=Path, required=True)
+    analyze.add_argument(
+        "--data",
+        type=Path,
+        help="explicit campaign_runs.parquet path; use for a compact local export",
+    )
+    analyze.add_argument("--folds", type=int, default=5)
+    analyze.add_argument("--seed", type=int, default=0)
+    charge_slice = subparsers.add_parser(
+        "plot-charge-slice",
+        help="plot charge observations plus the Xopt GP mean and uncertainty slice",
+    )
+    charge_slice.add_argument("--output", type=Path, required=True)
+    charge_slice.add_argument("--data", type=Path)
+    charge_slice.add_argument("--grid-size", type=int, default=100)
+    feature_slice = subparsers.add_parser(
+        "plot-feature-slice",
+        help="plot one feature's observations plus Xopt GP mean and uncertainty slice",
+    )
+    feature_slice.add_argument("--feature", required=True)
+    feature_slice.add_argument("--output", type=Path, required=True)
+    feature_slice.add_argument("--data", type=Path)
+    feature_slice.add_argument("--grid-size", type=int, default=100)
+    feasibility_slice = subparsers.add_parser(
+        "plot-feasibility-slice",
+        help="plot beam existence probability and injection uncertainty slice",
+    )
+    feasibility_slice.add_argument("--output", type=Path, required=True)
+    feasibility_slice.add_argument("--data", type=Path)
+    feasibility_slice.add_argument("--grid-size", type=int, default=100)
+    input_projections = subparsers.add_parser(
+        "plot-input-pca-projections",
+        help="write higher-component input PCA projections with feasibility markers",
+    )
+    input_projections.add_argument("--output", type=Path, required=True)
+    input_projections.add_argument("--data", type=Path)
+    preview = subparsers.add_parser(
+        "preview-batch",
+        help="log a no-submit Xopt/feasibility batch proposal",
+    )
+    preview.add_argument("--output", type=Path, required=True)
+    preview.add_argument("--data", type=Path)
+    preview.add_argument("--count", type=int, default=32)
+    preview.add_argument("--candidate-pool-factor", type=int, default=8)
+    preview.add_argument("--minimum-beam-feasibility", type=float)
     subparsers.add_parser("status", help="show reusable successful evaluations")
     subparsers.add_parser(
         "rebuild-store",
@@ -68,7 +127,80 @@ def main() -> None:
     args = parser.parse_args()
 
     explorer = XoptFBPICExplorer(Campaign.from_file(args.config), args.stage)
-    if args.command == "plot-density-ramps":
+    if args.command == "analyze-campaign":
+        analysis = analyze_campaign(
+            explorer.campaign,
+            args.stage,
+            args.output,
+            args.folds,
+            args.seed,
+            args.data,
+        )
+        print(
+            json.dumps(
+                {
+                    "report": str(analysis.report_path),
+                    "projection": str(analysis.plot_path),
+                    "complete_training_rows": analysis.report.get(
+                        "complete_training_rows", 0
+                    ),
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "plot-charge-slice":
+        output = plot_charge_slice(
+            explorer.campaign, args.stage, args.output, args.data, args.grid_size
+        )
+        print(f"wrote charge GP slice to {output}")
+    elif args.command == "plot-feature-slice":
+        output = plot_feature_slice(
+            explorer.campaign,
+            args.stage,
+            args.output,
+            args.feature,
+            args.data,
+            args.grid_size,
+        )
+        print(f"wrote {args.feature} GP slice to {output}")
+    elif args.command == "plot-feasibility-slice":
+        output = plot_feasibility_slice(
+            explorer.campaign, args.stage, args.output, args.data, args.grid_size
+        )
+        print(f"wrote feasibility slice to {output}")
+    elif args.command == "plot-input-pca-projections":
+        outputs = plot_input_pca_projections(
+            explorer.campaign, args.stage, args.output, args.data
+        )
+        print(
+            json.dumps({"projections": [str(output) for output in outputs]}, indent=2)
+        )
+    elif args.command == "preview-batch":
+        data = (
+            pd.read_parquet(args.data)
+            if args.data is not None
+            else explorer.store.load()
+        )
+        preview = preview_xopt_batch(
+            explorer,
+            data,
+            args.count,
+            args.minimum_beam_feasibility,
+            args.candidate_pool_factor,
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(preview, indent=2) + "\n", encoding="utf-8")
+        print(
+            json.dumps(
+                {
+                    "output": str(args.output),
+                    "candidate_pool_count": preview["candidate_pool_count"],
+                    "selected_count": len(preview["selected"]),
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "plot-density-ramps":
         campaign = Campaign.from_file(args.config)
         output = plot_density_ramps(
             campaign,
