@@ -71,6 +71,9 @@ class _ParticleBeam(SerializableConfig):
     particle_name: str | None = attrs.field(default=None)
     particle_select: dict[str, list[float | None]] | None = attrs.field(default=None)
 
+    def __attrs_post_init__(self) -> None:
+        pass
+
     def add_to_simulation(
         self, simulation: "FBPICSimulation", *, boost: "BoostConverter | None" = None
     ) -> "Particles":
@@ -117,6 +120,7 @@ class ExpressionParticleBeam(_ParticleBeam):
     boost_positions_in_dens_func: bool = attrs.field(default=False, converter=bool)
 
     def __attrs_post_init__(self) -> None:
+        super().__attrs_post_init__()
         if not self.p_zmin < self.p_zmax:
             raise ValueError("p_zmin must be less than p_zmax.")
         if not self.p_rmin < self.p_rmax:
@@ -272,6 +276,7 @@ class FileParticleBeam(_ParticleBeam):
     direction: Literal["forward", "backward"] = attrs.field(default="forward")
 
     def __attrs_post_init__(self) -> None:
+        super().__attrs_post_init__()
         if self.direction not in ("forward", "backward"):
             raise ValueError("direction must be 'forward' or 'backward'.")
 

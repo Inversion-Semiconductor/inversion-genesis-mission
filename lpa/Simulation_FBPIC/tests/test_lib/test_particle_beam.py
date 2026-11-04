@@ -11,10 +11,11 @@ import pytest
 
 from inversion_fbpic.lib.math_expression import MathExpression
 from inversion_fbpic.lib.particle_beam import (
+    _ParticleBeam,
+    ExpressionParticleBeam,
     FileParticleBeam,
     GaussianParticleBeam,
     OpenPMDParticleBeam,
-    ExpressionParticleBeam,
 )
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 
@@ -29,6 +30,25 @@ def direct_beam() -> ExpressionParticleBeam:
         p_rmax=5.0e-6,
         dens_func=MathExpression(expression="1 + z", variables=("z",)),
     )
+
+
+def test_beam_subclasses_call_parent_post_init(monkeypatch: pytest.MonkeyPatch) -> None:
+    called: list[type[_ParticleBeam]] = []
+
+    def parent_post_init(beam: _ParticleBeam) -> None:
+        called.append(type(beam))
+
+    monkeypatch.setattr(_ParticleBeam, "__attrs_post_init__", parent_post_init)
+    ExpressionParticleBeam(
+        gamma0=100.0,
+        n=1.0e22,
+        p_zmin=-2.0e-6,
+        p_zmax=2.0e-6,
+        p_rmax=5.0e-6,
+    )
+    FileParticleBeam(filename=Path("distribution.npz"), n_physical_particles=1.0e8)
+
+    assert called == [ExpressionParticleBeam, FileParticleBeam]
 
 
 def test_particle_beam_forwards_grid_initializer(
