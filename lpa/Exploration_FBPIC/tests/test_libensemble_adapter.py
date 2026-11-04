@@ -126,7 +126,7 @@ def test_adapter_kills_and_records_timed_out_task(tmp_path: Path, monkeypatch) -
 
     assert mpi_executor.submit_kwargs["extra_args"] == "--cpu-bind=none --overlap"
     assert mpi_executor.task.killed
-    assert out["status_code"][0] == 1
+    assert out["status_code"][0] == 2
     assert np.isnan(out["total_beam_charge_pc"][0])
     assert written[0].status == "timeout"
 
@@ -154,7 +154,34 @@ def test_adapter_records_unexpected_extraction_error(
 
     out, _ = run_fbpic_simulation(history, {}, sim_specs, libe_info)
 
-    assert out["status_code"][0] == 1
+    assert out["status_code"][0] == 2
     assert np.isnan(out["total_beam_charge_pc"][0])
     assert written[0].status == "error"
     assert "KeyError" in written[0].message
+
+
+def test_adapter_records_no_beam_outcome(tmp_path: Path, monkeypatch) -> None:
+    run_directory = tmp_path / "sim_000000"
+    run_directory.mkdir()
+    manifest = object()
+    campaign_executor = object.__new__(FBPICRunExecutor)
+    campaign_executor.prepare_run = lambda *_: (run_directory, manifest)  # type: ignore[attr-defined]
+    campaign_executor.config = type("Config", (), {"execution": {}})()
+    campaign_executor.extract_features = lambda _: (_ for _ in ()).throw(  # type: ignore[attr-defined]
+        __import__(
+            "exploration_fbpic.executor", fromlist=["NoBeamDetected"]
+        ).NoBeamDetected("no beam")
+    )
+    written = []
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_adapter.FBPICRunExecutor.finalize",
+        lambda *args: written.append(args[-1]),
+    )
+    history, sim_specs, libe_info = adapter_inputs(
+        campaign_executor, object(), RecordingExecutor()
+    )
+
+    out, _ = run_fbpic_simulation(history, {}, sim_specs, libe_info)
+
+    assert out["status_code"][0] == 1
+    assert written[0].status == "no_beam"

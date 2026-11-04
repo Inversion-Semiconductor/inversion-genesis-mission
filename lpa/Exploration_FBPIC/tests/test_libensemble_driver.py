@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 
 import numpy as np
+import pandas as pd
 import pytest
 from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
 
@@ -13,6 +14,8 @@ from exploration_fbpic.libensemble_driver import (
     make_ensemble,
     next_run_id_offset,
     persistent_xopt,
+    preview_xopt_batch,
+    select_feasible_candidates,
 )
 from exploration_fbpic.store import CampaignStore
 from exploration_fbpic.executor import EvaluationResult
@@ -137,7 +140,9 @@ def test_stage_two_continues_with_stage_one_history(tmp_path: Path) -> None:
 
     ensemble = make_ensemble(config_path, "stage_2")
 
-    assert ensemble.exit_criteria.sim_max == 600
+    assert ensemble.exit_criteria.sim_max == 4000
+    assert len(ensemble.gen_specs.user["initial_points"]) == 64
+    assert ensemble.alloc_specs.user["init_sample_size"] == 64
 
 
 def test_next_run_id_offset_skips_existing_simulation_directories(
@@ -231,6 +236,92 @@ def test_fallback_design_advances_past_initial_anchors() -> None:
     assert all(point not in explorer.initial_design(6) for point in points)
 
 
+def test_feasibility_filter_preserves_xopt_order_above_probability_floor() -> None:
+    class Feasibility:
+        is_ready = True
+
+        @staticmethod
+        def beam_probability(points):
+            return np.array([point["x"] for point in points])
+
+    points = [{"x": 0.2}, {"x": 0.9}, {"x": 0.7}]
+
+    assert select_feasible_candidates(points, Feasibility(), 2, 0.5) == [  # type: ignore[arg-type]
+        {"x": 0.9},
+        {"x": 0.7},
+    ]
+    assert select_feasible_candidates(points, Feasibility(), 2, 0.1) == [  # type: ignore[arg-type]
+        {"x": 0.2},
+        {"x": 0.9},
+    ]
+
+
+def test_feasibility_filter_backfills_when_too_few_candidates_are_eligible() -> None:
+    class Feasibility:
+        is_ready = True
+
+        @staticmethod
+        def beam_probability(points):
+            return np.array([point["x"] for point in points])
+
+    points = [{"x": 0.2}, {"x": 0.05}, {"x": 0.03}]
+
+    assert select_feasible_candidates(points, Feasibility(), 2, 0.1) == [  # type: ignore[arg-type]
+        {"x": 0.2},
+        {"x": 0.05},
+    ]
+
+
+def test_preview_xopt_batch_reports_rank_feasibility_and_selection(monkeypatch) -> None:
+    explorer = XoptFBPICExplorer(
+        Campaign.from_file(SURROGATE_CONFIG), "surrogate_smoke"
+    )
+    points = [
+        {"laser_spot_size_m": 20e-6, "laser_focal_position_m": 3.0e-3},
+        {"laser_spot_size_m": 22e-6, "laser_focal_position_m": 3.5e-3},
+        {"laser_spot_size_m": 24e-6, "laser_focal_position_m": 4.0e-3},
+        {"laser_spot_size_m": 26e-6, "laser_focal_position_m": 4.5e-3},
+    ]
+    xopt = type(
+        "Xopt",
+        (),
+        {
+            "data": pd.DataFrame({"present": [True]}),
+            "generator": type("Generator", (), {"generate": lambda *_: points})(),
+        },
+    )()
+    monkeypatch.setattr(explorer, "make_xopt", lambda _: xopt)
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.BeamFeasibilityModel.fit_campaign_data",
+        lambda *_: None,
+    )
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.BeamFeasibilityModel.is_ready",
+        property(lambda _: True),
+    )
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.BeamFeasibilityModel.beam_probability",
+        lambda *_: np.array([0.4, 0.2, 0.05, 0.8]),
+    )
+
+    preview = preview_xopt_batch(
+        explorer,
+        pd.DataFrame(),
+        count=2,
+        minimum_beam_feasibility=0.1,
+        candidate_pool_factor=2,
+    )
+
+    assert preview["candidate_pool_count"] == 4
+    assert [candidate["selected_rank"] for candidate in preview["selected"]] == [1, 2]
+    assert preview["selected"][0]["xopt_rank"] == 1
+    assert preview["selected"][1]["xopt_rank"] == 2
+    assert all(
+        candidate["relative_combined_gp_uncertainty"] is None
+        for candidate in preview["candidates"]
+    )
+
+
 def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) -> None:
     source = SURROGATE_CONFIG.read_text(encoding="utf-8")
     config_path = tmp_path / "campaign.yaml"
@@ -280,7 +371,7 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
     ensemble = make_ensemble(config_path, "surrogate_smoke")
 
     assert ensemble.exit_criteria.sim_max == 17
-    assert ensemble.gen_specs.user["initial_points"] == []
+    assert len(ensemble.gen_specs.user["initial_points"]) == 5
 
 
 def test_continuation_rejects_runs_from_a_different_campaign(tmp_path: Path) -> None:

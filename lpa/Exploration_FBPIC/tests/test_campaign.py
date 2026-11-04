@@ -1,5 +1,6 @@
-from pathlib import Path
 import importlib.util
+import json
+from pathlib import Path
 
 import pytest
 
@@ -75,6 +76,62 @@ def test_stage_resource_settings_are_consistent() -> None:
         settings.total_gpus
         == settings.gpus_per_simulation * settings.concurrent_simulations
     )
+
+
+def test_stage_two_test_uses_isolated_history_and_run_roots(monkeypatch) -> None:
+    monkeypatch.setenv("PSCRATCH", "/pscratch/test-user")
+    campaign = Campaign.from_file(CONFIG)
+    production = campaign.config.stage_settings("stage_2")
+    test = campaign.config.stage_settings("stage_2_test")
+
+    assert production.max_evaluations == 4000
+    assert production.concurrent_simulations == 128
+    assert production.gpus_per_simulation == 4
+    assert production.total_gpus == 512
+    assert test.max_evaluations == 4
+    assert test.concurrent_simulations == 4
+    assert test.gpus_per_simulation == 4
+    assert test.run_root is not None
+    assert test.history_root is not None
+    assert test.run_root == Path(
+        "/pscratch/test-user/ionization_injection_stage_2_test/runs"
+    )
+    assert test.history_root == Path(
+        "/pscratch/test-user/ionization_injection_stage_2_test/history"
+    )
+    assert test.run_root != campaign.config.run_root
+    assert test.history_root != campaign.config.run_root
+
+
+def test_stage_one_continue_test_matches_stage_one_space(monkeypatch) -> None:
+    monkeypatch.setenv("PSCRATCH", "/pscratch/test-user")
+    campaign = Campaign.from_file(CONFIG)
+    stage_one = campaign.config.stage_settings("stage_1")
+    test = campaign.config.stage_settings("stage_1_continue_test")
+
+    assert test.active_parameters == stage_one.active_parameters
+    assert test.initial_design_size == 0
+    assert test.max_evaluations == 4
+    assert test.run_root == Path(
+        "/pscratch/test-user/ionization_injection_stage_1_continue_test/runs"
+    )
+    assert test.history_root == Path(
+        "/pscratch/test-user/ionization_injection_stage_1_continue_test/history"
+    )
+
+
+@pytest.mark.parametrize("stage", ["stage_1_continue_test", "stage_2_test"])
+def test_isolated_stage_manifest_serializes_paths(
+    monkeypatch, tmp_path: Path, stage: str
+) -> None:
+    monkeypatch.setenv("PSCRATCH", "/pscratch/test-user")
+    campaign = Campaign.from_file(CONFIG)
+
+    manifest_path = campaign.make_manifest("sim_000000", stage).write(tmp_path)
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert record["stage_settings"]["run_root"].startswith("/pscratch/test-user/")
+    assert record["stage_settings"]["history_root"].startswith("/pscratch/test-user/")
 
 
 def test_laser_super_gaussian_order_is_reserved_for_stage_two() -> None:
