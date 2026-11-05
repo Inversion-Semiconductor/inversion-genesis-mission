@@ -104,7 +104,7 @@ class _ParticleDiagnostic(_Diagnostic):
     At analysis time, select the highest-numbered ``data########.h5`` file in
     the attached simulation's resolved save directory under ``hdf5``. The file
     need not exist at construction or attachment time. ``load_particles()``
-    resolves ``target`` against attached density profiles and concatenates
+    resolves ``target`` against attached density profiles and particle beams and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
     are loaded only once. ``select`` applies additional openPMD-viewer particle
     filtering to each recording before concatenation. When ``central_fraction``
@@ -119,11 +119,12 @@ class _ParticleDiagnostic(_Diagnostic):
             dictionary. Values use the standard configuration serialization
             conversions; arbitrary dictionaries are not interpreted as configs.
         target: (tuple) Select recorded particles using ("elec_name", name
-            or list of names), ("ion_name", name or list of names), or
-            ("all_of_species", species). The species "e" selects all recorded
-            electrons; an atomic symbol such as "He" selects recorded ions
-            of that species. Names must be configured on the attached
-            simulation's densities.
+            or list of names), ("ion_name", name or list of names),
+            ("particle_name", name or list of names), or ("all_of_species",
+            species). The species "e" selects all recorded plasma electrons;
+            an atomic symbol such as "He" selects recorded ions of that
+            species. ``particle_name`` selects particle beams configured on
+            the attached simulation.
         select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -132,14 +133,14 @@ class _ParticleDiagnostic(_Diagnostic):
         central_fraction: (float|None) |OPTIONAL| Central weighted fraction to
             retain on each coordinate after combining recordings. Must be
             strictly between 0 and 1. Defaults to None, which disables cropping."""
-    target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
+    target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str]
     select: dict[str, list[float | None]] | None
     central_fraction: float | None
     def __init__(
         self,
         *,
         data: dict[str, Any] = ...,
-        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
         central_fraction: float | None = None,
     ) -> None:
@@ -148,7 +149,7 @@ class _ParticleDiagnostic(_Diagnostic):
         At analysis time, select the highest-numbered ``data########.h5`` file in
         the attached simulation's resolved save directory under ``hdf5``. The file
         need not exist at construction or attachment time. ``load_particles()``
-        resolves ``target`` against attached density profiles and concatenates
+        resolves ``target`` against attached density profiles and particle beams and concatenates
         the selected particle arrays and macro-weights. Repeated recording names
         are loaded only once. ``select`` applies additional openPMD-viewer particle
         filtering to each recording before concatenation. When ``central_fraction``
@@ -163,11 +164,12 @@ class _ParticleDiagnostic(_Diagnostic):
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs.
             target: (tuple) Select recorded particles using ("elec_name", name
-                or list of names), ("ion_name", name or list of names), or
-                ("all_of_species", species). The species "e" selects all recorded
-                electrons; an atomic symbol such as "He" selects recorded ions
-                of that species. Names must be configured on the attached
-                simulation's densities.
+                or list of names), ("ion_name", name or list of names),
+                ("particle_name", name or list of names), or ("all_of_species",
+                species). The species "e" selects all recorded plasma electrons;
+                an atomic symbol such as "He" selects recorded ions of that
+                species. ``particle_name`` selects particle beams configured on
+                the attached simulation.
             select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
                 mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
                 [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -206,11 +208,12 @@ class MeanKineticEnergy(_ParticleDiagnostic):
             dictionary. Values use the standard configuration serialization
             conversions; arbitrary dictionaries are not interpreted as configs.
         target: (tuple) Select recorded particles using ("elec_name", name
-            or list of names), ("ion_name", name or list of names), or
-            ("all_of_species", species). The species "e" selects all recorded
-            electrons; an atomic symbol such as "He" selects recorded ions
-            of that species. Names must be configured on the attached
-            simulation's densities.
+            or list of names), ("ion_name", name or list of names),
+            ("particle_name", name or list of names), or ("all_of_species",
+            species). The species "e" selects all recorded plasma electrons;
+            an atomic symbol such as "He" selects recorded ions of that
+            species. ``particle_name`` selects particle beams configured on
+            the attached simulation.
         select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -225,7 +228,7 @@ class MeanKineticEnergy(_ParticleDiagnostic):
         self,
         *,
         data: dict[str, Any] = ...,
-        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
         central_fraction: float | None = None,
     ) -> None:
@@ -241,11 +244,12 @@ class MeanKineticEnergy(_ParticleDiagnostic):
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs.
             target: (tuple) Select recorded particles using ("elec_name", name
-                or list of names), ("ion_name", name or list of names), or
-                ("all_of_species", species). The species "e" selects all recorded
-                electrons; an atomic symbol such as "He" selects recorded ions
-                of that species. Names must be configured on the attached
-                simulation's densities.
+                or list of names), ("ion_name", name or list of names),
+                ("particle_name", name or list of names), or ("all_of_species",
+                species). The species "e" selects all recorded plasma electrons;
+                an atomic symbol such as "He" selects recorded ions of that
+                species. ``particle_name`` selects particle beams configured on
+                the attached simulation.
             select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
                 mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
                 [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -270,11 +274,12 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
             dictionary. Values use the standard configuration serialization
             conversions; arbitrary dictionaries are not interpreted as configs.
         target: (tuple) Select recorded particles using ("elec_name", name
-            or list of names), ("ion_name", name or list of names), or
-            ("all_of_species", species). The species "e" selects all recorded
-            electrons; an atomic symbol such as "He" selects recorded ions
-            of that species. Names must be configured on the attached
-            simulation's densities.
+            or list of names), ("ion_name", name or list of names),
+            ("particle_name", name or list of names), or ("all_of_species",
+            species). The species "e" selects all recorded plasma electrons;
+            an atomic symbol such as "He" selects recorded ions of that
+            species. ``particle_name`` selects particle beams configured on
+            the attached simulation.
         select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -305,7 +310,7 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
         self,
         *,
         data: dict[str, Any] = ...,
-        target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
+        target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str],
         select: dict[str, list[float | None]] | None = None,
         central_fraction: float | None = None,
         longitudinal_mode: int = SPLINE,
@@ -325,11 +330,12 @@ class MomentDescriptorDiagnostic(_ParticleDiagnostic):
                 dictionary. Values use the standard configuration serialization
                 conversions; arbitrary dictionaries are not interpreted as configs.
             target: (tuple) Select recorded particles using ("elec_name", name
-                or list of names), ("ion_name", name or list of names), or
-                ("all_of_species", species). The species "e" selects all recorded
-                electrons; an atomic symbol such as "He" selects recorded ions
-                of that species. Names must be configured on the attached
-                simulation's densities.
+                or list of names), ("ion_name", name or list of names),
+                ("particle_name", name or list of names), or ("all_of_species",
+                species). The species "e" selects all recorded plasma electrons;
+                an atomic symbol such as "He" selects recorded ions of that
+                species. ``particle_name`` selects particle beams configured on
+                the attached simulation.
             select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
                 mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
                 [minimum, maximum] ranges; None bounds are unbounded. For example,

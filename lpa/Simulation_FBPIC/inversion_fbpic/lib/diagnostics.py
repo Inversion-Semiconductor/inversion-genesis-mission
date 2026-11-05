@@ -142,7 +142,7 @@ class _ParticleDiagnostic(_Diagnostic):
     At analysis time, select the highest-numbered ``data########.h5`` file in
     the attached simulation's resolved save directory under ``hdf5``. The file
     need not exist at construction or attachment time. ``load_particles()``
-    resolves ``target`` against attached density profiles and concatenates
+    resolves ``target`` against attached density profiles and particle beams and concatenates
     the selected particle arrays and macro-weights. Repeated recording names
     are loaded only once. ``select`` applies additional openPMD-viewer particle
     filtering to each recording before concatenation. When ``central_fraction``
@@ -154,11 +154,12 @@ class _ParticleDiagnostic(_Diagnostic):
 
     Args:
         target: (tuple) Select recorded particles using ("elec_name", name
-            or list of names), ("ion_name", name or list of names), or
-            ("all_of_species", species). The species "e" selects all recorded
-            electrons; an atomic symbol such as "He" selects recorded ions
-            of that species. Names must be configured on the attached
-            simulation's densities.
+            or list of names), ("ion_name", name or list of names),
+            ("particle_name", name or list of names), or ("all_of_species",
+            species). The species "e" selects all recorded plasma electrons;
+            an atomic symbol such as "He" selects recorded ions of that
+            species. ``particle_name`` selects particle beams configured on
+            the attached simulation.
         select: (dict[str, list[float|None]]|None) |OPTIONAL| Additional filters
             mapping x, y, z (in meters) or ux, uy, uz (normalized momenta) to
             [minimum, maximum] ranges; None bounds are unbounded. For example,
@@ -170,7 +171,7 @@ class _ParticleDiagnostic(_Diagnostic):
     """
 
     target: (
-        tuple[Literal["elec_name", "ion_name"], str | list[str]]
+        tuple[Literal["elec_name", "ion_name", "particle_name"], str | list[str]]
         | tuple[Literal["all_of_species"], str]
     ) = attrs.field(converter=_target_tuple)
     select: dict[str, list[float | None]] | None = attrs.field(
@@ -190,9 +191,9 @@ class _ParticleDiagnostic(_Diagnostic):
         self, attribute: attrs.Attribute, value: tuple[Any, ...]
     ) -> None:
         kind, selected = value
-        if kind not in ("elec_name", "ion_name", "all_of_species"):
+        if kind not in ("elec_name", "ion_name", "particle_name", "all_of_species"):
             raise ValueError(
-                "target kind must be elec_name, ion_name, or all_of_species."
+                "target kind must be elec_name, ion_name, particle_name, or all_of_species."
             )
         if kind == "all_of_species":
             if not isinstance(selected, str) or not selected:
@@ -227,11 +228,18 @@ class _ParticleDiagnostic(_Diagnostic):
                 raise ValueError(f"No recorded particles match target {self.target!r}.")
         else:
             names = [selected] if isinstance(selected, str) else selected
-            available = {
-                getattr(density, kind)
-                for density in densities
-                if getattr(density, kind)
-            }
+            if kind == "particle_name":
+                available = {
+                    beam.particle_name
+                    for beam in self.attached_simulation.beams
+                    if beam.particle_name
+                }
+            else:
+                available = {
+                    getattr(density, kind)
+                    for density in densities
+                    if getattr(density, kind)
+                }
             missing = [name for name in names if name not in available]
             if missing:
                 raise ValueError(f"Unknown recorded {kind} target: {missing!r}.")
