@@ -406,11 +406,11 @@ class Simulation(SerializableConfig):
         if not self.densities:
             if self.hyparams.simulation_length is None:
                 self._logger.critical(
-                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`."
+                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
                     "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
                 )
                 raise ValueError(
-                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`."
+                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
                     "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
                 )
             if not (self.lasers or self.beams):
