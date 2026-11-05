@@ -840,7 +840,7 @@ class TestAttachedAnalysis:
             simulation_length=4e-6,
             right_buffer=right_buffer,
         )
-        monkeypatch.setattr(simulation, "calculate_mean_group_beta", lambda: 1.0)
+        monkeypatch.setattr(simulation, "resolve_beta_window", lambda: 1.0)
 
         simulation.setup_simulation(working_directory=tmp_path)
 
