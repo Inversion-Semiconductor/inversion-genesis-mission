@@ -1146,6 +1146,21 @@ class TestAttachedAnalysis:
         assert diagnostic.data == compute_moment_descriptor(particles, weights)
         assert diagnostic.analysis_complete
 
+    @pytest.mark.parametrize("use_cuda", [False, True])
+    def test_setup_passes_configured_cuda_mode(
+        self, analysis_simulation, tmp_path, use_cuda: bool
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_cuda=use_cuda)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert (
+            simulation_module.FBPICSimulation.call_args.kwargs["use_cuda"] is use_cuda
+        )
+
     def test_setup_passes_configured_smoother(
         self, analysis_simulation, tmp_path
     ) -> None:
