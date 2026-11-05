@@ -148,9 +148,7 @@ class SimulationHyperparameters(SerializableConfig):
         nm: (int) Number of angular modes used.
         simulation_length: (float | None) [m] Distance the moving window propagates before its leading edge reaches the end of the interaction. If None, derive the distance from the longitudinal extent of the density profiles. The total interaction length also includes `right_buffer` so the full initial window exits the interaction.
         right_buffer: (float | None) |OPTIONAL| Additional propagation distance after `simulation_length` or the derived density-profile length. If None, equal to the window size (zmax - zmin).
-        beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
-            the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
-            If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
+        beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, use the largest beta among the mean group velocities of all lasers with a `wavelength` attribute and the kinematic betas ``sqrt(1 - gamma0**-2)`` of particle beams with a `gamma0` attribute. Lasers use vacuum beta 1.0 when no density profile is present. If neither source is available, defaults to 1.0.
         use_mpi: (bool) Whether to use MPI.
         use_cuda: (bool) |OPTIONAL| Whether to use CUDA. If True and CUDA is unavailable, a warning will print and the simulation will proceed with CPU execution. Defaults to True.
         gamma_boost: (float | None) |OPTIONAL| Gamma boost factor.
