@@ -17,6 +17,23 @@ BUILD_HELPER = REPO_ROOT / "lpa" / "Simulation_FBPIC" / "_build_provenance.py"
 HASH_FILE = Path("lpa/Simulation_FBPIC/inversion_fbpic/git_hash.txt")
 
 
+def test_recorded_git_hash_matches_current_head() -> None:
+    current_hash = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert (REPO_ROOT / HASH_FILE).read_text(
+        encoding="utf-8"
+    ).strip() == current_hash, (
+        "git_hash.txt is stale. Run `pre-commit install` to install the hook that "
+        "refreshes it after commits."
+    )
+
+
 @pytest.fixture
 def recorder():
     spec = importlib.util.spec_from_file_location("build_provenance", BUILD_HELPER)
