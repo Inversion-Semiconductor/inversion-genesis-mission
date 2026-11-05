@@ -973,6 +973,39 @@ class TestAttachedAnalysis:
         electron.track.assert_called_once_with(simulation.simulation.comm)
         simulation_module.add_laser_pulse.assert_called_once()
 
+    def test_restart_replaces_initialized_beam_state(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+
+        simulation, _, _, events = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+        simulation._sort_component(beam)
+
+        def add_beam(self, backend, *, boost=None):
+            events.append("beam")
+            return MagicMock()
+
+        def restart(backend) -> None:
+            events.append("restart")
+            backend.iteration = 4
+
+        monkeypatch.setattr(ExpressionParticleBeam, "add_to_simulation", add_beam)
+        monkeypatch.setattr(simulation_module, "restart_from_checkpoint", restart)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert events.index("beam") < events.index("restart") < events.index("setup")
+        simulation_module.add_laser_pulse.assert_not_called()
+
     def test_restart_loads_checkpoint_before_initializing_moving_window(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:
