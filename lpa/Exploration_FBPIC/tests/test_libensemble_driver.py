@@ -9,6 +9,7 @@ from exploration_fbpic.campaign import Campaign
 from exploration_fbpic.exploration import XoptFBPICExplorer
 from exploration_fbpic.libensemble_driver import (
     fallback_design,
+    main,
     make_ensemble,
     next_run_id_offset,
     persistent_xopt,
@@ -55,6 +56,31 @@ def test_make_ensemble_validates_training_data_before_allocation(monkeypatch) ->
         make_ensemble(CONFIG, "smoke")
 
 
+def test_main_rebuilds_campaign_store_after_ensemble_failure(monkeypatch) -> None:
+    class FailingEnsemble:
+        nworkers = 1
+        gen_specs = type("Specs", (), {"user": {"batch_size": 1}})()
+
+        def run(self) -> None:
+            raise RuntimeError("worker failure")
+
+    rebuilt = []
+    monkeypatch.setattr("sys.argv", ["driver", str(CONFIG), "--stage", "smoke"])
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.make_ensemble",
+        lambda *_: FailingEnsemble(),
+    )
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.CampaignStore.rebuild",
+        lambda store: rebuilt.append(store.root),
+    )
+
+    with pytest.raises(RuntimeError, match="worker failure"):
+        main()
+
+    assert rebuilt == [Campaign.from_file(CONFIG).config.run_root]
+
+
 def test_make_ensemble_rejects_existing_runs_without_continuation(
     tmp_path: Path,
 ) -> None:
@@ -99,7 +125,7 @@ def test_stage_two_continues_with_stage_one_history(tmp_path: Path) -> None:
                 ).resolve()
             ),
         ).replace(
-            "run_root: ../../data/ionization_injection_exploration",
+            "run_root: ${PSCRATCH}/ionization_injection_exploration",
             f"run_root: {tmp_path / 'runs'}",
         ),
         encoding="utf-8",
