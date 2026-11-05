@@ -439,12 +439,24 @@ class TestSimulationAssembly:
         with pytest.raises(ValueError, match="No SimulationHyperparameters"):
             Simulation(elements=[den, las])
 
-    def test_laser_requires_density_profile(self) -> None:
+    def test_laser_without_density_requires_simulation_length(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 
         hyp, _, laser = _make_simulation_elements()
         with pytest.raises(ValueError, match="No DensityProfile found"):
             Simulation(elements=[hyp, laser])
+
+    def test_laser_without_density_allows_explicit_simulation_length(self) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, laser = _make_simulation_elements()
+        hyp = attrs.evolve(hyp, simulation_length=4.0e-6)
+
+        simulation = Simulation(elements=[hyp, laser])
+
+        assert simulation.densities == []
+        assert simulation.lasers == [laser]
+        assert simulation.beams == []
 
     def test_missing_density_and_driver_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
@@ -460,7 +472,7 @@ class TestSimulationAssembly:
         with pytest.raises(ValueError, match="No LaserPulse or ParticleBeam"):
             Simulation(elements=[hyp, den])
 
-    def test_particle_beam_requires_density_profile(self) -> None:
+    def test_particle_beam_without_density_requires_simulation_length(self) -> None:
         from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
         from inversion_fbpic.lib.simulation import Simulation
 
@@ -475,6 +487,28 @@ class TestSimulationAssembly:
 
         with pytest.raises(ValueError, match="No DensityProfile found"):
             Simulation(elements=[hyp, beam])
+
+    def test_particle_beam_without_density_allows_explicit_simulation_length(
+        self,
+    ) -> None:
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, _ = _make_simulation_elements()
+        hyp = attrs.evolve(hyp, simulation_length=4.0e-6)
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+
+        simulation = Simulation(elements=[hyp, beam])
+
+        assert simulation.densities == []
+        assert simulation.lasers == []
+        assert simulation.beams == [beam]
 
     def test_duplicate_hyperparameters_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
