@@ -405,31 +405,21 @@ class Simulation(SerializableConfig):
             raise ValueError(
                 "No SimulationHyperparameters object found. Please provide a SimulationHyperparameters object or a path to a file or directory containing a SimulationHyperparameters object."
             )
-        if not self.densities:
-            if self.hyparams.simulation_length is None:
-                self._logger.critical(
-                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
-                    "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
-                )
-                raise ValueError(
-                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
-                    "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
-                )
-            if not (self.lasers or self.beams):
-                self._logger.critical(
-                    "No DensityProfile, LaserPulse, or ParticleBeam objects found. "
-                    "Provide a density profile or at least one driver."
-                )
-                raise ValueError(
-                    "No DensityProfile, LaserPulse, or ParticleBeam objects found. "
-                    "Provide a density profile or at least one driver."
-                )
-        if len(self.lasers) == 0 and len(self.beams) == 0:
+        if not self.densities and self.hyparams.simulation_length is None:
             self._logger.critical(
-                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object or a path to a file or directory containing a LaserPulse or ParticleBeam object."
+                "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
+                "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
             )
             raise ValueError(
-                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object or a path to a file or directory containing a LaserPulse or ParticleBeam object."
+                "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`. "
+                "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
+            )
+        if len(self.lasers) == 0 and len(self.beams) == 0:
+            self._logger.critical(
+                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object."
+            )
+            raise ValueError(
+                "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object."
             )
 
     @property
