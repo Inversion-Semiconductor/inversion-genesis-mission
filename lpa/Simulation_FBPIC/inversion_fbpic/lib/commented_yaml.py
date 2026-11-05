@@ -456,8 +456,15 @@ def dump_yaml_with_comments(
 ) -> str:
     """Dump *data* to YAML and optionally inject comments from *descriptions*."""
     prepared_data = _apply_flow_style_paths(data, flow_style_paths=flow_style_paths)
+    # Inline parameter comments must follow a complete scalar line.  Disable
+    # PyYAML's scalar wrapping so injecting a comment cannot split a plain
+    # string scalar into invalid YAML.
     raw = yaml.dump(
-        prepared_data, Dumper=_FlowStyleDumper, indent=indent, sort_keys=False
+        prepared_data,
+        Dumper=_FlowStyleDumper,
+        indent=indent,
+        sort_keys=False,
+        width=float("inf"),
     )
     if not comments or not _normalize_description_map(descriptions):
         return raw

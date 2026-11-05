@@ -6,6 +6,7 @@ from .datapoint import Parameters
 from .density_core import _DensityProfile
 from .diagnostics import _Diagnostic
 from .laser import _LaserPulse
+from .particle_beam import _ParticleBeam
 from .serializable_config import SerializableConfig
 from fbpic.main import Simulation as FBPICSimulation, Particles
 from pathlib import Path
@@ -26,6 +27,7 @@ class Simulation(SerializableConfig):
     hyparams: SimulationHyperparameters | None
     densities: List[_DensityProfile]
     lasers: List[_LaserPulse]
+    beams: List[_ParticleBeam]
     diagnostics: List[_Diagnostic]
     parameters: List[Parameters]
     simulation: FBPICSimulation
@@ -89,10 +91,24 @@ class Simulation(SerializableConfig):
         This is the total simulation length (maximal extent) divided by the time to traverse.
 
         Args:
-            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the wavelength is calculated from the mean group velocity of the first laser to have a `wavelength` attribute.
+            wavelength: (float) [m] |OPTIONAL| The wavelength of the EM wave. If None, the largest mean group beta is returned across every laser with a `wavelength` attribute.
             num_samples: (int) |OPTIONAL| Number of samples to take along the plasma profile. Defaults to 1000.
         Returns:
             (float) [c] The mean group velocity of the EM wave in the plasma normalized to c."""
+        ...
+    def resolve_beta_window(self, num_samples: int=1000) -> float:
+        """Return the fastest applicable moving-window beta.
+
+        The result is the largest mean plasma group beta across lasers with a
+        wavelength and the kinematic beta ``sqrt(1 - gamma0**-2)`` across
+        particle beams with ``gamma0``. When neither source is available, the
+        window defaults to the speed of light.
+
+        Args:
+            num_samples: (int) |OPTIONAL| Number of longitudinal samples used for each laser's mean group beta. Defaults to 1000.
+
+        Returns:
+            (float) [c] Moving-window beta."""
         ...
     @property
     def num_steps(self) -> int:
@@ -186,12 +202,11 @@ class SimulationHyperparameters(SerializableConfig):
         nr: (int) Number of gridpoints along the radial direction.
         nm: (int) Number of angular modes used.
         use_mpi: (bool) Whether to use MPI.
+        use_cuda: (bool) |OPTIONAL| Whether to use CUDA. If True and CUDA is unavailable, a warning will print and the simulation will proceed with CPU execution. Defaults to True.
         number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics. Values greater than 1 request at most that many dumps; fewer are written when there are too few simulation steps.
         simulation_length: (float | None) [m] Distance the moving window propagates before its leading edge reaches the end of the interaction. If None, derive the distance from the longitudinal extent of the density profiles. The total interaction length also includes `right_buffer` so the full initial window exits the interaction.
         right_buffer: (float | None) |OPTIONAL| Additional propagation distance after `simulation_length` or the derived density-profile length. If None, equal to the window size (zmax - zmin).
-        beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
-            the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
-            If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
+        beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, use the largest beta among the mean group velocities of all lasers with a `wavelength` attribute and the kinematic betas ``sqrt(1 - gamma0**-2)`` of particle beams with a `gamma0` attribute. Lasers use vacuum beta 1.0 when no density profile is present. If neither source is available, defaults to 1.0.
         gamma_boost: (float | None) |OPTIONAL| Gamma boost factor.
         field_diagnostics: (list[Literal["rho", "E", "B", "J"]] | None) |OPTIONAL| List of field diagnostics to save. If None, no field diagnostics are saved.
         save_directory: (str | Path) |OPTIONAL| Directory to save the diagnostics. If not absolute, this is relative to the `working_directory` passed to `Simulation.setup_simulation()`. Defaults to "diags".
@@ -214,6 +229,7 @@ class SimulationHyperparameters(SerializableConfig):
     nr: int
     nm: int
     use_mpi: bool
+    use_cuda: bool
     number_dumps: int
     simulation_length: float | None
     right_buffer: float | None
@@ -241,6 +257,7 @@ class SimulationHyperparameters(SerializableConfig):
         nr: int,
         nm: int,
         use_mpi: bool,
+        use_cuda: bool = True,
         number_dumps: int,
         simulation_length: float | None = None,
         right_buffer: float | None = None,
@@ -269,12 +286,11 @@ class SimulationHyperparameters(SerializableConfig):
             nr: (int) Number of gridpoints along the radial direction.
             nm: (int) Number of angular modes used.
             use_mpi: (bool) Whether to use MPI.
+            use_cuda: (bool) |OPTIONAL| Whether to use CUDA. If True and CUDA is unavailable, a warning will print and the simulation will proceed with CPU execution. Defaults to True.
             number_dumps: (int) Number of diagnostic dumps to save. Set to 1 for a single initial dump, -1 for a single final dump, or 0 to disable FBPIC diagnostics. Values greater than 1 request at most that many dumps; fewer are written when there are too few simulation steps.
             simulation_length: (float | None) [m] Distance the moving window propagates before its leading edge reaches the end of the interaction. If None, derive the distance from the longitudinal extent of the density profiles. The total interaction length also includes `right_buffer` so the full initial window exits the interaction.
             right_buffer: (float | None) |OPTIONAL| Additional propagation distance after `simulation_length` or the derived density-profile length. If None, equal to the window size (zmax - zmin).
-            beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, the moving window velocity is calculated to be the group velocity of
-                the first LaserPulse object with a `wavelength` data attribute in conjunction with the combination of all nominal plasma densities.
-                If no `wavelength` attribute is found, the moving window velocity is set to 1.0.
+            beta_window: (float | None) |OPTIONAL| Beta of the moving window. If None, use the largest beta among the mean group velocities of all lasers with a `wavelength` attribute and the kinematic betas ``sqrt(1 - gamma0**-2)`` of particle beams with a `gamma0` attribute. Lasers use vacuum beta 1.0 when no density profile is present. If neither source is available, defaults to 1.0.
             gamma_boost: (float | None) |OPTIONAL| Gamma boost factor.
             field_diagnostics: (list[Literal["rho", "E", "B", "J"]] | None) |OPTIONAL| List of field diagnostics to save. If None, no field diagnostics are saved.
             save_directory: (str | Path) |OPTIONAL| Directory to save the diagnostics. If not absolute, this is relative to the `working_directory` passed to `Simulation.setup_simulation()`. Defaults to "diags".

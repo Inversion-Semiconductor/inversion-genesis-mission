@@ -420,6 +420,38 @@ def test_particle_diagnostic_rejects_invalid_central_fraction(
         )
 
 
+def test_particle_diagnostic_loads_named_particle_beam(
+    moment_simulation, moment_particles, monkeypatch
+) -> None:
+    from inversion_fbpic.lib import diagnostics as module
+    from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+
+    simulation, _ = moment_simulation
+    beam = ExpressionParticleBeam(
+        gamma0=1_000.0,
+        n=1.0e22,
+        p_zmin=-2.0e-6,
+        p_zmax=2.0e-6,
+        p_rmax=5.0e-6,
+        particle_name="driver_electrons",
+    )
+    simulation._sort_component(beam)
+    diagnostic = MeanKineticEnergy(target=("particle_name", "driver_electrons"))
+    simulation._sort_component(diagnostic)
+    directory = simulation._save_directory / "hdf5"
+    directory.mkdir(parents=True)
+    latest = directory / "data00000010.h5"
+    latest.touch()
+    loader = Mock(return_value=moment_particles)
+    monkeypatch.setattr(module, "load_openpmd_particles", loader)
+
+    particles, weights = diagnostic.load_particles()
+
+    np.testing.assert_array_equal(particles, moment_particles[0])
+    np.testing.assert_array_equal(weights, moment_particles[1])
+    loader.assert_called_once_with(latest, "driver_electrons", select=None)
+
+
 @pytest.mark.parametrize(
     "diagnostic_class", [MeanKineticEnergy, MomentDescriptorDiagnostic]
 )

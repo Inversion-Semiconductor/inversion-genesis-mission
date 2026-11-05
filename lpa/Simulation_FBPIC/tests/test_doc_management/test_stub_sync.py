@@ -592,7 +592,7 @@ def test_mean_kinetic_energy_stub_includes_inherited_particle_inputs() -> None:
     )[0]
     assert "        data: dict[str, Any] = ...," in diagnostic
     assert (
-        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        "target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
         in diagnostic
     )
     assert "        select: dict[str, list[float | None]] | None = None," in diagnostic
@@ -606,7 +606,7 @@ def test_moment_descriptor_stub_includes_concrete_analysis_and_options() -> None
     ast.parse(pyi)
     descriptor = pyi.split("class MomentDescriptorDiagnostic(_ParticleDiagnostic):")[1]
     assert (
-        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        "target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
         in descriptor
     )
     assert "        select: dict[str, list[float | None]] | None = None," in descriptor
@@ -632,7 +632,7 @@ def test_particle_diagnostic_stub_exposes_loader_and_inherited_selector() -> Non
         "\n\nclass "
     )[0]
     assert (
-        "target: tuple[Literal['elec_name', 'ion_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
+        "target: tuple[Literal['elec_name', 'ion_name', 'particle_name'], str | list[str]] | tuple[Literal['all_of_species'], str]"
         in particle
     )
     assert "    select: dict[str, list[float | None]] | None\n" in particle

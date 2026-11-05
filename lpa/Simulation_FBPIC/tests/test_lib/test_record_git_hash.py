@@ -17,6 +17,31 @@ BUILD_HELPER = REPO_ROOT / "lpa" / "Simulation_FBPIC" / "_build_provenance.py"
 HASH_FILE = Path("lpa/Simulation_FBPIC/inversion_fbpic/git_hash.txt")
 
 
+def test_recorded_git_hash_matches_current_head() -> None:
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        pytest.skip("Git is unavailable; cannot compare the recorded revision.")
+    if revision.returncode != 0:
+        pytest.skip("Not running from a Git checkout; no current revision to compare.")
+
+    hash_file = REPO_ROOT / HASH_FILE
+    assert hash_file.is_file(), (
+        "git_hash.txt is missing. Run `python tools/record_git_hash.py`; install "
+        "the refresh hook with `pre-commit install`."
+    )
+    assert hash_file.read_text(encoding="utf-8").strip() == revision.stdout.strip(), (
+        "git_hash.txt is stale. Run `python tools/record_git_hash.py` to refresh it; "
+        "run `pre-commit install` to install the post-commit refresh hook."
+    )
+
+
 @pytest.fixture
 def recorder():
     spec = importlib.util.spec_from_file_location("build_provenance", BUILD_HELPER)

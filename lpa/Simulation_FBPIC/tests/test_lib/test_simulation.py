@@ -291,6 +291,65 @@ class TestCalculateGroupBeta:
         result = sim.calculate_mean_group_beta(8e-7)
         assert result == pytest.approx(0.999857)
 
+    def test_laser_only_simulation_uses_vacuum_group_beta(self) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, _, laser = _make_simulation_elements()
+        hyperparameters = attrs.evolve(hyperparameters, simulation_length=4.0e-6)
+        simulation = Simulation(elements=[hyperparameters, laser])
+
+        assert simulation.calculate_mean_group_beta(laser.wavelength) == 1.0
+        assert simulation.resolve_beta_window() == 1.0
+
+    def test_mean_group_beta_uses_all_laser_wavelengths(self) -> None:
+        from inversion_fbpic.lib.laser import GaussianLaserPulse
+
+        hyp, density, laser = _make_simulation_elements()
+        second_laser = GaussianLaserPulse(
+            energy=5.0, **{**LASER_BASE_KWARGS, "wavelength": 1.0e-6}
+        )
+        from inversion_fbpic.lib.simulation import Simulation
+
+        simulation = Simulation(elements=[hyp, density, laser, second_laser])
+        expected = max(
+            simulation.calculate_mean_group_beta(laser.wavelength),
+            simulation.calculate_mean_group_beta(second_laser.wavelength),
+        )
+
+        assert simulation.calculate_mean_group_beta() == pytest.approx(expected)
+
+    def test_resolve_beta_window_uses_fastest_laser_or_beam(self) -> None:
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, density, laser = _make_simulation_elements()
+        beam = ExpressionParticleBeam(
+            gamma0=100.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+        simulation = Simulation(elements=[hyp, density, laser, beam])
+
+        expected = max(
+            simulation.calculate_mean_group_beta(laser.wavelength),
+            np.sqrt(1.0 - beam.gamma0**-2),
+        )
+        assert simulation.resolve_beta_window() == pytest.approx(expected)
+
+    def test_beta_defaults_warn_when_no_sources_are_available(self, caplog) -> None:
+        simulation = _make_simulation()
+        simulation.lasers.clear()
+        simulation.beams.clear()
+
+        with caplog.at_level(logging.WARNING, logger="Simulation"):
+            assert simulation.calculate_mean_group_beta() == 1.0
+            assert simulation.resolve_beta_window() == 1.0
+
+        assert "defaulting mean group beta to 1.0" in caplog.text
+        assert "defaulting beta_window to 1.0" in caplog.text
+
 
 # ===================================================================
 # Simulation._normalize_working_directory
@@ -380,19 +439,76 @@ class TestSimulationAssembly:
         with pytest.raises(ValueError, match="No SimulationHyperparameters"):
             Simulation(elements=[den, las])
 
-    def test_missing_density_raises(self) -> None:
+    def test_laser_without_density_requires_simulation_length(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 
-        hyp, _, las = _make_simulation_elements()
-        with pytest.raises(ValueError, match="No DensityProfile"):
-            Simulation(elements=[hyp, las])
+        hyp, _, laser = _make_simulation_elements()
+        with pytest.raises(ValueError, match="No DensityProfile found"):
+            Simulation(elements=[hyp, laser])
 
-    def test_missing_laser_raises(self) -> None:
+    def test_laser_without_density_allows_explicit_simulation_length(self) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, laser = _make_simulation_elements()
+        hyp = attrs.evolve(hyp, simulation_length=4.0e-6)
+
+        simulation = Simulation(elements=[hyp, laser])
+
+        assert simulation.densities == []
+        assert simulation.lasers == [laser]
+        assert simulation.beams == []
+
+    def test_missing_density_and_driver_raises(self) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, _ = _make_simulation_elements()
+        with pytest.raises(ValueError, match="No DensityProfile found"):
+            Simulation(elements=[hyp])
+
+    def test_missing_laser_and_beam_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
 
         hyp, den, _ = _make_simulation_elements()
-        with pytest.raises(ValueError, match="No LaserPulse"):
+        with pytest.raises(ValueError, match="No LaserPulse or ParticleBeam"):
             Simulation(elements=[hyp, den])
+
+    def test_particle_beam_without_density_requires_simulation_length(self) -> None:
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, _ = _make_simulation_elements()
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+
+        with pytest.raises(ValueError, match="No DensityProfile found"):
+            Simulation(elements=[hyp, beam])
+
+    def test_particle_beam_without_density_allows_explicit_simulation_length(
+        self,
+    ) -> None:
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyp, _, _ = _make_simulation_elements()
+        hyp = attrs.evolve(hyp, simulation_length=4.0e-6)
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+
+        simulation = Simulation(elements=[hyp, beam])
+
+        assert simulation.densities == []
+        assert simulation.lasers == []
+        assert simulation.beams == [beam]
 
     def test_duplicate_hyperparameters_raises(self) -> None:
         from inversion_fbpic.lib.simulation import Simulation
@@ -768,7 +884,7 @@ class TestAttachedAnalysis:
             simulation_length=4e-6,
             right_buffer=right_buffer,
         )
-        monkeypatch.setattr(simulation, "calculate_mean_group_beta", lambda: 1.0)
+        monkeypatch.setattr(simulation, "resolve_beta_window", lambda: 1.0)
 
         simulation.setup_simulation(working_directory=tmp_path)
 
@@ -900,6 +1016,39 @@ class TestAttachedAnalysis:
         assert "No checkpoints found; starting a new simulation instead." in caplog.text
         electron.track.assert_called_once_with(simulation.simulation.comm)
         simulation_module.add_laser_pulse.assert_called_once()
+
+    def test_restart_replaces_initialized_beam_state(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+
+        simulation, _, _, events = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_restart=True)
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+        )
+        simulation._sort_component(beam)
+
+        def add_beam(self, backend, *, boost=None):
+            events.append("beam")
+            return MagicMock()
+
+        def restart(backend) -> None:
+            events.append("restart")
+            backend.iteration = 4
+
+        monkeypatch.setattr(ExpressionParticleBeam, "add_to_simulation", add_beam)
+        monkeypatch.setattr(simulation_module, "restart_from_checkpoint", restart)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert events.index("beam") < events.index("restart") < events.index("setup")
+        simulation_module.add_laser_pulse.assert_not_called()
 
     def test_restart_loads_checkpoint_before_initializing_moving_window(
         self, analysis_simulation, tmp_path, monkeypatch
@@ -1040,6 +1189,21 @@ class TestAttachedAnalysis:
         loader.assert_called_once_with(latest, "electrons", select=None)
         assert diagnostic.data == compute_moment_descriptor(particles, weights)
         assert diagnostic.analysis_complete
+
+    @pytest.mark.parametrize("use_cuda", [False, True])
+    def test_setup_passes_configured_cuda_mode(
+        self, analysis_simulation, tmp_path, use_cuda: bool
+    ) -> None:
+        from inversion_fbpic.lib import simulation as simulation_module
+
+        simulation, _, _, _ = analysis_simulation
+        simulation.hyparams = attrs.evolve(simulation.hyparams, use_cuda=use_cuda)
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert (
+            simulation_module.FBPICSimulation.call_args.kwargs["use_cuda"] is use_cuda
+        )
 
     def test_setup_passes_configured_smoother(
         self, analysis_simulation, tmp_path
