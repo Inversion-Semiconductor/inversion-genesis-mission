@@ -337,6 +337,10 @@ def _validate_expression(expression: str, names: set[str]) -> CodeType:
         elif isinstance(node, ast.keyword):
             if node.arg is None or not node.arg.isidentifier():
                 raise ValueError("Expression calls cannot unpack keyword arguments.")
+            if node.arg == "out":
+                raise ValueError(
+                    "Expression calls cannot use 'out': not supported as it could modify input arrays."
+                )
         elif isinstance(
             node,
             (

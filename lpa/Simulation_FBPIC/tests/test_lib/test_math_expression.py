@@ -101,6 +101,11 @@ def test_function_rejects_executable_python_syntax(expression: str) -> None:
         MathExpression(expression=expression, variables=("z",))
 
 
+def test_function_rejects_out_keyword_to_preserve_input_arrays() -> None:
+    with pytest.raises(ValueError, match="cannot use 'out'.*modify input arrays"):
+        MathExpression(expression="np.multiply(z, 0, out=z)", variables=("z",))
+
+
 def test_general_density_profile_round_trips_and_builds_2d_function() -> None:
     profile = ExpressionDensityProfile(
         nominal_density=1.0e24,
