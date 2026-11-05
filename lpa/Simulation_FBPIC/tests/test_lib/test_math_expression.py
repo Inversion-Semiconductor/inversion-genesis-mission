@@ -46,6 +46,24 @@ def test_function_round_trips_without_pickling() -> None:
     assert yaml_reloaded(0.5) == pytest.approx(function(0.5))
 
 
+def test_long_expression_round_trips_with_yaml_comments() -> None:
+    expression = (
+        "np.where(z < ramp_start, 0.0, "
+        "np.where(z < ramp_start + ramp_length, "
+        "(z - ramp_start) / ramp_length, 1.0))"
+    )
+    function = MathExpression(
+        expression=expression,
+        variables=("z",),
+        parameters={"ramp_start": 1.0e-5, "ramp_length": 4.0e-5},
+    )
+
+    reloaded = SerializableConfig.from_yaml(function.to_yaml())
+
+    assert isinstance(reloaded, MathExpression)
+    assert reloaded.expression == expression
+
+
 def test_function_exposes_allowlisted_scipy_numpy_and_math_symbols() -> None:
     function = MathExpression(
         expression="scipy.special.jv(0, z) + numpy.linalg.norm([z, 0]) + math.log(1)",
