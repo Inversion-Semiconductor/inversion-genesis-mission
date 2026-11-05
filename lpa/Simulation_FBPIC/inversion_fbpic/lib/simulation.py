@@ -404,16 +404,15 @@ class Simulation(SerializableConfig):
                 "No SimulationHyperparameters object found. Please provide a SimulationHyperparameters object or a path to a file or directory containing a SimulationHyperparameters object."
             )
         if not self.densities:
-            # TODO: When the pending simulation-length-parameter PR lands,
-            # require an explicit length for density-free simulations.
-            self._logger.critical(
-                "No DensityProfile found. A density profile is required to determine the simulation extent."
-                "Provide a density profile."
-            )
-            raise ValueError(
-                "No DensityProfile found. A density profile is required to determine the simulation extent."
-                "Provide a density profile."
-            )
+            if self.hyparams.simulation_length is None:
+                self._logger.critical(
+                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`."
+                    "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
+                )
+                raise ValueError(
+                    "No DensityProfile found and `simulation_length` not set. The simulation length is determined either by the `DensityProfile` extents or `simulation_length`."
+                    "Provide a density profile or set `simulation_length` in the `SimulationHyperparameters` object."
+                )
             if not (self.lasers or self.beams):
                 self._logger.critical(
                     "No DensityProfile, LaserPulse, or ParticleBeam objects found. "
