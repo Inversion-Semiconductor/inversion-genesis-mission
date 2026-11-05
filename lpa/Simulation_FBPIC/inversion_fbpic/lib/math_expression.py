@@ -52,8 +52,6 @@ _NUMPY_FUNCTION_NAMES = (
     "dot",
     "ediff1d",
     "einsum",
-    "empty",
-    "empty_like",
     "expand_dims",
     "eye",
     "flip",
