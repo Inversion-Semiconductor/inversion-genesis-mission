@@ -692,6 +692,9 @@ class Simulation(SerializableConfig):
             (float) [c] The mean group velocity of the EM wave in the plasma normalized to c.
         """
 
+        if len(self.densities) == 0:
+            return 1.0
+
         if wavelength is None:
             wavelengths = [
                 laser.wavelength

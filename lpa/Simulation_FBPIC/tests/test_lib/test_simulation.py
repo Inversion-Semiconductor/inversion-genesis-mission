@@ -291,6 +291,16 @@ class TestCalculateGroupBeta:
         result = sim.calculate_mean_group_beta(8e-7)
         assert result == pytest.approx(0.999857)
 
+    def test_laser_only_simulation_uses_vacuum_group_beta(self) -> None:
+        from inversion_fbpic.lib.simulation import Simulation
+
+        hyperparameters, _, laser = _make_simulation_elements()
+        hyperparameters = attrs.evolve(hyperparameters, simulation_length=4.0e-6)
+        simulation = Simulation(elements=[hyperparameters, laser])
+
+        assert simulation.calculate_mean_group_beta(laser.wavelength) == 1.0
+        assert simulation.resolve_beta_window() == 1.0
+
     def test_mean_group_beta_uses_all_laser_wavelengths(self) -> None:
         from inversion_fbpic.lib.laser import GaussianLaserPulse
 
