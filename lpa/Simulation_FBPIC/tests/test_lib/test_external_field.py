@@ -105,7 +105,10 @@ def test_expression_external_field_rejects_non_coordinate_variables() -> None:
         )
 
 
-@pytest.mark.parametrize("parameter", ["amplitude", "length_scale"])
+@pytest.mark.parametrize(
+    "parameter",
+    ["gathered_field", "x", "y", "z", "t", "amplitude", "length_scale"],
+)
 def test_expression_external_field_rejects_reserved_callback_parameters(
     parameter: str,
 ) -> None:

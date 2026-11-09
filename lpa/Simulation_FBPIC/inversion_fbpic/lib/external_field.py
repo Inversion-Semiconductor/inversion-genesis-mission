@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 FieldType = Literal["Ex", "Ey", "Ez", "Bx", "By", "Bz"]
 _FIELD_TYPES = frozenset({"Ex", "Ey", "Ez", "Bx", "By", "Bz"})
 _EXTERNAL_EXPRESSION_VARIABLES = frozenset({"x", "y", "z", "t"})
-_RESERVED_CALLBACK_PARAMETERS = frozenset({"amplitude", "length_scale"})
+_RESERVED_CALLBACK_PARAMETERS = frozenset(
+    {"gathered_field", "x", "y", "z", "t", "amplitude", "length_scale"}
+)
 
 
 def _field_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -159,7 +161,7 @@ class ExpressionExternalField(_ExternalField):
     transformation.
 
     Args:
-        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude`` or ``length_scale`` because FBPIC reserves those names for callback arguments.
+        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude``, ``length_scale``, ``x``, ``y``, ``z``, or ``t`` because FBPIC reserves those names for callback arguments.
     """
 
     SUBCLASS: ClassVar[str] = "expression"
