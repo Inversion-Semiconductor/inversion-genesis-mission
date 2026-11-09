@@ -5,6 +5,7 @@ from __future__ import annotations
 from .datapoint import Parameters
 from .density_core import _DensityProfile
 from .diagnostics import _Diagnostic
+from .external_field import _ExternalField
 from .laser import _LaserPulse
 from .particle_beam import _ParticleBeam
 from .serializable_config import SerializableConfig
@@ -28,6 +29,7 @@ class Simulation(SerializableConfig):
     densities: List[_DensityProfile]
     lasers: List[_LaserPulse]
     beams: List[_ParticleBeam]
+    external_fields: List[_ExternalField]
     particle_species: dict[str, Particles]
     diagnostics: List[_Diagnostic]
     parameters: List[Parameters]

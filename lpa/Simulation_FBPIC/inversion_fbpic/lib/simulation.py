@@ -16,6 +16,7 @@ from inversion_fbpic.lib.config_container import ConfigContainer
 from inversion_fbpic.lib.datapoint import Parameters
 from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.lib.density_core import _DensityProfile
+from inversion_fbpic.lib.external_field import _ExternalField
 from inversion_fbpic.lib.laser import _DERIVED_YAML_KEYS, _LaserPulse
 from inversion_fbpic.lib.particle_beam import _ParticleBeam
 
@@ -344,6 +345,7 @@ class Simulation(SerializableConfig):
     densities: List[_DensityProfile] = attrs.field(factory=list, init=False)
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
     beams: List[_ParticleBeam] = attrs.field(factory=list, init=False)
+    external_fields: List[_ExternalField] = attrs.field(factory=list, init=False)
     particle_species: dict[str, Particles] = attrs.field(factory=dict, init=False)
     diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
     parameters: List[Parameters] = attrs.field(factory=list, init=False)
@@ -507,6 +509,9 @@ class Simulation(SerializableConfig):
             "particle_beams": sorted(
                 (beam.to_dict() for beam in self.beams), key=_canonical_json
             ),
+            "external_fields": sorted(
+                (field.to_dict() for field in self.external_fields), key=_canonical_json
+            ),
         }
         digest_input = _canonical_json(payload)
         return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
@@ -570,6 +575,8 @@ class Simulation(SerializableConfig):
             self.lasers.append(payload)
         elif isinstance(payload, _ParticleBeam):
             self.beams.append(payload)
+        elif isinstance(payload, _ExternalField):
+            self.external_fields.append(payload)
         elif isinstance(payload, _Diagnostic):
             if not isinstance(payload.RUN_BEFORE_SIMULATION, bool):
                 raise ValueError(
@@ -582,15 +589,15 @@ class Simulation(SerializableConfig):
         else:
             if skip_incompatible:
                 self._logger.warning(
-                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 return
             else:
                 self._logger.critical(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 raise ValueError(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
 
         if path is not None:
@@ -1130,6 +1137,24 @@ class Simulation(SerializableConfig):
                 )
             else:
                 restart_loaded = True
+
+        # Add external fields after the named particle species are available.
+        for external_field in self.external_fields:
+            species = None
+            if external_field.species is not None:
+                try:
+                    species = self.particle_species[external_field.species]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"External field species {external_field.species!r} is not a "
+                        "recorded particle-species name."
+                    ) from exc
+            self.simulation.external_fields.extend(
+                external_field.build_external_fields(
+                    species=species,
+                    gamma_boost=boost.gamma0 if boost is not None else None,
+                )
+            )
 
         # Add tracking
         if self.hyparams.track_electrons and not restart_loaded:

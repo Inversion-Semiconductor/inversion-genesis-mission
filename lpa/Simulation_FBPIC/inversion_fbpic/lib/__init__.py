@@ -8,6 +8,7 @@ from . import (
     density_core as density_core,
     density_profiles as density_profiles,
     density_modifiers as density_modifiers,
+    external_field as external_field,
     particle_beam as particle_beam,
     laser as laser,
     simulation as simulation,

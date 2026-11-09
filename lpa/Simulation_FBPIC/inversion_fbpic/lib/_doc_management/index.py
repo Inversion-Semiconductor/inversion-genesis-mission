@@ -26,6 +26,7 @@ _LIB_MODULE_STEMS = (
     "density_core",
     "density_profiles",
     "density_modifiers",
+    "external_field",
     "math_expression",
     "particle_beam",
     "laser",
