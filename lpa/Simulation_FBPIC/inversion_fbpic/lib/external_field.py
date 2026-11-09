@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from abc import abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -58,6 +59,17 @@ def _expression_field_mapping(
             raise ValueError(
                 f"{fieldtype} expression parameters cannot use FBPIC callback "
                 f"name(s): {sorted(reserved)!r}."
+            )
+        unsupported = {
+            node.id
+            for node in ast.walk(ast.parse(expression.expression, mode="eval"))
+            if isinstance(node, ast.Name)
+            and node.id in {"sp", "scipy", "i"}  # Not numba compatible
+        }
+        if unsupported:
+            raise ValueError(
+                f"{fieldtype} expression cannot use Numba-incompatible "
+                f"name(s): {sorted(unsupported)!r}."
             )
     return fields
 
@@ -158,7 +170,12 @@ class ExpressionExternalField(_ExternalField):
     Expressions may use the lab-frame coordinates ``x``, ``y``, ``z``, and
     ``t`` and return lab-frame field contributions added to the field gathered
     from the simulation grid. FBPIC handles any required boosted-frame
-    transformation.
+    transformation. FBPIC compiles each expression with Numba for
+    per-particle evaluation; use only scalar arithmetic, comparisons, and
+    Numba-compatible ``np``/``numpy`` or ``math``/``mt`` functions. SciPy
+    aliases (``sp`` and ``scipy``), the complex constant ``i``, list or tuple
+    literals, and array-oriented routines such as ``np.linalg.norm`` are
+    unsupported.
 
     Args:
         field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude``, ``length_scale``, ``x``, ``y``, ``z``, or ``t`` because FBPIC reserves those names for callback arguments.

@@ -106,6 +106,21 @@ def test_expression_external_field_rejects_non_coordinate_variables() -> None:
 
 
 @pytest.mark.parametrize(
+    "expression",
+    ["sp.special.erf(z)", "scipy.special.erf(z)", "i * z"],
+)
+def test_expression_external_field_rejects_numba_incompatible_names(
+    expression: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot use Numba-incompatible"):
+        ExpressionExternalField(
+            field_functions={
+                "Ez": MathExpression(expression=expression, variables=("z",))
+            }
+        )
+
+
+@pytest.mark.parametrize(
     "parameter",
     ["gathered_field", "x", "y", "z", "t", "amplitude", "length_scale"],
 )
