@@ -422,6 +422,30 @@ class Simulation(SerializableConfig):
             raise ValueError(
                 "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object."
             )
+        available_species = self._configured_particle_species_names()
+        unknown_species = sorted(
+            {
+                field.species
+                for field in self.external_fields
+                if field.species is not None and field.species not in available_species
+            }
+        )
+        if unknown_species:
+            raise ValueError(
+                "External field species must be configured particle-species names; "
+                f"unknown: {unknown_species!r}."
+            )
+
+    def _configured_particle_species_names(self) -> set[str]:
+        """Return particle-recording names configured by density profiles and beams."""
+        return {
+            name
+            for density in self.densities
+            for name in (density.elec_name, density.ion_name)
+            if name is not None
+        } | {
+            beam.particle_name for beam in self.beams if beam.particle_name is not None
+        }
 
     @property
     def z_extent(self) -> tuple[float, float]:

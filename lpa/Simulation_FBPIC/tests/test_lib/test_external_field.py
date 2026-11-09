@@ -318,26 +318,14 @@ def test_external_field_targets_named_beam_with_impossible_diagnostic_selection(
     )
 
 
-def test_simulation_rejects_unknown_external_field_species(
-    minimal_hyperparameters, minimal_density, minimal_laser, tmp_path, monkeypatch
+def test_simulation_rejects_unknown_external_field_species_at_construction(
+    minimal_hyperparameters, minimal_density, minimal_laser
 ) -> None:
-    from inversion_fbpic.lib import simulation as simulation_module
     from inversion_fbpic.lib.simulation import Simulation
 
     external = UniformExternalField(field_functions={"Ez": 1.0}, species="unknown")
-    simulation = Simulation(
-        elements=[minimal_hyperparameters, minimal_density, minimal_laser, external]
-    )
-    backend = MagicMock(dt=minimal_hyperparameters.dt, external_fields=[], diags=[])
-    monkeypatch.setattr(
-        simulation_module, "FBPICSimulation", MagicMock(return_value=backend)
-    )
-    monkeypatch.setattr(
-        type(minimal_density),
-        "add_to_simulation",
-        MagicMock(return_value=(MagicMock(), None)),
-    )
-    monkeypatch.setattr(simulation_module, "add_laser_pulse", MagicMock())
 
-    with pytest.raises(ValueError, match="not a recorded particle-species name"):
-        simulation.setup_simulation(working_directory=tmp_path)
+    with pytest.raises(ValueError, match="configured particle-species names"):
+        Simulation(
+            elements=[minimal_hyperparameters, minimal_density, minimal_laser, external]
+        )
