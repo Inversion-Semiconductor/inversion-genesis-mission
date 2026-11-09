@@ -344,6 +344,25 @@ def test_external_field_targets_named_beam_with_impossible_diagnostic_selection(
     )
 
 
+def test_simulation_rejects_ion_name_without_ion_species_at_construction(
+    minimal_hyperparameters, minimal_density, minimal_laser
+) -> None:
+    from inversion_fbpic.lib.simulation import Simulation
+
+    electron_only_density = attrs.evolve(minimal_density, species=None, ion_name="ions")
+    external = UniformExternalField(field_functions={"Ez": 1.0}, species="ions")
+
+    with pytest.raises(ValueError, match="configured particle-species names"):
+        Simulation(
+            elements=[
+                minimal_hyperparameters,
+                electron_only_density,
+                minimal_laser,
+                external,
+            ]
+        )
+
+
 def test_simulation_rejects_unknown_external_field_species_at_construction(
     minimal_hyperparameters, minimal_density, minimal_laser
 ) -> None:

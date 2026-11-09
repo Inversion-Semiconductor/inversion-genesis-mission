@@ -437,15 +437,24 @@ class Simulation(SerializableConfig):
             )
 
     def _configured_particle_species_names(self) -> set[str]:
-        """Return particle-recording names configured by density profiles and beams."""
-        return {
-            name
-            for density in self.densities
-            for name in (density.elec_name, density.ion_name)
-            if name is not None
-        } | {
-            beam.particle_name for beam in self.beams if beam.particle_name is not None
-        }
+        """Return names for particle species that setup will actually create."""
+        return (
+            {
+                density.elec_name
+                for density in self.densities
+                if density.elec_name is not None
+            }
+            | {
+                density.ion_name
+                for density in self.densities
+                if density.species is not None and density.ion_name is not None
+            }
+            | {
+                beam.particle_name
+                for beam in self.beams
+                if beam.particle_name is not None
+            }
+        )
 
     @property
     def z_extent(self) -> tuple[float, float]:
