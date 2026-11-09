@@ -30,7 +30,7 @@ class Simulation(SerializableConfig):
     lasers: List[_LaserPulse]
     beams: List[_ParticleBeam]
     external_fields: List[_ExternalField]
-    particle_species: dict[str, Particles]
+    particle_species: dict[str, list[Particles]]
     diagnostics: List[_Diagnostic]
     parameters: List[Parameters]
     simulation: FBPICSimulation

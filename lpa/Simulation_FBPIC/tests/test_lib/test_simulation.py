@@ -1054,9 +1054,9 @@ class TestAttachedAnalysis:
         simulation.setup_simulation(working_directory=tmp_path)
 
         assert simulation.particle_species == {
-            "plasma_electrons": electrons,
-            "plasma_ions": ions,
-            "driver_electrons": driver,
+            "plasma_electrons": [electrons],
+            "plasma_ions": [ions],
+            "driver_electrons": [driver],
         }
 
     def test_restart_replaces_initialized_beam_state(

@@ -346,7 +346,7 @@ class Simulation(SerializableConfig):
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
     beams: List[_ParticleBeam] = attrs.field(factory=list, init=False)
     external_fields: List[_ExternalField] = attrs.field(factory=list, init=False)
-    particle_species: dict[str, Particles] = attrs.field(factory=dict, init=False)
+    particle_species: dict[str, list[Particles]] = attrs.field(factory=dict, init=False)
     diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
     parameters: List[Parameters] = attrs.field(factory=list, init=False)
 
@@ -1073,11 +1073,11 @@ class Simulation(SerializableConfig):
             )
             elecs.append(elec)
             if density.elec_name is not None:
-                self.particle_species[density.elec_name] = elec
+                self.particle_species.setdefault(density.elec_name, []).append(elec)
             if ion is not None:
                 ions.append(ion)
                 if density.ion_name is not None:
-                    self.particle_species[density.ion_name] = ion
+                    self.particle_species.setdefault(density.ion_name, []).append(ion)
 
             for name, select, particles in [
                 (density.elec_name, density.elec_select, elec),
@@ -1102,7 +1102,9 @@ class Simulation(SerializableConfig):
         for beam in self.beams:
             particle = beam.add_to_simulation(self.simulation, boost=boost)
             if beam.particle_name is not None:
-                self.particle_species[beam.particle_name] = particle
+                self.particle_species.setdefault(beam.particle_name, []).append(
+                    particle
+                )
             self._add_particle_diagnostics(
                 name=beam.particle_name,
                 select=beam.particle_select,
