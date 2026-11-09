@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import attrs
+import numpy as np
 import pytest
 
 from inversion_fbpic.lib.external_field import (
@@ -52,6 +53,30 @@ def test_uniform_external_field_builds_one_field_per_component(
         3.0,
         0.5,
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        (UniformExternalField(field_functions={"Ez": 2.0}), 3.0),
+        (
+            ExpressionExternalField(
+                field_functions={
+                    "Ez": MathExpression(expression="np.exp(z)", variables=("z",))
+                }
+            ),
+            1.0 + np.exp(0.5),
+        ),
+    ],
+)
+def test_external_field_callbacks_compile_with_fbpic_numba(
+    field: UniformExternalField | ExpressionExternalField, expected: float
+) -> None:
+    external_field = field.build_external_fields(species=None, gamma_boost=None)[0]
+
+    assert external_field.cpu_func(1.0, 0.0, 0.0, 0.5, 0.0, 1.0, 1.0) == pytest.approx(
+        expected
+    )
 
 
 def test_external_fields_fix_fbpics_amplitude_and_length_scale() -> None:
