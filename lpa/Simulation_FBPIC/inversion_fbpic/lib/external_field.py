@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import math
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import attrs
@@ -101,10 +101,11 @@ class _ExternalField(SerializableConfig):
     def build_external_fields(
         self,
         *,
-        species: "Particles | None",
+        species: "Sequence[Particles] | None",
         gamma_boost: float | None,
     ) -> list[FBPICExternalField]:
-        """Build one FBPIC field object per configured field type."""
+        """Build one FBPIC field object per field type and target species."""
+        species_values = (None,) if species is None else species
         return [
             FBPICExternalField(
                 self._build_field_function(
@@ -113,9 +114,10 @@ class _ExternalField(SerializableConfig):
                 fieldtype,
                 1.0,
                 1.0,
-                species=species,
+                species=particle_species,
                 gamma_boost=gamma_boost,
             )
+            for particle_species in species_values
             for fieldtype, (
                 lab_expression,
                 namespace,

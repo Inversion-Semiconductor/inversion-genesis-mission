@@ -39,7 +39,7 @@ def test_uniform_external_field_builds_one_field_per_component(
     field = UniformExternalField(field_functions={"Ez": 2.0, "By": -0.5})
     species = object()
 
-    assert len(field.build_external_fields(species=species, gamma_boost=2.0)) == 2
+    assert len(field.build_external_fields(species=[species], gamma_boost=2.0)) == 2
     assert {entry["fieldtype"] for entry in created} == {"Ez", "By"}
     assert all(
         entry["amplitude"] == 1.0
@@ -66,6 +66,26 @@ def test_external_fields_fix_fbpics_amplitude_and_length_scale() -> None:
                 "parameters": {"field_functions": {"Ez": 1.0}, "amplitude": 2.0},
             }
         )
+
+
+def test_external_field_builds_one_instance_per_named_particle_species(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from inversion_fbpic.lib import external_field as module
+
+    created: list[Any] = []
+
+    def external_field(*args, **kwargs):
+        created.append(kwargs["species"])
+        return MagicMock()
+
+    monkeypatch.setattr(module, "FBPICExternalField", external_field)
+    first, second = object(), object()
+    field = UniformExternalField(field_functions={"Ez": 1.0})
+
+    field.build_external_fields(species=[first, second], gamma_boost=None)
+
+    assert created == [first, second]
 
 
 def test_expression_external_field_adds_lab_frame_contribution() -> None:
@@ -226,8 +246,8 @@ def test_simulation_resolves_external_field_species_and_boost(
 
     simulation.setup_simulation(working_directory=tmp_path)
 
-    assert simulation.particle_species == {"driver": particle}
-    assert captured == {"species": particle, "gamma_boost": 2.0}
+    assert simulation.particle_species == {"driver": [particle]}
+    assert captured == {"species": [particle], "gamma_boost": 2.0}
     assert backend.external_fields == ["external"]
 
 
@@ -289,7 +309,7 @@ def test_external_field_targets_named_beam_with_impossible_diagnostic_selection(
 
     simulation.setup_simulation(working_directory=tmp_path)
 
-    assert captured["species"] is particle
+    assert captured["species"] == [particle]
     assert particle_diagnostic.call_count == 2
     assert all(
         call.kwargs["species"] == {"driver": particle}

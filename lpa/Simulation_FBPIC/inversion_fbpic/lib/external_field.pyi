@@ -6,7 +6,7 @@ from .serializable_config import SerializableConfig
 
 from .math_expression import MathExpression
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from fbpic.lpa_utils.external_fields import ExternalField as FBPICExternalField
 from fbpic.particles.particles import Particles
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -41,8 +41,8 @@ class _ExternalField(SerializableConfig):
         Args:
             species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
             override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False."""
-    def build_external_fields(self, *, species: 'Particles | None', gamma_boost: float | None) -> list[FBPICExternalField]:
-        """Build one FBPIC field object per configured field type."""
+    def build_external_fields(self, *, species: 'Sequence[Particles] | None', gamma_boost: float | None) -> list[FBPICExternalField]:
+        """Build one FBPIC field object per field type and target species."""
         ...
     @abstractmethod
     def build_lab_field_expressions(self) -> Mapping[FieldType, tuple[str, Mapping[str, Any]]]:
