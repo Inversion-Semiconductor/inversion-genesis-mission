@@ -27,6 +27,20 @@ def test_multivariate_function_evaluates_scalars_and_arrays() -> None:
     )
 
 
+def test_compilation_namespace_includes_expression_parameters() -> None:
+    expression = MathExpression(
+        expression="scale * np.sin(z)",
+        variables=("z",),
+        parameters={"scale": 2.0},
+    )
+
+    namespace = expression.compilation_namespace()
+
+    assert namespace["np"] is np
+    assert namespace["scale"] == 2.0
+    assert namespace["pi"] == np.pi
+
+
 def test_function_round_trips_without_pickling() -> None:
     function = MathExpression(
         expression="scale * np.sin(z)", variables=("z",), parameters={"scale": 2.0}

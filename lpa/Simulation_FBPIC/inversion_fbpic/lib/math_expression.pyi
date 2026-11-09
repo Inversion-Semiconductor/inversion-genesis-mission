@@ -93,6 +93,13 @@ class MathExpression(_MathExpression):
             expression: (str) Numerical expression using variables, finite scalar parameters, ``pi``, ``e``, ``i``, and allowlisted NumPy, SciPy-special, or math symbols under ``np``, ``numpy`` / ``sp``, ``scipy`` / ``mt``, ``math`` (for example ``np.exp(z)``, ``sp.special.jv(0, z)``, or ``math.log(z)``). File I/O, pickle loading, FFI, random-state, and unregistered callables are rejected.
             variables: (tuple[str, ...]) Ordered argument names. The function can be one-dimensional or multivariate.
             parameters: (dict[str, float]) Named finite scalar constants used by the expression. Defaults to an empty mapping."""
+    def compilation_namespace(self) -> dict[str, Any]:
+        """Return globals for compiling this validated expression into a callback.
+
+        The returned namespace uses real numerical modules so Numba can compile
+        a callback which embeds :attr:`expression`. Only use it with this
+        instance's already validated expression source."""
+        ...
     @classmethod
     def from_any(cls, value: 'MathExpression | Mapping[str, Any]') -> 'MathExpression':
         """Construct from an instance or its serialized configuration mapping."""

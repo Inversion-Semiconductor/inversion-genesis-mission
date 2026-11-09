@@ -419,6 +419,24 @@ class MathExpression(_MathExpression):
         names = set(self.variables) | set(self.parameters) | set(_ALLOWED_CONSTANTS)
         object.__setattr__(self, "_code", _validate_expression(self.expression, names))
 
+    def compilation_namespace(self) -> dict[str, Any]:
+        """Return globals for compiling this validated expression into a callback.
+
+        The returned namespace uses real numerical modules so Numba can compile
+        a callback which embeds :attr:`expression`. Only use it with this
+        instance's already validated expression source.
+        """
+        return {
+            "np": np,
+            "numpy": np,
+            "sp": scipy,
+            "scipy": scipy,
+            "mt": math,
+            "math": math,
+            **_ALLOWED_CONSTANTS,
+            **self.parameters,
+        }
+
     def __call__(self, *arguments: npt.ArrayLike) -> npt.ArrayLike:
         """Evaluate the expression for arguments in ``variables`` order."""
         if len(arguments) != len(self.variables):
