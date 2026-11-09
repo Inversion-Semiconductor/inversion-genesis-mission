@@ -21,13 +21,16 @@ class _ExternalField(SerializableConfig):
     transforms the fields and coordinates to the boosted frame as needed.
 
     Args:
-        species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None."""
+        species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+        override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False."""
     CONFIG_TYPE: ClassVar[str]
     species: str | None
+    override: bool
     def __init__(
         self,
         *,
         species: str | None = None,
+        override: bool = False,
     ) -> None:
         """Base class for serializable FBPIC external fields.
 
@@ -36,7 +39,8 @@ class _ExternalField(SerializableConfig):
         transforms the fields and coordinates to the boosted frame as needed.
 
         Args:
-            species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None."""
+            species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+            override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False."""
     def build_external_fields(self, *, species: 'Particles | None', gamma_boost: float | None) -> list[FBPICExternalField]:
         """Build one FBPIC field object per configured field type."""
         ...
@@ -56,6 +60,7 @@ class ExpressionExternalField(_ExternalField):
 
     Args:
         species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+        override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
         field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions."""
     SUBCLASS: ClassVar[str]
     field_functions: dict[str, MathExpression]
@@ -63,6 +68,7 @@ class ExpressionExternalField(_ExternalField):
         self,
         *,
         species: str | None = None,
+        override: bool = False,
         field_functions: dict[str, MathExpression],
     ) -> None:
         """An external field with :class:`MathExpression` components.
@@ -75,6 +81,7 @@ class ExpressionExternalField(_ExternalField):
 
         Args:
             species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+            override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
             field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions."""
     def build_lab_field_expressions(self) -> Mapping[FieldType, tuple[str, Mapping[str, Any]]]:
         ...
@@ -84,6 +91,7 @@ class UniformExternalField(_ExternalField):
 
     Args:
         species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+        override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
         field_functions: (dict[FieldType, float]) Field types mapped to their constant, dimensionless strengths."""
     SUBCLASS: ClassVar[str]
     field_functions: dict[str, float]
@@ -91,12 +99,14 @@ class UniformExternalField(_ExternalField):
         self,
         *,
         species: str | None = None,
+        override: bool = False,
         field_functions: dict[str, float],
     ) -> None:
         """An external field with constant components.
 
         Args:
             species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+            override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
             field_functions: (dict[FieldType, float]) Field types mapped to their constant, dimensionless strengths."""
     def build_lab_field_expressions(self) -> Mapping[FieldType, tuple[str, Mapping[str, Any]]]:
         ...

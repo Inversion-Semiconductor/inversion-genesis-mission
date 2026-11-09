@@ -63,12 +63,14 @@ class _ExternalField(SerializableConfig):
 
     Args:
         species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
+        override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
     """
 
     CONFIG_TYPE: ClassVar[str] = "external_field"
     _CONCRETE_REGISTRY: ClassVar[dict[str, type["_ExternalField"]]] = {}
 
     species: str | None = attrs.field(default=None)
+    override: bool = attrs.field(default=False, converter=bool)
 
     def build_external_fields(
         self,
@@ -79,7 +81,9 @@ class _ExternalField(SerializableConfig):
         """Build one FBPIC field object per configured field type."""
         return [
             FBPICExternalField(
-                self._build_field_function(lab_expression, namespace),
+                self._build_field_function(
+                    lab_expression, namespace, override=self.override
+                ),
                 fieldtype,
                 1.0,
                 1.0,
@@ -93,11 +97,18 @@ class _ExternalField(SerializableConfig):
         ]
 
     @staticmethod
-    def _build_field_function(lab_expression: str, namespace: Mapping[str, Any]):
-        """Apply FBPIC's amplitude and length scale around a lab-frame expression."""
+    def _build_field_function(
+        lab_expression: str,
+        namespace: Mapping[str, Any],
+        *,
+        override: bool,
+    ):
+        """Apply FBPIC's amplitude around a lab-frame expression."""
+        field_value = f"amplitude * ({lab_expression})"
+        result = field_value if override else f"gathered_field + {field_value}"
         source = (
             "def field_function(gathered_field, x, y, z, t, amplitude, length_scale):\n"
-            f"    return gathered_field + amplitude * ({lab_expression})\n"
+            f"    return {result}\n"
         )
         globals_namespace = dict(namespace)
         exec(compile(source, "<external-field>", "exec"), globals_namespace)

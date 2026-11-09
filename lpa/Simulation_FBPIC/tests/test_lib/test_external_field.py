@@ -74,9 +74,22 @@ def test_expression_external_field_adds_lab_frame_contribution() -> None:
     )
 
     lab_expression, namespace = field.build_lab_field_expressions()["Ez"]
-    field_function = field._build_field_function(lab_expression, namespace)
+    assert not field.override
+    field_function = field._build_field_function(
+        lab_expression, namespace, override=field.override
+    )
 
     assert field_function(1.0, 0.0, 0.0, 4.0, 5.0, 1.0, 2.0) == 10.0
+
+
+def test_external_field_override_replaces_gathered_field() -> None:
+    field = UniformExternalField(field_functions={"Ez": 2.0}, override=True)
+    lab_expression, namespace = field.build_lab_field_expressions()["Ez"]
+    field_function = field._build_field_function(
+        lab_expression, namespace, override=field.override
+    )
+
+    assert field_function(5.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0) == 2.0
 
 
 @pytest.mark.parametrize("fieldtype", ["E", "Jz", "rho"])
