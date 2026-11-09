@@ -813,6 +813,67 @@ class Simulation(SerializableConfig):
             return num_steps
         return max(1, -(-num_steps // regular_dumps))
 
+    def _add_particle_diagnostics(
+        self,
+        *,
+        name: str | None,
+        select: dict[str, list[float | None]] | None,
+        particles: Particles | None,
+        boost: BoostConverter | None,
+        v_window: float,
+        dt_lab_diag_period: float,
+        boosted_diagnostic_ranges: list[tuple[int, dict[str, float]]],
+        regular_diagnostic_kwargs: dict[str, int] | None,
+        write_final_diagnostic: bool,
+        final_iteration: int,
+        save_directory: Path,
+    ) -> None:
+        """Attach the configured FBPIC particle diagnostics for one species."""
+        if name is None:
+            return
+        if boost is not None:
+            for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
+                self.simulation.diags.append(
+                    BackTransformedParticleDiagnostic(
+                        self.hyparams.zmin,
+                        self.hyparams.zmax,
+                        v_window,
+                        dt_lab_diag_period,
+                        snapshot_count,
+                        boost.gamma0,
+                        self.hyparams.write_period,
+                        self.simulation.fld,
+                        species={name: particles},
+                        select=select,
+                        comm=self.simulation.comm,
+                        write_dir=save_directory,
+                        **snapshot_kwargs,
+                    )
+                )
+            return
+        if regular_diagnostic_kwargs is not None:
+            self.simulation.diags.append(
+                ParticleDiagnostic(
+                    species={name: particles},
+                    select=select,
+                    comm=self.simulation.comm,
+                    write_dir=save_directory,
+                    **regular_diagnostic_kwargs,
+                )
+            )
+        if write_final_diagnostic:
+            self.simulation.diags.append(
+                ParticleDiagnostic(
+                    period=1,
+                    species={name: particles},
+                    select=select,
+                    comm=self.simulation.comm,
+                    write_dir=save_directory,
+                    iteration_min=final_iteration,
+                    iteration_max=final_iteration + 1,
+                )
+            )
+
     def setup_simulation(
         self,
         working_directory: Path | str | None = None,
@@ -1018,60 +1079,23 @@ class Simulation(SerializableConfig):
                 if density.ion_name is not None:
                     self.particle_species[density.ion_name] = ion
 
-            # add diags
-            for name, select, spec in [
+            for name, select, particles in [
                 (density.elec_name, density.elec_select, elec),
                 (density.ion_name, density.ion_select, ion),
             ]:
-                if name is not None and number_dumps != 0:
-                    if boost is not None:
-                        # A final-only boosted dump selects its final lab-frame
-                        # snapshot with a time range; other modes need no filter.
-                        for (
-                            snapshot_count,
-                            snapshot_kwargs,
-                        ) in boosted_diagnostic_ranges:
-                            self.simulation.diags.append(
-                                BackTransformedParticleDiagnostic(
-                                    self.hyparams.zmin,
-                                    self.hyparams.zmax,
-                                    v_window,
-                                    dt_lab_diag_period,
-                                    snapshot_count,
-                                    boost.gamma0,
-                                    self.hyparams.write_period,
-                                    self.simulation.fld,
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    **snapshot_kwargs,
-                                )
-                            )
-                    else:
-                        if regular_diagnostic_kwargs is not None:
-                            self.simulation.diags.append(
-                                ParticleDiagnostic(
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    **regular_diagnostic_kwargs,
-                                )
-                            )
-                        if write_final_diagnostic:
-                            self.simulation.diags.append(
-                                ParticleDiagnostic(
-                                    period=1,
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    iteration_min=final_iteration,
-                                    iteration_max=final_iteration + 1,
-                                )
-                            )
-            # /add diags
+                self._add_particle_diagnostics(
+                    name=name,
+                    select=select,
+                    particles=particles,
+                    boost=boost,
+                    v_window=v_window,
+                    dt_lab_diag_period=dt_lab_diag_period,
+                    boosted_diagnostic_ranges=boosted_diagnostic_ranges,
+                    regular_diagnostic_kwargs=regular_diagnostic_kwargs,
+                    write_final_diagnostic=write_final_diagnostic,
+                    final_iteration=final_iteration,
+                    save_directory=save_directory_absolute,
+                )
         # /Add the particles and particle diagnostics
 
         # Add externally injected particle beams and their optional diagnostics.
@@ -1079,50 +1103,19 @@ class Simulation(SerializableConfig):
             particle = beam.add_to_simulation(self.simulation, boost=boost)
             if beam.particle_name is not None:
                 self.particle_species[beam.particle_name] = particle
-            if beam.particle_name is None or number_dumps == 0:
-                continue
-            if boost is not None:
-                for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
-                    self.simulation.diags.append(
-                        BackTransformedParticleDiagnostic(
-                            self.hyparams.zmin,
-                            self.hyparams.zmax,
-                            v_window,
-                            dt_lab_diag_period,
-                            snapshot_count,
-                            boost.gamma0,
-                            self.hyparams.write_period,
-                            self.simulation.fld,
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            **snapshot_kwargs,
-                        )
-                    )
-            else:
-                if regular_diagnostic_kwargs is not None:
-                    self.simulation.diags.append(
-                        ParticleDiagnostic(
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            **regular_diagnostic_kwargs,
-                        )
-                    )
-                if write_final_diagnostic:
-                    self.simulation.diags.append(
-                        ParticleDiagnostic(
-                            period=1,
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            iteration_min=final_iteration,
-                            iteration_max=final_iteration + 1,
-                        )
-                    )
+            self._add_particle_diagnostics(
+                name=beam.particle_name,
+                select=beam.particle_select,
+                particles=particle,
+                boost=boost,
+                v_window=v_window,
+                dt_lab_diag_period=dt_lab_diag_period,
+                boosted_diagnostic_ranges=boosted_diagnostic_ranges,
+                regular_diagnostic_kwargs=regular_diagnostic_kwargs,
+                write_final_diagnostic=write_final_diagnostic,
+                final_iteration=final_iteration,
+                save_directory=save_directory_absolute,
+            )
 
         restart_loaded = False
         if self.hyparams.use_restart:
