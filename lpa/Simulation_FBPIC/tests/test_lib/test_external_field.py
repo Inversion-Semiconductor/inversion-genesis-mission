@@ -98,6 +98,12 @@ def test_external_field_rejects_unsupported_field_types(fieldtype: str) -> None:
         UniformExternalField(field_functions={fieldtype: 1.0})
 
 
+@pytest.mark.parametrize("strength", [float("nan"), float("inf"), float("-inf")])
+def test_uniform_external_field_rejects_nonfinite_strengths(strength: float) -> None:
+    with pytest.raises(ValueError, match="finite strengths"):
+        UniformExternalField(field_functions={"Ez": strength})
+
+
 def test_expression_external_field_rejects_non_coordinate_variables() -> None:
     with pytest.raises(ValueError, match="variables must be drawn"):
         ExpressionExternalField(

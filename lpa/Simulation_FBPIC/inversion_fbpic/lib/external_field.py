@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import math
 from abc import abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -37,7 +38,11 @@ def _field_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _uniform_field_mapping(value: Mapping[str, float]) -> dict[str, float]:
-    return {name: float(strength) for name, strength in _field_mapping(value).items()}
+    fields = {name: float(strength) for name, strength in _field_mapping(value).items()}
+    invalid = [name for name, strength in fields.items() if not math.isfinite(strength)]
+    if invalid:
+        raise ValueError(f"field_functions must have finite strengths: {invalid!r}.")
+    return fields
 
 
 def _expression_field_mapping(
