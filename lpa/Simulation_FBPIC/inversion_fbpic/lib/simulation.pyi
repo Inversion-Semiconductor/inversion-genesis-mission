@@ -28,6 +28,7 @@ class Simulation(SerializableConfig):
     densities: List[_DensityProfile]
     lasers: List[_LaserPulse]
     beams: List[_ParticleBeam]
+    particle_species: dict[str, Particles]
     diagnostics: List[_Diagnostic]
     parameters: List[Parameters]
     simulation: FBPICSimulation

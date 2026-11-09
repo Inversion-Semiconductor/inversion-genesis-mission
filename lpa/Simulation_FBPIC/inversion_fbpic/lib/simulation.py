@@ -344,6 +344,7 @@ class Simulation(SerializableConfig):
     densities: List[_DensityProfile] = attrs.field(factory=list, init=False)
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
     beams: List[_ParticleBeam] = attrs.field(factory=list, init=False)
+    particle_species: dict[str, Particles] = attrs.field(factory=dict, init=False)
     diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
     parameters: List[Parameters] = attrs.field(factory=list, init=False)
 
@@ -995,6 +996,7 @@ class Simulation(SerializableConfig):
 
         elecs: List[Particles] = []
         ions: List[Particles] = []
+        self.particle_species.clear()
         for density in self.densities:
             elec: Particles
             ion: Particles | None
@@ -1002,8 +1004,12 @@ class Simulation(SerializableConfig):
                 self.simulation, is_boosted=boost is not None
             )
             elecs.append(elec)
+            if density.elec_name is not None:
+                self.particle_species[density.elec_name] = elec
             if ion is not None:
                 ions.append(ion)
+                if density.ion_name is not None:
+                    self.particle_species[density.ion_name] = ion
 
             # add diags
             for name, select, spec in [
@@ -1064,6 +1070,8 @@ class Simulation(SerializableConfig):
         # Add externally injected particle beams and their optional diagnostics.
         for beam in self.beams:
             particle = beam.add_to_simulation(self.simulation, boost=boost)
+            if beam.particle_name is not None:
+                self.particle_species[beam.particle_name] = particle
             if beam.particle_name is None or number_dumps == 0:
                 continue
             if boost is not None:
