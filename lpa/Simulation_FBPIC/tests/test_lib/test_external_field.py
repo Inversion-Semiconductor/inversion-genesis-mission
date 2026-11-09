@@ -49,10 +49,11 @@ def test_uniform_external_field_builds_one_field_per_component(
         and entry["gamma_boost"] == 2.0
         for entry in created
     )
-    assert created[0]["field_function"](1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0) in {
-        3.0,
-        0.5,
-    }
+    expected_values = {"Ez": 3.0, "By": 0.5}
+    assert {
+        entry["fieldtype"]: entry["field_function"](1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0)
+        for entry in created
+    } == expected_values
 
 
 @pytest.mark.parametrize(
