@@ -135,7 +135,7 @@ class UniformExternalField(_ExternalField):
     """An external field with constant components.
 
     Args:
-        field_functions: (dict[FieldType, float]) Field types mapped to their constant, dimensionless strengths.
+        field_functions: (dict[FieldType, float]) Field types mapped to their constant strengths.
     """
 
     SUBCLASS: ClassVar[str] = "uniform"
