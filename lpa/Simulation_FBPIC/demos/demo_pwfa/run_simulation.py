@@ -10,6 +10,7 @@ from scipy.constants import e, pi
 
 from inversion_fbpic.lib.density_profiles import SmoothSineFlattop
 from inversion_fbpic.lib.particle_beam import GaussianParticleBeam
+from inversion_fbpic.lib.external_field import UniformExternalField
 from inversion_fbpic.lib.simulation import Simulation, SimulationHyperparameters
 from inversion_fbpic.utils import analysis
 from inversion_fbpic.utils.make_movie import make_movie
@@ -98,8 +99,15 @@ def main() -> Simulation:
         field_diagnostics=["E", "B", "rho"],
         save_directory="diags",
     )
+    external_field = UniformExternalField(field_functions={"Bz": 1.0})
     simulation = Simulation(
-        elements=[hyperparameters, flattop_profile, downramp_profile, driver]
+        elements=[
+            hyperparameters,
+            flattop_profile,
+            downramp_profile,
+            driver,
+            external_field,
+        ]
     )
 
     if is_root:

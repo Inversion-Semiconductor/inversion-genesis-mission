@@ -1,6 +1,6 @@
 # Beam-driven downramp injection
 
-This demonstration models PWFA in a hydrogen plasma driven by a relativistic electron bunch. The density downramp lowers the wake phase velocity and can trap plasma electrons behind the driver.
+This demonstration models PWFA in a hydrogen plasma driven by a relativistic electron bunch. The density downramp lowers the wake phase velocity and can trap plasma electrons behind the driver. There is an additional longitudinal magnetic field applied of strength 1 T.
 
 The downramp is represented by the sum of a flattop profile and a delayed, lower-density profile. The demonstration exercises the serializable `GaussianParticleBeam` API and records the driver (`driver_electrons`) plus both plasma-profile species (`electrons_flattop` and `electrons_downramp`) with FBPIC particle diagnostics.
 
