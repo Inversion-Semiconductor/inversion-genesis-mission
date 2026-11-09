@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 FieldType = Literal["Ex", "Ey", "Ez", "Bx", "By", "Bz"]
 _FIELD_TYPES = frozenset({"Ex", "Ey", "Ez", "Bx", "By", "Bz"})
 _EXTERNAL_EXPRESSION_VARIABLES = frozenset({"x", "y", "z", "t"})
+_RESERVED_CALLBACK_PARAMETERS = frozenset({"amplitude", "length_scale"})
 
 
 def _field_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -49,6 +50,12 @@ def _expression_field_mapping(
             raise ValueError(
                 f"{fieldtype} expression variables must be drawn from "
                 f"{tuple(sorted(_EXTERNAL_EXPRESSION_VARIABLES))!r}; got {sorted(invalid)!r}."
+            )
+        reserved = set(expression.parameters) & _RESERVED_CALLBACK_PARAMETERS
+        if reserved:
+            raise ValueError(
+                f"{fieldtype} expression parameters cannot use FBPIC callback "
+                f"name(s): {sorted(reserved)!r}."
             )
     return fields
 
@@ -149,11 +156,10 @@ class ExpressionExternalField(_ExternalField):
     Expressions may use the lab-frame coordinates ``x``, ``y``, ``z``, and
     ``t`` and return lab-frame field contributions added to the field gathered
     from the simulation grid. FBPIC handles any required boosted-frame
-    transformation. `_ExternalField` supplies FBPIC's required ``amplitude``
-    and ``length_scale`` arguments, both set to ``1.0``.
+    transformation.
 
     Args:
-        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions.
+        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude`` or ``length_scale`` because FBPIC reserves those names for callback arguments.
     """
 
     SUBCLASS: ClassVar[str] = "expression"

@@ -105,6 +105,22 @@ def test_expression_external_field_rejects_non_coordinate_variables() -> None:
         )
 
 
+@pytest.mark.parametrize("parameter", ["amplitude", "length_scale"])
+def test_expression_external_field_rejects_reserved_callback_parameters(
+    parameter: str,
+) -> None:
+    with pytest.raises(ValueError, match="cannot use FBPIC callback"):
+        ExpressionExternalField(
+            field_functions={
+                "Ez": MathExpression(
+                    expression=f"z + {parameter}",
+                    variables=("z",),
+                    parameters={parameter: 1.0},
+                )
+            }
+        )
+
+
 @pytest.mark.parametrize(
     "field",
     [

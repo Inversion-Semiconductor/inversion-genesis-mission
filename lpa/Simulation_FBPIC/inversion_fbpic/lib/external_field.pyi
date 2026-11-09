@@ -55,13 +55,12 @@ class ExpressionExternalField(_ExternalField):
     Expressions may use the lab-frame coordinates ``x``, ``y``, ``z``, and
     ``t`` and return lab-frame field contributions added to the field gathered
     from the simulation grid. FBPIC handles any required boosted-frame
-    transformation. `_ExternalField` supplies FBPIC's required ``amplitude``
-    and ``length_scale`` arguments, both set to ``1.0``.
+    transformation.
 
     Args:
         species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
         override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
-        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions."""
+        field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude`` or ``length_scale`` because FBPIC reserves those names for callback arguments."""
     SUBCLASS: ClassVar[str]
     field_functions: dict[str, MathExpression]
     def __init__(
@@ -76,13 +75,12 @@ class ExpressionExternalField(_ExternalField):
         Expressions may use the lab-frame coordinates ``x``, ``y``, ``z``, and
         ``t`` and return lab-frame field contributions added to the field gathered
         from the simulation grid. FBPIC handles any required boosted-frame
-        transformation. `_ExternalField` supplies FBPIC's required ``amplitude``
-        and ``length_scale`` arguments, both set to ``1.0``.
+        transformation.
 
         Args:
             species: (str|None) |OPTIONAL| Name configured for a particle diagnostic (`elec_name`, `ion_name`, or `particle_name`) to which the field applies. If None, applies to all particles. To target a species without retaining diagnostic particles, configure its corresponding selection to an impossible range, for example ``{"x": [1.0e12, None]}``. Defaults to None.
             override: (bool) |OPTIONAL| Whether to replace the field gathered from the simulation grid rather than add to it. Defaults to False.
-            field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions."""
+            field_functions: (dict[FieldType, MathExpression]) Field types mapped to mathematical expressions. Expression parameters cannot be named ``amplitude`` or ``length_scale`` because FBPIC reserves those names for callback arguments."""
     def build_lab_field_expressions(self) -> Mapping[FieldType, tuple[str, Mapping[str, Any]]]:
         ...
 
