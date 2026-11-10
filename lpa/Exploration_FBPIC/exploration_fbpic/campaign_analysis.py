@@ -172,7 +172,11 @@ def plot_feasibility_slice(
         vmax=1,
     )
     figure.colorbar(entropy_image, ax=axes[2], label="classification entropy (bits)")
-    titles = ("Stage 1 physical outcomes", "Beam probability", "Injection uncertainty")
+    titles = (
+        f"Cumulative physical outcomes through {stage.replace('_', ' ').title()}",
+        "Beam probability",
+        "Injection uncertainty",
+    )
     for axis, title in zip(axes, titles, strict=True):
         axis.set(
             title=title,
@@ -300,7 +304,7 @@ def plot_feature_slice(
         stddev_image, ax=axes[2], label=f"GP posterior std. dev. {feature_name}"
     )
     titles = (
-        "Stage 1 observations",
+        f"Cumulative observations through {stage.replace('_', ' ').title()}",
         f"{feature_name} GP mean at nominal slice",
         f"{feature_name} GP uncertainty at nominal slice",
     )
@@ -342,6 +346,9 @@ def analyze_campaign(
     folds: int = 5,
     seed: int = 0,
     data_path: str | Path | None = None,
+    vector_sim: int | None = None,
+    input_pca_x: int = 1,
+    input_pca_y: int = 2,
 ) -> CampaignAnalysis:
     """Assess compact scalar results without reading raw FBPIC diagnostics.
 
@@ -411,7 +418,17 @@ def analyze_campaign(
     )
 
     plot_path = output_directory / "campaign-projection.png"
-    _plot_projection(explorer, raw, X_unit, y, valid_feature_names, plot_path)
+    _plot_projection(
+        explorer,
+        raw,
+        X_unit,
+        y,
+        valid_feature_names,
+        plot_path,
+        vector_sim,
+        input_pca_x,
+        input_pca_y,
+    )
     report_path = output_directory / "campaign-analysis.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return CampaignAnalysis(report, report_path, plot_path)
@@ -543,19 +560,37 @@ def _plot_projection(
     y: np.ndarray,
     feature_names: list[str],
     output: Path,
+    vector_sim: int | None = None,
+    input_pca_x: int = 1,
+    input_pca_y: int = 2,
 ) -> None:
     import matplotlib.pyplot as plt
 
     input_center = X_unit.mean(axis=0)
     _, _, input_vectors = np.linalg.svd(X_unit - input_center, full_matrices=False)
+    input_components = (input_pca_x - 1, input_pca_y - 1)
+    if any(
+        component < 0 or component >= len(input_vectors)
+        for component in input_components
+    ):
+        raise ValueError(
+            f"input PCA axes must be in [1, {len(input_vectors)}], got "
+            f"{input_pca_x} and {input_pca_y}"
+        )
+    if input_components[0] == input_components[1]:
+        raise ValueError("input PCA axes must select different components")
     all_inputs, beam, no_beam, charge = _physical_outcome_inputs(explorer, raw)
-    all_projection = (all_inputs - input_center) @ input_vectors[:2].T
+    all_projection = (all_inputs - input_center) @ input_vectors.T
     feasibility = BeamFeasibilityModel(explorer)
     feasibility.fit_campaign_data(raw)
     standardized_y = (y - y.mean(axis=0)) / np.where(
         y.std(axis=0) == 0, 1, y.std(axis=0)
     )
-    response_projection = _pca(standardized_y)
+    response_center = standardized_y.mean(axis=0)
+    _, _, response_vectors = np.linalg.svd(
+        standardized_y - response_center, full_matrices=False
+    )
+    response_projection = (standardized_y - response_center) @ response_vectors[:2].T
     figure, axes = plt.subplots(1, 2, figsize=(12, 5), constrained_layout=True)
     _plot_input_pca_pair(
         all_projection,
@@ -564,8 +599,7 @@ def _plot_projection(
         charge,
         feasibility,
         all_inputs,
-        0,
-        1,
+        *input_components,
         axis=axes[0],
     )
     colors = y[:, 0] if len(feature_names) else np.arange(len(y))
@@ -574,14 +608,119 @@ def _plot_projection(
         response_projection[:, 1],
         c=colors,
         cmap="plasma",
+        vmin=0,
+        vmax=1000,
         s=28,
     )
     axes[1].set(title="Response-space PCA", xlabel="PC 1", ylabel="PC 2")
-    figure.colorbar(
-        scatter, ax=axes[1], label=feature_names[0] if feature_names else "row"
+    colorbar = figure.colorbar(
+        scatter,
+        ax=axes[1],
+        label=feature_names[0] if feature_names else "row",
+        ticks=[0, 500, 1000],
     )
+    if feature_names and feature_names[0] == "total_beam_charge_pc":
+        colorbar.ax.set_yticklabels(["0", "500", "1000+"])
+    if vector_sim is not None:
+        _plot_vector_simulations(
+            axes,
+            raw,
+            explorer,
+            feature_names,
+            input_center,
+            input_vectors,
+            y.mean(axis=0),
+            y.std(axis=0),
+            response_center,
+            response_vectors,
+            vector_sim,
+            input_components,
+        )
     figure.savefig(output, dpi=180)
     plt.close(figure)
+
+
+def _plot_vector_simulations(
+    axes: Any,
+    raw: pd.DataFrame,
+    explorer: XoptFBPICExplorer,
+    feature_names: list[str],
+    input_center: np.ndarray,
+    input_vectors: np.ndarray,
+    response_mean: np.ndarray,
+    response_std: np.ndarray,
+    response_center: np.ndarray,
+    response_vectors: np.ndarray,
+    vector_sim: int,
+    input_components: tuple[int, int],
+) -> None:
+    """Mark the nominal and selected simulations in input and response PCA space."""
+    if vector_sim < 0:
+        raise ValueError("vector_sim must be nonnegative")
+    parameter_names = list(explorer.variable_bounds)
+    run_ids = ["sim_000000", f"sim_{vector_sim:06d}"]
+    rows = raw.loc[
+        (raw["campaign_fingerprint"] == explorer.campaign.config.fingerprint())
+        & raw["run_id"].isin(run_ids)
+    ].copy()
+    if len(rows) != len(run_ids):
+        found = set(rows["run_id"])
+        missing = ", ".join(run_id for run_id in run_ids if run_id not in found)
+        raise ValueError(f"vector simulation record not found: {missing}")
+    rows = rows.set_index("run_id").loc[run_ids].reset_index()
+    if not rows["status"].eq("ok").all():
+        invalid = ", ".join(rows.loc[rows["status"] != "ok", "run_id"])
+        raise ValueError(f"vector simulation is not beam-present: {invalid}")
+    input_values = rows.loc[:, [f"p:{name}" for name in parameter_names]].to_numpy(
+        dtype=float
+    )
+    model_inputs = np.asarray(
+        [
+            [
+                explorer._to_model_value(parameter, value)
+                for parameter, value in zip(explorer.parameters, row, strict=True)
+            ]
+            for row in input_values
+        ],
+        dtype=float,
+    )
+    input_projection = (
+        _unit_scale(model_inputs, explorer) - input_center
+    ) @ input_vectors[list(input_components)].T
+    output_values = rows.loc[:, [f"f:{name}" for name in feature_names]].to_numpy(
+        dtype=float
+    )
+    if not np.isfinite(output_values).all():
+        invalid = ", ".join(rows.loc[~np.isfinite(output_values).all(axis=1), "run_id"])
+        raise ValueError(f"vector simulation has incomplete features: {invalid}")
+    standardized_outputs = (output_values - response_mean) / np.where(
+        response_std == 0, 1, response_std
+    )
+    response_projection = (standardized_outputs - response_center) @ response_vectors[
+        :2
+    ].T
+    for index, run_id in enumerate(run_ids):
+        label = f"Sim {int(run_id.removeprefix('sim_')):04d}"
+        for axis, coordinates in zip(
+            axes, (input_projection[index], response_projection[index]), strict=True
+        ):
+            axis.scatter(
+                coordinates[0],
+                coordinates[1],
+                marker="*",
+                c="black",
+                s=150,
+                zorder=10,
+            )
+            axis.annotate(
+                label,
+                coordinates,
+                xytext=(6, 6),
+                textcoords="offset points",
+                color="black",
+                fontsize=8,
+                zorder=11,
+            )
 
 
 def _physical_outcome_inputs(
@@ -646,8 +785,9 @@ def _plot_input_pca_pair(
         projection[beam, first],
         projection[beam, second],
         c=charge[beam],
-        cmap="Blues",
+        cmap="winter",
         vmin=0,
+        vmax=1000,
         s=28,
         edgecolors="none",
         label="Beam",
@@ -704,7 +844,13 @@ def _plot_input_pca_pair(
         xlabel=f"PC {first + 1}",
         ylabel=f"PC {second + 1}",
     )
-    figure.colorbar(scatter, ax=axis, label="total beam charge (pC)")
+    colorbar = figure.colorbar(
+        scatter,
+        ax=axis,
+        label="total beam charge (pC)",
+        ticks=[0, 500, 1000],
+    )
+    colorbar.ax.set_yticklabels(["0", "500", "1000+"])
     if output is not None:
         figure.savefig(output, dpi=180)
         plt.close(figure)

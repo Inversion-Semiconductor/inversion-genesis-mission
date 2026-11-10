@@ -82,6 +82,23 @@ def main() -> None:
     )
     analyze.add_argument("--folds", type=int, default=5)
     analyze.add_argument("--seed", type=int, default=0)
+    analyze.add_argument(
+        "--vector-sim",
+        type=int,
+        help="mark sim_000000 and this simulation on both campaign PCA panels",
+    )
+    analyze.add_argument(
+        "--input-pca-x",
+        type=int,
+        default=1,
+        help="one-based input-space PCA component for the horizontal axis",
+    )
+    analyze.add_argument(
+        "--input-pca-y",
+        type=int,
+        default=2,
+        help="one-based input-space PCA component for the vertical axis",
+    )
     charge_slice = subparsers.add_parser(
         "plot-charge-slice",
         help="plot charge observations plus the Xopt GP mean and uncertainty slice",
@@ -135,6 +152,9 @@ def main() -> None:
             args.folds,
             args.seed,
             args.data,
+            args.vector_sim,
+            args.input_pca_x,
+            args.input_pca_y,
         )
         print(
             json.dumps(

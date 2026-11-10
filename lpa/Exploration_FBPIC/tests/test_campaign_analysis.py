@@ -66,6 +66,9 @@ def test_campaign_analysis_uses_scalar_store_and_writes_artifacts(
         tmp_path / "analysis",
         folds=3,
         data_path=config.run_root / "campaign_runs.parquet",
+        vector_sim=6,
+        input_pca_x=3,
+        input_pca_y=4,
     )
 
     assert result.report["complete_training_rows"] == 18
