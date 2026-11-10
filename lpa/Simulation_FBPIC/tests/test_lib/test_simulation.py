@@ -1017,6 +1017,48 @@ class TestAttachedAnalysis:
         electron.track.assert_called_once_with(simulation.simulation.comm)
         simulation_module.add_laser_pulse.assert_called_once()
 
+    def test_setup_maps_named_density_and_beam_particles(
+        self, analysis_simulation, tmp_path, monkeypatch
+    ) -> None:
+        from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
+
+        simulation, _, _, _ = analysis_simulation
+        density = attrs.evolve(
+            simulation.densities[0],
+            elec_name="plasma_electrons",
+            ion_name="plasma_ions",
+        )
+        simulation.densities = [density]
+        simulation.hyparams = attrs.evolve(simulation.hyparams, number_dumps=0)
+        beam = ExpressionParticleBeam(
+            gamma0=1_000.0,
+            n=1.0e22,
+            p_zmin=-2.0e-6,
+            p_zmax=2.0e-6,
+            p_rmax=5.0e-6,
+            particle_name="driver_electrons",
+        )
+        simulation._sort_component(beam)
+        electrons, ions, driver = MagicMock(), MagicMock(), MagicMock()
+        monkeypatch.setattr(
+            type(density),
+            "add_to_simulation",
+            MagicMock(return_value=(electrons, ions)),
+        )
+        monkeypatch.setattr(
+            ExpressionParticleBeam,
+            "add_to_simulation",
+            MagicMock(return_value=driver),
+        )
+
+        simulation.setup_simulation(working_directory=tmp_path)
+
+        assert simulation.particle_species == {
+            "plasma_electrons": [electrons],
+            "plasma_ions": [ions],
+            "driver_electrons": [driver],
+        }
+
     def test_restart_replaces_initialized_beam_state(
         self, analysis_simulation, tmp_path, monkeypatch
     ) -> None:

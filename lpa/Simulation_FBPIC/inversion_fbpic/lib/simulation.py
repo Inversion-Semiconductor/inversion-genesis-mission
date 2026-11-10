@@ -16,6 +16,7 @@ from inversion_fbpic.lib.config_container import ConfigContainer
 from inversion_fbpic.lib.datapoint import Parameters
 from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.lib.density_core import _DensityProfile
+from inversion_fbpic.lib.external_field import _ExternalField
 from inversion_fbpic.lib.laser import _DERIVED_YAML_KEYS, _LaserPulse
 from inversion_fbpic.lib.particle_beam import _ParticleBeam
 
@@ -344,6 +345,8 @@ class Simulation(SerializableConfig):
     densities: List[_DensityProfile] = attrs.field(factory=list, init=False)
     lasers: List[_LaserPulse] = attrs.field(factory=list, init=False)
     beams: List[_ParticleBeam] = attrs.field(factory=list, init=False)
+    external_fields: List[_ExternalField] = attrs.field(factory=list, init=False)
+    particle_species: dict[str, list[Particles]] = attrs.field(factory=dict, init=False)
     diagnostics: List[_Diagnostic] = attrs.field(factory=list, init=False)
     parameters: List[Parameters] = attrs.field(factory=list, init=False)
 
@@ -419,6 +422,39 @@ class Simulation(SerializableConfig):
             raise ValueError(
                 "No LaserPulse or ParticleBeam objects found. Please provide a LaserPulse or ParticleBeam object."
             )
+        available_species = self._configured_particle_species_names()
+        unknown_species = sorted(
+            {
+                field.species
+                for field in self.external_fields
+                if field.species is not None and field.species not in available_species
+            }
+        )
+        if unknown_species:
+            raise ValueError(
+                "External field species must be configured particle-species names; "
+                f"unknown: {unknown_species!r}."
+            )
+
+    def _configured_particle_species_names(self) -> set[str]:
+        """Return names for particle species that setup will actually create."""
+        return (
+            {
+                density.elec_name
+                for density in self.densities
+                if density.elec_name is not None
+            }
+            | {
+                density.ion_name
+                for density in self.densities
+                if density.species is not None and density.ion_name is not None
+            }
+            | {
+                beam.particle_name
+                for beam in self.beams
+                if beam.particle_name is not None
+            }
+        )
 
     @property
     def z_extent(self) -> tuple[float, float]:
@@ -506,6 +542,9 @@ class Simulation(SerializableConfig):
             "particle_beams": sorted(
                 (beam.to_dict() for beam in self.beams), key=_canonical_json
             ),
+            "external_fields": sorted(
+                (field.to_dict() for field in self.external_fields), key=_canonical_json
+            ),
         }
         digest_input = _canonical_json(payload)
         return hashlib.sha256(digest_input.encode("utf-8")).hexdigest()
@@ -569,6 +608,8 @@ class Simulation(SerializableConfig):
             self.lasers.append(payload)
         elif isinstance(payload, _ParticleBeam):
             self.beams.append(payload)
+        elif isinstance(payload, _ExternalField):
+            self.external_fields.append(payload)
         elif isinstance(payload, _Diagnostic):
             if not isinstance(payload.RUN_BEFORE_SIMULATION, bool):
                 raise ValueError(
@@ -581,15 +622,15 @@ class Simulation(SerializableConfig):
         else:
             if skip_incompatible:
                 self._logger.warning(
-                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Skipping incompatible object: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 return
             else:
                 self._logger.critical(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
                 raise ValueError(
-                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, _Diagnostic, Parameters, or ConfigContainer."
+                    f"Unsupported object type: {type(payload).__name__}. Must be SimulationHyperparameters, DensityProfile, LaserPulse, ParticleBeam, ExternalField, _Diagnostic, Parameters, or ConfigContainer."
                 )
 
         if path is not None:
@@ -805,6 +846,67 @@ class Simulation(SerializableConfig):
             return num_steps
         return max(1, -(-num_steps // regular_dumps))
 
+    def _add_particle_diagnostics(
+        self,
+        *,
+        name: str | None,
+        select: dict[str, list[float | None]] | None,
+        particles: Particles | None,
+        boost: BoostConverter | None,
+        v_window: float,
+        dt_lab_diag_period: float,
+        boosted_diagnostic_ranges: list[tuple[int, dict[str, float]]],
+        regular_diagnostic_kwargs: dict[str, int] | None,
+        write_final_diagnostic: bool,
+        final_iteration: int,
+        save_directory: Path,
+    ) -> None:
+        """Attach the configured FBPIC particle diagnostics for one species."""
+        if name is None:
+            return
+        if boost is not None:
+            for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
+                self.simulation.diags.append(
+                    BackTransformedParticleDiagnostic(
+                        self.hyparams.zmin,
+                        self.hyparams.zmax,
+                        v_window,
+                        dt_lab_diag_period,
+                        snapshot_count,
+                        boost.gamma0,
+                        self.hyparams.write_period,
+                        self.simulation.fld,
+                        species={name: particles},
+                        select=select,
+                        comm=self.simulation.comm,
+                        write_dir=save_directory,
+                        **snapshot_kwargs,
+                    )
+                )
+            return
+        if regular_diagnostic_kwargs is not None:
+            self.simulation.diags.append(
+                ParticleDiagnostic(
+                    species={name: particles},
+                    select=select,
+                    comm=self.simulation.comm,
+                    write_dir=save_directory,
+                    **regular_diagnostic_kwargs,
+                )
+            )
+        if write_final_diagnostic:
+            self.simulation.diags.append(
+                ParticleDiagnostic(
+                    period=1,
+                    species={name: particles},
+                    select=select,
+                    comm=self.simulation.comm,
+                    write_dir=save_directory,
+                    iteration_min=final_iteration,
+                    iteration_max=final_iteration + 1,
+                )
+            )
+
     def setup_simulation(
         self,
         working_directory: Path | str | None = None,
@@ -995,6 +1097,7 @@ class Simulation(SerializableConfig):
 
         elecs: List[Particles] = []
         ions: List[Particles] = []
+        self.particle_species.clear()
         for density in self.densities:
             elec: Particles
             ion: Particles | None
@@ -1002,112 +1105,52 @@ class Simulation(SerializableConfig):
                 self.simulation, is_boosted=boost is not None
             )
             elecs.append(elec)
+            if density.elec_name is not None:
+                self.particle_species.setdefault(density.elec_name, []).append(elec)
             if ion is not None:
                 ions.append(ion)
+                if density.ion_name is not None:
+                    self.particle_species.setdefault(density.ion_name, []).append(ion)
 
-            # add diags
-            for name, select, spec in [
+            for name, select, particles in [
                 (density.elec_name, density.elec_select, elec),
                 (density.ion_name, density.ion_select, ion),
             ]:
-                if name is not None and number_dumps != 0:
-                    if boost is not None:
-                        # A final-only boosted dump selects its final lab-frame
-                        # snapshot with a time range; other modes need no filter.
-                        for (
-                            snapshot_count,
-                            snapshot_kwargs,
-                        ) in boosted_diagnostic_ranges:
-                            self.simulation.diags.append(
-                                BackTransformedParticleDiagnostic(
-                                    self.hyparams.zmin,
-                                    self.hyparams.zmax,
-                                    v_window,
-                                    dt_lab_diag_period,
-                                    snapshot_count,
-                                    boost.gamma0,
-                                    self.hyparams.write_period,
-                                    self.simulation.fld,
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    **snapshot_kwargs,
-                                )
-                            )
-                    else:
-                        if regular_diagnostic_kwargs is not None:
-                            self.simulation.diags.append(
-                                ParticleDiagnostic(
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    **regular_diagnostic_kwargs,
-                                )
-                            )
-                        if write_final_diagnostic:
-                            self.simulation.diags.append(
-                                ParticleDiagnostic(
-                                    period=1,
-                                    species={name: spec},
-                                    select=select,
-                                    comm=self.simulation.comm,
-                                    write_dir=save_directory_absolute,
-                                    iteration_min=final_iteration,
-                                    iteration_max=final_iteration + 1,
-                                )
-                            )
-            # /add diags
+                self._add_particle_diagnostics(
+                    name=name,
+                    select=select,
+                    particles=particles,
+                    boost=boost,
+                    v_window=v_window,
+                    dt_lab_diag_period=dt_lab_diag_period,
+                    boosted_diagnostic_ranges=boosted_diagnostic_ranges,
+                    regular_diagnostic_kwargs=regular_diagnostic_kwargs,
+                    write_final_diagnostic=write_final_diagnostic,
+                    final_iteration=final_iteration,
+                    save_directory=save_directory_absolute,
+                )
         # /Add the particles and particle diagnostics
 
         # Add externally injected particle beams and their optional diagnostics.
         for beam in self.beams:
             particle = beam.add_to_simulation(self.simulation, boost=boost)
-            if beam.particle_name is None or number_dumps == 0:
-                continue
-            if boost is not None:
-                for snapshot_count, snapshot_kwargs in boosted_diagnostic_ranges:
-                    self.simulation.diags.append(
-                        BackTransformedParticleDiagnostic(
-                            self.hyparams.zmin,
-                            self.hyparams.zmax,
-                            v_window,
-                            dt_lab_diag_period,
-                            snapshot_count,
-                            boost.gamma0,
-                            self.hyparams.write_period,
-                            self.simulation.fld,
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            **snapshot_kwargs,
-                        )
-                    )
-            else:
-                if regular_diagnostic_kwargs is not None:
-                    self.simulation.diags.append(
-                        ParticleDiagnostic(
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            **regular_diagnostic_kwargs,
-                        )
-                    )
-                if write_final_diagnostic:
-                    self.simulation.diags.append(
-                        ParticleDiagnostic(
-                            period=1,
-                            species={beam.particle_name: particle},
-                            select=beam.particle_select,
-                            comm=self.simulation.comm,
-                            write_dir=save_directory_absolute,
-                            iteration_min=final_iteration,
-                            iteration_max=final_iteration + 1,
-                        )
-                    )
+            if beam.particle_name is not None:
+                self.particle_species.setdefault(beam.particle_name, []).append(
+                    particle
+                )
+            self._add_particle_diagnostics(
+                name=beam.particle_name,
+                select=beam.particle_select,
+                particles=particle,
+                boost=boost,
+                v_window=v_window,
+                dt_lab_diag_period=dt_lab_diag_period,
+                boosted_diagnostic_ranges=boosted_diagnostic_ranges,
+                regular_diagnostic_kwargs=regular_diagnostic_kwargs,
+                write_final_diagnostic=write_final_diagnostic,
+                final_iteration=final_iteration,
+                save_directory=save_directory_absolute,
+            )
 
         restart_loaded = False
         if self.hyparams.use_restart:
@@ -1122,6 +1165,24 @@ class Simulation(SerializableConfig):
                 )
             else:
                 restart_loaded = True
+
+        # Add external fields after the named particle species are available.
+        for external_field in self.external_fields:
+            species = None
+            if external_field.species is not None:
+                try:
+                    species = self.particle_species[external_field.species]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"External field species {external_field.species!r} is not a "
+                        "recorded particle-species name."
+                    ) from exc
+            self.simulation.external_fields.extend(
+                external_field.build_external_fields(
+                    species=species,
+                    gamma_boost=boost.gamma0 if boost is not None else None,
+                )
+            )
 
         # Add tracking
         if self.hyparams.track_electrons and not restart_loaded:
