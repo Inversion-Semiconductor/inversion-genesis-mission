@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from contextlib import chdir
-import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from libensemble.executors.executor import TimeoutExpired
 
-from .executor import EvaluationResult, FBPICRunExecutor, NoBeamDetected
+from .executor import ExecutionFailure, FBPICRunExecutor
 
 
 def run_fbpic_simulation(
@@ -32,9 +32,7 @@ def run_fbpic_simulation(
     log_scaled_names: set[str] = set(user.get("log_scaled_names", ()))
     linear_scales: dict[str, float] = dict(user.get("linear_scales", {}))
     run_id_offset = int(user.get("run_id_offset", 0))
-    simulation_timeout_s = executor.config.execution.get("simulation_timeout_s")
-    if simulation_timeout_s is not None:
-        simulation_timeout_s = float(simulation_timeout_s)
+    simulation_timeout_s = executor.execution_timeout_s()
     out = np.zeros(len(H), dtype=sim_specs["out"])
     for name in out.dtype.names or ():
         if name != "status_code" and np.issubdtype(out.dtype[name], np.floating):
@@ -51,10 +49,9 @@ def run_fbpic_simulation(
         )
         run_id = f"sim_{run_number:06d}"
         run_directory, manifest = executor.prepare_run(run_id, stage, physical_point)
-        started = time.perf_counter()
-        persisted_result: EvaluationResult | None = None
-        try:
-            with chdir(run_directory):
+
+        def launch(directory: Path) -> None:
+            with chdir(directory):
                 task = libE_info["executor"].submit(
                     app_name="fbpic_python",
                     app_args="run_fbpic.py",
@@ -64,59 +61,19 @@ def run_fbpic_simulation(
                     stdout="stdout.log",
                     stderr="stderr.log",
                 )
-                task.wait(timeout=simulation_timeout_s)
+                try:
+                    task.wait(timeout=simulation_timeout_s)
+                except TimeoutExpired as error:
+                    task.kill()
+                    raise ExecutionFailure("timeout", str(error)) from error
             if task.state == "FINISHED":
-                features = executor.extract_features(run_directory)
-                raw_result = EvaluationResult(
-                    run_id,
-                    "ok",
-                    features,
-                    run_directory,
-                    wall_s=time.perf_counter() - started,
-                )
-                result = executor.apply_virtual_waist_shift(
-                    run_directory, manifest, raw_result
-                )
-                if result is not raw_result:
-                    persisted_result = raw_result
-            else:
-                result = EvaluationResult(
-                    run_id,
-                    "fbpic_error",
-                    {},
-                    run_directory,
-                    f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
-                    time.perf_counter() - started,
-                )
-        except TimeoutExpired as error:
-            task.kill()
-            result = EvaluationResult(
-                run_id,
-                "timeout",
-                {},
-                run_directory,
-                str(error),
-                time.perf_counter() - started,
+                return
+            raise ExecutionFailure(
+                "fbpic_error",
+                f"libEnsemble task ended as {task.state} (exit code {task.errcode})",
             )
-        except NoBeamDetected as error:
-            result = EvaluationResult(
-                run_id,
-                "no_beam",
-                {},
-                run_directory,
-                str(error),
-                time.perf_counter() - started,
-            )
-        except Exception as error:
-            result = EvaluationResult(
-                run_id,
-                "error",
-                {},
-                run_directory,
-                repr(error),
-                time.perf_counter() - started,
-            )
-        executor.finalize(run_directory, manifest, persisted_result or result)
+
+        result = executor.complete_prepared_run(run_id, run_directory, manifest, launch)
         out["status_code"][index] = {
             "ok": 0,
             "no_beam": 1,

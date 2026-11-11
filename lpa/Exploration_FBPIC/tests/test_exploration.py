@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from exploration_fbpic.campaign import Campaign
+from exploration_fbpic.executor import FBPICRunExecutor
 from exploration_fbpic.exploration import XoptFBPICExplorer
 
 
@@ -148,7 +149,9 @@ def test_compatible_run_root_rejects_foreign_campaign_manifest(tmp_path: Path) -
         explorer.require_compatible_run_root()
 
 
-def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
+def test_executor_next_run_number_skips_orphaned_run_directories(
+    tmp_path: Path,
+) -> None:
     campaign = Campaign.from_file(CONFIG)
     config = campaign.config.__class__(
         name=campaign.config.name,
@@ -160,11 +163,10 @@ def test_next_run_number_skips_orphaned_run_directories(tmp_path: Path) -> None:
         analysis=campaign.config.analysis,
         execution=campaign.config.execution,
     )
-    explorer = XoptFBPICExplorer(Campaign(config), "stage_1")
     (tmp_path / "sim_000002").mkdir()
     (tmp_path / "sim_000010").mkdir()
 
-    assert explorer._next_run_number() == 11
+    assert FBPICRunExecutor.next_run_number(config.run_root) == 11
 
 
 def test_log_scale_uses_log_model_coordinates_and_physical_manifests() -> None:

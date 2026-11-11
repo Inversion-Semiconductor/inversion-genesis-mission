@@ -14,7 +14,8 @@ from scipy.stats import qmc
 
 from .campaign import Campaign
 from .exploration import XoptFBPICExplorer
-from .feasibility import BeamFeasibilityModel, is_no_beam
+from .campaign_rows import is_no_beam, model_input_matrix, physical_outcome_rows
+from .feasibility import BeamFeasibilityModel
 
 
 @dataclass(frozen=True)
@@ -727,38 +728,18 @@ def _physical_outcome_inputs(
     explorer: XoptFBPICExplorer, raw: pd.DataFrame
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return full active-coordinate inputs and physical beam/no-beam masks."""
-    compatible = raw.loc[
-        raw["campaign_fingerprint"] == explorer.campaign.config.fingerprint()
-    ].copy()
-    parameter_names = list(explorer.variable_bounds)
-    coordinates = []
-    beam = []
-    no_beam = []
-    charge = []
-    for _, row in compatible.iterrows():
-        status = str(row["status"])
-        message = str(row.get("message", ""))
-        if status != "ok" and not is_no_beam(status, message):
-            continue
-        coordinates.append(
-            [
-                explorer._to_model_value(
-                    explorer.campaign.config.parameters[name], float(row[f"p:{name}"])
-                )
-                for name in parameter_names
-            ]
-        )
-        beam.append(status == "ok")
-        no_beam.append(is_no_beam(status, message))
-        charge.append(float(row.get("f:total_beam_charge_pc", np.nan)))
-    model_inputs = np.asarray(coordinates, dtype=float)
+    outcomes, beam, no_beam = physical_outcome_rows(explorer, raw)
+    model_inputs = model_input_matrix(explorer, outcomes)
+    charge = outcomes.get(
+        "f:total_beam_charge_pc", pd.Series(np.nan, index=outcomes.index)
+    ).to_numpy(dtype=float)
     bounds = np.asarray(list(explorer.variable_bounds.values()), dtype=float)
     unit_inputs = (model_inputs - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0])
     return (
         unit_inputs,
-        np.asarray(beam, dtype=bool),
-        np.asarray(no_beam, dtype=bool),
-        np.asarray(charge, dtype=float),
+        beam,
+        no_beam,
+        charge,
     )
 
 

@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
+from .campaign_rows import model_input_matrix, physical_outcome_rows
+
 if TYPE_CHECKING:
     from .exploration import XoptFBPICExplorer
-
-
-NO_BEAM_MESSAGE = "No scalar diagnostic results found"
-
-
-def is_no_beam(status: str, message: str = "") -> bool:
-    """Identify a completed physical no-injection outcome, including legacy rows."""
-    return status == "no_beam" or (
-        status in {"error", "analysis_error"} and NO_BEAM_MESSAGE in message
-    )
 
 
 @dataclass
@@ -31,7 +24,7 @@ class BeamFeasibilityModel:
     be retrained after each completed resource-set batch.
     """
 
-    explorer: "XoptFBPICExplorer"
+    explorer: XoptFBPICExplorer
     _inputs: list[np.ndarray] = field(default_factory=list)
     _labels: list[int] = field(default_factory=list)
     _classifier: object | None = None
@@ -44,34 +37,15 @@ class BeamFeasibilityModel:
         """Load physical beam/no-beam outcomes from the durable campaign table."""
         if data.empty:
             return
-        compatible = data.loc[
-            data["campaign_fingerprint"] == self.explorer.campaign.config.fingerprint()
-        ]
-        parameter_names = list(self.explorer.variable_bounds)
-        required = [f"p:{name}" for name in parameter_names]
-        if any(column not in compatible for column in required):
+        try:
+            outcomes, beam, _ = physical_outcome_rows(self.explorer, data)
+        except ValueError:
             return
-        for _, row in compatible.iterrows():
-            status = str(row["status"])
-            message = str(row.get("message", ""))
-            if status == "ok":
-                label = 1
-            elif is_no_beam(status, message):
-                label = 0
-            else:
-                continue
-            model_point = np.asarray(
-                [
-                    self.explorer._to_model_value(
-                        self.explorer.campaign.config.parameters[name],
-                        float(row[f"p:{name}"]),
-                    )
-                    for name in parameter_names
-                ],
-                dtype=float,
-            )
+        for model_point, beam_present in zip(
+            model_input_matrix(self.explorer, outcomes), beam, strict=True
+        ):
             self._inputs.append(model_point)
-            self._labels.append(label)
+            self._labels.append(1 if beam_present else 0)
         self._fit()
 
     def add_completed(self, points: pd.DataFrame, outcome_codes: np.ndarray) -> None:

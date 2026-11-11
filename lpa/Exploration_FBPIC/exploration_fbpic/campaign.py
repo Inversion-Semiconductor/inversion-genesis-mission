@@ -287,6 +287,12 @@ class CampaignConfig:
             )
         return settings
 
+    @property
+    def campaign_result_filename(self) -> str:
+        """Return the durable per-run record used to build campaign aggregates."""
+        shift = self.virtual_waist_shift
+        return shift["result_filename"] if shift["enabled"] else "result.json"
+
     def complete_parameters(
         self, stage: str, proposed: Mapping[str, float] | None = None
     ) -> dict[str, float | str]:

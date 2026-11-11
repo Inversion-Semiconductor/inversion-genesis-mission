@@ -10,8 +10,6 @@ from uuid import uuid4
 
 import pandas as pd
 
-from .executor import EvaluationResult
-
 
 class CampaignStore:
     """Persistent full-vector records reusable across active-parameter stages."""
@@ -19,17 +17,6 @@ class CampaignStore:
     def __init__(self, root: str | Path):
         self.root = Path(root)
         self.path = self.root / "campaign_runs.parquet"
-
-    def append(self, result: EvaluationResult) -> None:
-        manifest_path = result.run_directory / "run_manifest.json"
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        row = self._row(manifest, result.as_dict())
-        self.root.mkdir(parents=True, exist_ok=True)
-        current, _ = self._load()
-        if not current.empty and result.run_id in set(current["run_id"]):
-            # Run directories are unique, and finalize writes result.json before append.
-            return
-        self._publish(pd.concat([current, pd.DataFrame([row])], ignore_index=True))
 
     def rebuild(
         self,
@@ -76,26 +63,14 @@ class CampaignStore:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _load(self) -> tuple[pd.DataFrame, bool]:
-        """Read the aggregate table or rebuild it from per-run result records."""
-        if not self.path.exists():
-            return pd.DataFrame(), False
-        try:
-            return pd.read_parquet(self.path), False
-        except Exception:
-            rebuilt = self._rebuild_data()
-            if rebuilt.empty:
-                raise
-            self._publish(rebuilt)
-            return rebuilt, True
-
     def load(self) -> pd.DataFrame:
+        """Load the aggregate cache, rebuilding native records after corruption."""
         if not self.path.exists():
             return pd.DataFrame()
         try:
             return pd.read_parquet(self.path)
         except Exception:
-            rebuilt = self._rebuild_data()
+            rebuilt = self._rebuild_data("result.json")
             if rebuilt.empty:
                 raise
             self.root.mkdir(parents=True, exist_ok=True)

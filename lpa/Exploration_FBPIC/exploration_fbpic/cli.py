@@ -285,23 +285,18 @@ def main() -> None:
         explorer.require_compatible_run_root()
         point = json.loads(args.point)
         if args.run_id is None:
-            result = FBPICRunExecutor(explorer.campaign).evaluate(
-                args.run_id or f"sim_{explorer._next_run_number():06d}",
-                args.stage,
-                point,
+            result = FBPICRunExecutor(explorer.campaign).evaluate_next(
+                args.stage, point
             )
-            CampaignStore(explorer.campaign.config.run_root).append(result)
-            print(json.dumps(result.as_dict(), indent=2))
         else:
             result = FBPICRunExecutor(explorer.campaign).evaluate(
                 args.run_id, args.stage, point
             )
-            CampaignStore(explorer.campaign.config.run_root).append(result)
-            print(json.dumps(result.as_dict(), indent=2))
+        explorer.refresh_store()
+        print(json.dumps(result.as_dict(), indent=2))
     elif args.command == "rebuild-store":
-        settings = explorer.campaign.config.virtual_waist_shift
-        result_file = args.result_file or (
-            settings["result_filename"] if settings["enabled"] else "result.json"
+        result_file = (
+            args.result_file or explorer.campaign.config.campaign_result_filename
         )
         run_root = args.run_root or explorer.campaign.config.run_root
         output = args.output or run_root / "campaign_runs.parquet"

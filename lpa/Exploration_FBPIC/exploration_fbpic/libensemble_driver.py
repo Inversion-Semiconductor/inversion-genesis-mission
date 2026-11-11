@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .campaign import Campaign
+from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
 from .feasibility import BeamFeasibilityModel
 from .libensemble_adapter import run_fbpic_simulation
@@ -19,12 +20,7 @@ from .store import CampaignStore
 
 def next_run_id_offset(run_root: str | Path) -> int:
     """Return the first unused numeric ID among existing ``sim_`` directories."""
-    numbers = [
-        int(path.name.removeprefix("sim_"))
-        for path in Path(run_root).glob("sim_*")
-        if path.is_dir() and path.name.removeprefix("sim_").isdigit()
-    ]
-    return max(numbers, default=-1) + 1
+    return FBPICRunExecutor.next_run_number(run_root)
 
 
 def fallback_design(
@@ -380,12 +376,11 @@ def main() -> None:
         from mpi4py import MPI
 
         if MPI.COMM_WORLD.Get_rank() == 0:
-            shift = campaign.config.virtual_waist_shift
             store = CampaignStore(campaign.config.run_root)
-            if shift["enabled"]:
-                store.rebuild(result_filename=shift["result_filename"])
-            else:
+            if campaign.config.campaign_result_filename == "result.json":
                 store.rebuild()
+            else:
+                store.rebuild(result_filename=campaign.config.campaign_result_filename)
 
 
 if __name__ == "__main__":

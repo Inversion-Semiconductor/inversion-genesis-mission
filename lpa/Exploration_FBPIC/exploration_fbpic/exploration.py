@@ -119,11 +119,10 @@ class XoptFBPICExplorer:
 
     def evaluate(self, proposal: Mapping[str, float]) -> dict[str, float | bool | str]:
         """Xopt evaluator function: launch FBPIC and return selected scalar outputs."""
-        run_id = f"sim_{self._next_run_number():06d}"
-        result = self.executor.evaluate(
-            run_id, self.stage, self.model_to_physical(proposal)
+        result = self.executor.evaluate_next(
+            self.stage, self.model_to_physical(proposal)
         )
-        self.store.append(result)
+        self.refresh_store()
         outputs: dict[str, float | bool | str] = {
             "status_ok": result.status == "ok",
             "run_id": result.run_id,
@@ -131,6 +130,12 @@ class XoptFBPICExplorer:
         for feature in self.feature_names:
             outputs[feature] = result.features.get(feature, float("nan"))
         return outputs
+
+    def refresh_store(self) -> pd.DataFrame:
+        """Refresh the aggregate cache from finalized durable result records."""
+        return self.store.rebuild(
+            result_filename=self.campaign.config.campaign_result_filename
+        )
 
     def require_fresh_run_root(self) -> None:
         """Require non-continuation stages to start in an empty run root."""
@@ -261,9 +266,5 @@ class XoptFBPICExplorer:
         return len(compatible)
 
     def _next_run_number(self) -> int:
-        numbers = [
-            int(path.name.removeprefix("sim_"))
-            for path in self.campaign.config.run_root.glob("sim_*")
-            if path.is_dir() and path.name.removeprefix("sim_").isdigit()
-        ]
-        return max(numbers, default=-1) + 1
+        """Return the next run number via the executor-owned allocator."""
+        return FBPICRunExecutor.next_run_number(self.campaign.config.run_root)

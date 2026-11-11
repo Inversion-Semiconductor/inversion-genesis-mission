@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from inversion_fbpic.lib.config_container import ConfigContainer
 from inversion_fbpic.lib.diagnostics import _Diagnostic
@@ -29,6 +29,14 @@ from .campaign import Campaign, RunManifest
 
 class NoBeamDetected(ValueError):
     """A completed simulation produced no injected beam diagnostics."""
+
+
+class ExecutionFailure(RuntimeError):
+    """A launcher-reported failure with a normalized campaign status."""
+
+    def __init__(self, status: str, message: str):
+        super().__init__(message)
+        self.status = status
 
 
 @dataclass(frozen=True)
@@ -64,22 +72,73 @@ class FBPICRunExecutor:
         self, run_id: str, stage: str, proposed: Mapping[str, float] | None = None
     ) -> tuple[Path, RunManifest]:
         run_directory = self.config.run_root / run_id
-        if run_directory.exists():
-            raise FileExistsError(f"run directory already exists: {run_directory}")
-        run_directory.mkdir(parents=True)
+        try:
+            run_directory.mkdir(parents=True)
+        except FileExistsError as error:
+            raise FileExistsError(
+                f"run directory already exists: {run_directory}"
+            ) from error
         manifest = self.campaign.make_manifest(run_id, stage, proposed)
         manifest.write(run_directory)
         self._write_entrypoint(run_directory, manifest)
         return run_directory, manifest
 
+    def prepare_next_run(
+        self, stage: str, proposed: Mapping[str, float] | None = None
+    ) -> tuple[Path, RunManifest]:
+        """Atomically reserve and prepare the next numeric simulation directory."""
+        number = self.next_run_number(self.config.run_root)
+        while True:
+            run_id = f"sim_{number:06d}"
+            try:
+                return self.prepare_run(run_id, stage, proposed)
+            except FileExistsError:
+                number += 1
+
+    @staticmethod
+    def next_run_number(run_root: str | Path) -> int:
+        """Return the first candidate number after existing ``sim_`` directories."""
+        numbers = [
+            int(path.name.removeprefix("sim_"))
+            for path in Path(run_root).glob("sim_*")
+            if path.is_dir() and path.name.removeprefix("sim_").isdigit()
+        ]
+        return max(numbers, default=-1) + 1
+
+    def evaluate_next(
+        self, stage: str, proposed: Mapping[str, float] | None = None
+    ) -> EvaluationResult:
+        """Atomically reserve, execute, and finalize the next simulation run."""
+        run_directory, manifest = self.prepare_next_run(stage, proposed)
+        return self.complete_prepared_run(
+            manifest.run_id, run_directory, manifest, self._execute
+        )
+
     def evaluate(
         self, run_id: str, stage: str, proposed: Mapping[str, float] | None = None
     ) -> EvaluationResult:
         run_directory, manifest = self.prepare_run(run_id, stage, proposed)
+        return self.complete_prepared_run(
+            run_id, run_directory, manifest, self._execute
+        )
+
+    def complete_prepared_run(
+        self,
+        run_id: str,
+        run_directory: Path,
+        manifest: RunManifest,
+        launch: Callable[[Path], None],
+    ) -> EvaluationResult:
+        """Launch, analyze, shift, and finalize one already-prepared run.
+
+        Local subprocess execution and libEnsemble task execution supply only
+        the ``launch`` operation. Every subsequent outcome follows this shared
+        persistence and status contract.
+        """
         started = time.perf_counter()
         persisted_result: EvaluationResult | None = None
         try:
-            self._execute(run_directory)
+            launch(run_directory)
             features = self.extract_features(run_directory)
             raw_result = EvaluationResult(
                 run_id,
@@ -91,6 +150,15 @@ class FBPICRunExecutor:
             result = self.apply_virtual_waist_shift(run_directory, manifest, raw_result)
             if result is not raw_result:
                 persisted_result = raw_result
+        except ExecutionFailure as error:
+            result = EvaluationResult(
+                run_id,
+                error.status,
+                {},
+                run_directory,
+                str(error),
+                time.perf_counter() - started,
+            )
         except subprocess.TimeoutExpired as error:
             result = EvaluationResult(
                 run_id,
@@ -138,6 +206,13 @@ class FBPICRunExecutor:
             )
         self.finalize(run_directory, manifest, persisted_result or result)
         return result
+
+    def execution_timeout_s(self) -> float | None:
+        """Return the shared execution timeout, accepting legacy smoke configs."""
+        configured = self.config.execution.get(
+            "simulation_timeout_s", self.config.execution.get("timeout_s")
+        )
+        return None if configured is None else float(configured)
 
     def apply_virtual_waist_shift(
         self,
@@ -238,6 +313,7 @@ if __name__ == "__main__":
                 stdout=stdout,
                 stderr=stderr,
                 text=True,
+                timeout=self.execution_timeout_s(),
             )
 
     def extract_features(self, run_directory: Path) -> dict[str, float]:

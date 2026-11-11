@@ -345,7 +345,6 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
     )
     campaign = Campaign.from_file(config_path)
     run_root = campaign.config.run_root
-    store = CampaignStore(run_root)
     for run_id, stage, fingerprint in [
         ("sim_000000", "surrogate_smoke", campaign.config.fingerprint()),
         ("sim_000001", "other_stage", campaign.config.fingerprint()),
@@ -359,14 +358,18 @@ def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) ->
         record["stage"] = stage
         record["campaign_fingerprint"] = fingerprint
         manifest_path.write_text(json.dumps(record), encoding="utf-8")
-        store.append(
-            EvaluationResult(
-                run_id,
-                "ok",
-                {"total_beam_charge_pc": 1.0, "mean_kinetic_energy_MeV": 1.0},
-                directory,
-            )
+        result = EvaluationResult(
+            run_id,
+            "ok",
+            {"total_beam_charge_pc": 1.0, "mean_kinetic_energy_MeV": 1.0},
+            directory,
         )
+        (directory / "result.json").write_text(
+            json.dumps({"manifest": record, "result": result.as_dict()}, default=str),
+            encoding="utf-8",
+        )
+
+    CampaignStore(run_root).rebuild()
 
     ensemble = make_ensemble(config_path, "surrogate_smoke")
 

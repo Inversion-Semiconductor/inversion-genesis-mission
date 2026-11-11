@@ -20,9 +20,16 @@ def test_store_persists_full_parameter_vector(tmp_path: Path) -> None:
     result = EvaluationResult(
         "sim_000001", "ok", {"total_beam_charge_pc": 5.0}, run_directory
     )
+    manifest = campaign.make_manifest("sim_000001", "stage_1")
+    (run_directory / "result.json").write_text(
+        json.dumps(
+            {"manifest": manifest.__dict__, "result": result.as_dict()}, default=str
+        ),
+        encoding="utf-8",
+    )
 
     store = CampaignStore(tmp_path)
-    store.append(result)
+    store.rebuild()
 
     row = store.load().iloc[0]
     assert row["p:laser_energy_J"] == 2.5
@@ -141,7 +148,7 @@ def test_store_load_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -> 
     assert pd.read_parquet(store.path).iloc[0]["f:total_beam_charge_pc"] == 5.0
 
 
-def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -> None:
+def test_store_rebuild_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -> None:
     campaign = Campaign.from_file(CONFIG)
     store = CampaignStore(tmp_path)
     first_directory = tmp_path / "sim_000001"
@@ -158,7 +165,7 @@ def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -
         ),
         encoding="utf-8",
     )
-    store.append(first_result)
+    store.rebuild()
     store.path.write_bytes(b"corrupt")
 
     second_directory = tmp_path / "sim_000002"
@@ -175,19 +182,18 @@ def test_store_append_repairs_corrupt_parquet_from_run_results(tmp_path: Path) -
         ),
         encoding="utf-8",
     )
-    store.append(second_result)
+    store.rebuild()
 
     repaired = store.load()
 
     assert set(repaired["run_id"]) == {"sim_000001", "sim_000002"}
 
 
-def test_store_append_is_idempotent_after_another_worker_rebuilds(
+def test_store_rebuilds_all_durable_records_after_a_corrupt_cache(
     tmp_path: Path,
 ) -> None:
     campaign = Campaign.from_file(CONFIG)
     store = CampaignStore(tmp_path)
-    results = []
     for run_id, charge in [("sim_000001", 5.0), ("sim_000002", 6.0)]:
         run_directory = tmp_path / run_id
         run_directory.mkdir()
@@ -202,11 +208,9 @@ def test_store_append_is_idempotent_after_another_worker_rebuilds(
             ),
             encoding="utf-8",
         )
-        results.append(result)
     store.path.write_bytes(b"corrupt")
 
-    store.append(results[0])
-    store.append(results[1])
+    store.rebuild()
 
     repaired = store.load()
     assert set(repaired["run_id"]) == {"sim_000001", "sim_000002"}
