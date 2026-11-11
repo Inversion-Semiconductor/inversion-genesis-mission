@@ -52,6 +52,7 @@ def run_fbpic_simulation(
         run_id = f"sim_{run_number:06d}"
         run_directory, manifest = executor.prepare_run(run_id, stage, physical_point)
         started = time.perf_counter()
+        persisted_result: EvaluationResult | None = None
         try:
             with chdir(run_directory):
                 task = libE_info["executor"].submit(
@@ -66,13 +67,18 @@ def run_fbpic_simulation(
                 task.wait(timeout=simulation_timeout_s)
             if task.state == "FINISHED":
                 features = executor.extract_features(run_directory)
-                result = EvaluationResult(
+                raw_result = EvaluationResult(
                     run_id,
                     "ok",
                     features,
                     run_directory,
                     wall_s=time.perf_counter() - started,
                 )
+                result = executor.apply_virtual_waist_shift(
+                    run_directory, manifest, raw_result
+                )
+                if result is not raw_result:
+                    persisted_result = raw_result
             else:
                 result = EvaluationResult(
                     run_id,
@@ -110,7 +116,7 @@ def run_fbpic_simulation(
                 repr(error),
                 time.perf_counter() - started,
             )
-        executor.finalize(run_directory, manifest, result)
+        executor.finalize(run_directory, manifest, persisted_result or result)
         out["status_code"][index] = {
             "ok": 0,
             "no_beam": 1,

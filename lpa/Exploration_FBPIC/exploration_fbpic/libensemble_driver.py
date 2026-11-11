@@ -380,7 +380,12 @@ def main() -> None:
         from mpi4py import MPI
 
         if MPI.COMM_WORLD.Get_rank() == 0:
-            CampaignStore(campaign.config.run_root).rebuild()
+            shift = campaign.config.virtual_waist_shift
+            store = CampaignStore(campaign.config.run_root)
+            if shift["enabled"]:
+                store.rebuild(result_filename=shift["result_filename"])
+            else:
+                store.rebuild()
 
 
 if __name__ == "__main__":

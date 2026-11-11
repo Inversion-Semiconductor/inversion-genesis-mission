@@ -19,6 +19,10 @@ from inversion_fbpic.lib.diagnostics import _Diagnostic
 from inversion_fbpic.utils.distributions import (
     mean_kinetic_energy_mev as mean_kinetic_energy_mev,
 )
+from inversion_fbpic.utils.virtual_waist import (
+    calculate_shifted_features_for_run,
+    write_shifted_result_record,
+)
 
 from .campaign import Campaign, RunManifest
 
@@ -73,9 +77,20 @@ class FBPICRunExecutor:
     ) -> EvaluationResult:
         run_directory, manifest = self.prepare_run(run_id, stage, proposed)
         started = time.perf_counter()
+        persisted_result: EvaluationResult | None = None
         try:
             self._execute(run_directory)
             features = self.extract_features(run_directory)
+            raw_result = EvaluationResult(
+                run_id,
+                "ok",
+                features,
+                run_directory,
+                wall_s=time.perf_counter() - started,
+            )
+            result = self.apply_virtual_waist_shift(run_directory, manifest, raw_result)
+            if result is not raw_result:
+                persisted_result = raw_result
         except subprocess.TimeoutExpired as error:
             result = EvaluationResult(
                 run_id,
@@ -121,16 +136,51 @@ class FBPICRunExecutor:
                 repr(error),
                 time.perf_counter() - started,
             )
-        else:
-            result = EvaluationResult(
-                run_id,
-                "ok",
-                features,
-                run_directory,
-                wall_s=time.perf_counter() - started,
-            )
-        self.finalize(run_directory, manifest, result)
+        self.finalize(run_directory, manifest, persisted_result or result)
         return result
+
+    def apply_virtual_waist_shift(
+        self,
+        run_directory: Path,
+        manifest: RunManifest,
+        raw_result: EvaluationResult,
+    ) -> EvaluationResult:
+        """Write optional shifted scalars and return the features for exploration.
+
+        ``result.json`` retains the native diagnostic scalars. When enabled, the
+        returned result is shifted for Xopt and a separate durable shifted result
+        record is written for explicit aggregate-store rebuilds.
+        """
+        settings = getattr(self.config, "virtual_waist_shift", {"enabled": False})
+        if not settings["enabled"]:
+            return raw_result
+        shifted_features, metadata = calculate_shifted_features_for_run(
+            run_directory,
+            species=settings["species"],
+            target_z_m=settings["target_z_m"],
+            uz_min=settings["uz_min"],
+            central_fraction=settings["central_fraction"],
+            charge_fraction=settings["charge_fraction"],
+        )
+        record = {
+            "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "manifest": asdict(manifest),
+            "result": raw_result.as_dict(),
+        }
+        write_shifted_result_record(
+            record,
+            shifted_features,
+            metadata,
+            run_directory / settings["result_filename"],
+        )
+        return EvaluationResult(
+            raw_result.run_id,
+            raw_result.status,
+            shifted_features,
+            raw_result.run_directory,
+            raw_result.message,
+            raw_result.wall_s,
+        )
 
     def _write_entrypoint(self, run_directory: Path, manifest: RunManifest) -> None:
         hyperparameters = self.config.template_hyperparameters()

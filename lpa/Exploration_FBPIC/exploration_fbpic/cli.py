@@ -22,6 +22,7 @@ from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
 from .libensemble_driver import preview_xopt_batch
 from .store import CampaignStore
+from inversion_fbpic.utils.virtual_waist import shift_run_result
 
 
 def main() -> None:
@@ -137,9 +138,32 @@ def main() -> None:
     preview.add_argument("--candidate-pool-factor", type=int, default=8)
     preview.add_argument("--minimum-beam-feasibility", type=float)
     subparsers.add_parser("status", help="show reusable successful evaluations")
-    subparsers.add_parser(
+    rebuild = subparsers.add_parser(
         "rebuild-store",
         help="rebuild campaign_runs.parquet from per-run result.json files",
+    )
+    rebuild.add_argument(
+        "--result-file",
+        help="per-run result filename; defaults to the configured shifted file when enabled",
+    )
+    rebuild.add_argument(
+        "--output",
+        type=Path,
+        help="aggregate output path; defaults to campaign_runs.parquet",
+    )
+    rebuild.add_argument(
+        "--run-root",
+        type=Path,
+        help="override the stage run root, for example a downloaded NERSC campaign",
+    )
+    shift_results = subparsers.add_parser(
+        "shift-results",
+        help="write virtual-waist-shifted result records for all successful runs",
+    )
+    shift_results.add_argument(
+        "--run-root",
+        type=Path,
+        help="override the stage run root, for example a downloaded NERSC campaign",
     )
     args = parser.parse_args()
 
@@ -275,8 +299,80 @@ def main() -> None:
             CampaignStore(explorer.campaign.config.run_root).append(result)
             print(json.dumps(result.as_dict(), indent=2))
     elif args.command == "rebuild-store":
-        rebuilt = CampaignStore(explorer.campaign.config.run_root).rebuild()
-        print(json.dumps({"rebuilt_rows": len(rebuilt)}, indent=2))
+        settings = explorer.campaign.config.virtual_waist_shift
+        result_file = args.result_file or (
+            settings["result_filename"] if settings["enabled"] else "result.json"
+        )
+        run_root = args.run_root or explorer.campaign.config.run_root
+        output = args.output or run_root / "campaign_runs.parquet"
+        rebuilt = CampaignStore(run_root).rebuild(
+            result_filename=result_file,
+            output_path=output,
+        )
+        print(
+            json.dumps(
+                {
+                    "rebuilt_rows": len(rebuilt),
+                    "result_file": result_file,
+                    "output": str(output),
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "shift-results":
+        settings = explorer.campaign.config.virtual_waist_shift
+        if not settings["enabled"]:
+            raise ValueError(
+                "analysis.virtual_waist_shift must be enabled to shift campaign results"
+            )
+        run_root = args.run_root or explorer.campaign.config.run_root
+        completed = []
+        failed = []
+        skipped = 0
+        for run_directory in sorted(
+            path for path in run_root.glob("sim_*") if path.is_dir()
+        ):
+            result_path = run_directory / "result.json"
+            if not result_path.is_file():
+                skipped += 1
+                continue
+            record = json.loads(result_path.read_text(encoding="utf-8"))
+            if record["result"]["status"] != "ok":
+                skipped += 1
+                continue
+            try:
+                _, metadata, output = shift_run_result(
+                    run_directory,
+                    species=settings["species"],
+                    target_z_m=settings["target_z_m"],
+                    uz_min=settings["uz_min"],
+                    central_fraction=settings["central_fraction"],
+                    charge_fraction=settings["charge_fraction"],
+                    output_filename=settings["result_filename"],
+                )
+            except (FileNotFoundError, ValueError, OSError) as error:
+                failed.append({"run_id": run_directory.name, "error": str(error)})
+            else:
+                completed.append(
+                    {
+                        "run_id": run_directory.name,
+                        "result": str(output),
+                        "waist_average_m": metadata["waist_average_m"],
+                    }
+                )
+        print(
+            json.dumps(
+                {
+                    "run_root": str(run_root),
+                    "shifted": len(completed),
+                    "skipped": skipped,
+                    "failed": failed,
+                },
+                indent=2,
+            )
+        )
+        if failed:
+            raise SystemExit(1)
     else:
         data = explorer.training_data()
         print(
