@@ -165,6 +165,16 @@ stages:
       - zernike_trefoil_x
 
 analysis:
+  # Recalculate campaign scalars at 5 mm downstream of a virtual waist defined
+  # by the symmetric mean-uz slice containing 5% of beam charge.
+  virtual_waist_shift:
+    enabled: true
+    species: [electrons_n2]
+    target_z_m: 5.0e-3
+    uz_min: 20.0
+    central_fraction: 0.95
+    charge_fraction: 0.05
+    result_filename: results_shifted.json
   exploration_features:
     - total_beam_charge_pc
     - longitudinal_mean_uz_00

@@ -238,6 +238,55 @@ class CampaignConfig:
             )
         return tuple(features)
 
+    @property
+    def virtual_waist_shift(self) -> dict[str, Any]:
+        """Return validated optional virtual-waist scalar post-processing settings."""
+        raw = self.analysis.get("virtual_waist_shift", {})
+        if raw is False or raw is None:
+            return {"enabled": False}
+        if not isinstance(raw, Mapping):
+            raise ValueError("analysis.virtual_waist_shift must be a mapping or false")
+        enabled = bool(raw.get("enabled", False))
+        if not enabled:
+            return {"enabled": False}
+        species = raw.get("species")
+        if (
+            not isinstance(species, list)
+            or not species
+            or not all(isinstance(name, str) and name for name in species)
+        ):
+            raise ValueError(
+                "analysis.virtual_waist_shift.species must be a nonempty list of names"
+            )
+        settings = {
+            "enabled": True,
+            "species": tuple(species),
+            "target_z_m": float(raw.get("target_z_m", 5.0e-3)),
+            "uz_min": float(raw.get("uz_min", 20.0)),
+            "central_fraction": float(raw.get("central_fraction", 0.95)),
+            "charge_fraction": float(raw.get("charge_fraction", 0.05)),
+            "result_filename": str(raw.get("result_filename", "results_shifted.json")),
+        }
+        if settings["target_z_m"] < 0:
+            raise ValueError(
+                "analysis.virtual_waist_shift.target_z_m must be nonnegative"
+            )
+        if settings["uz_min"] < 0:
+            raise ValueError("analysis.virtual_waist_shift.uz_min must be nonnegative")
+        if not 0 < settings["central_fraction"] <= 1:
+            raise ValueError(
+                "analysis.virtual_waist_shift.central_fraction must be in (0, 1]"
+            )
+        if not 0 < settings["charge_fraction"] <= 1:
+            raise ValueError(
+                "analysis.virtual_waist_shift.charge_fraction must be in (0, 1]"
+            )
+        if Path(settings["result_filename"]).name != settings["result_filename"]:
+            raise ValueError(
+                "analysis.virtual_waist_shift.result_filename must be a filename"
+            )
+        return settings
+
     def complete_parameters(
         self, stage: str, proposed: Mapping[str, float] | None = None
     ) -> dict[str, float | str]:

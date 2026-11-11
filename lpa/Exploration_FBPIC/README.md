@@ -139,6 +139,35 @@ updated. Rebuild that table after an interrupted local run or filesystem issue:
 explore-fbpic runs/initial_study/campaign.yaml --stage stage_1 rebuild-store
 ```
 
+## Virtual-waist shifted scalars
+
+When `analysis.virtual_waist_shift.enabled` is true, successful runs also write
+`results_shifted.json`. The full beam is drifted to the configured plane
+downstream of a virtual waist defined by the central mean-`uz` slice containing
+the configured charge fraction. The native diagnostic result remains in
+`result.json`; live exploration and the default rebuild use the shifted features.
+
+The shift runs on the worker CPU. It is dominated by openPMD HDF5 loading and
+charge-weighted NumPy reductions; transferring each completed particle dump to a
+GPU would add more overhead than the two-coordinate drift saves. The code can be
+ported to CuPy if particles become available on-device, but that is not the
+current FBPIC diagnostic path.
+
+To shift all successful runs in an existing NERSC campaign and rebuild a compact
+shifted table, run:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 shift-results \
+  --run-root /pscratch/path/to/campaign
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 rebuild-store \
+  --run-root /pscratch/path/to/campaign \
+  --output /pscratch/path/to/campaign/campaign_runs_shifted.parquet
+```
+
+`shift-results` reports every analysis failure and exits nonzero if any successful
+run could not produce a shifted record. Shifted rebuilds retain native `no_beam`
+records so feasibility modeling continues to include physical no-beam outcomes.
+
 ## Compact campaign assessment
 
 The aggregate `campaign_runs.parquet` contains the complete parameter vector,
