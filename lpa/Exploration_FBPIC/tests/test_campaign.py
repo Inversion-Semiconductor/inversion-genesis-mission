@@ -58,6 +58,20 @@ def test_stage_one_keeps_all_physical_parameters() -> None:
     assert manifest.stage_settings.concurrent_simulations == 32
 
 
+def test_campaign_configures_virtual_waist_shift_for_shifted_exploration() -> None:
+    campaign = Campaign.from_file(CONFIG)
+
+    assert campaign.config.virtual_waist_shift == {
+        "enabled": True,
+        "species": ("electrons_n2",),
+        "target_z_m": 5.0e-3,
+        "uz_min": 20.0,
+        "central_fraction": 0.95,
+        "charge_fraction": 0.05,
+        "result_filename": "results_shifted.json",
+    }
+
+
 def test_campaign_derives_independent_right_ramp_inputs() -> None:
     campaign = Campaign.from_file(CONFIG)
     hyperparameters = campaign.config.template_hyperparameters()
