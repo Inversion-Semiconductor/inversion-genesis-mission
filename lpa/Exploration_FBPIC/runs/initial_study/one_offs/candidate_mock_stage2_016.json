@@ -1,0 +1,24 @@
+{
+  "label": "mock_stage2_extension_rank_16",
+  "stage": "stage_2",
+  "parameters": {
+    "peak_neutral_density_cm3": 1.4639995419115482e+18,
+    "density_fwhm_left_m": 0.001553253491620941,
+    "density_fwhm_right_m": 0.002075514833175245,
+    "density_left_ramp_edge_percent": 0.1586228910917587,
+    "density_right_ramp_edge_percent": 0.777840031261482,
+    "laser_energy_J": 2.344387555025423,
+    "laser_pulse_duration_fwhm_s": 3.905924995346479e-14,
+    "laser_gdd_relative": -0.39999999998463903,
+    "laser_tod_relative": 0.39999999853107215,
+    "laser_spot_size_m": 1.624877213069441e-05,
+    "laser_super_gaussian_order": 2.000000000150951,
+    "laser_focal_position_m": 0.001,
+    "zernike_astigmatism_2": -0.49999999931914196,
+    "zernike_astigmatism_4": 0.412790645011911,
+    "zernike_coma_y": -0.2499999997754224,
+    "zernike_coma_x": -0.24999999988121727,
+    "zernike_trefoil_y": -0.7499999992844484,
+    "zernike_trefoil_x": -0.04024972576429066
+  }
+}

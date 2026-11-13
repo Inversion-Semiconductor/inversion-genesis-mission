@@ -1,0 +1,24 @@
+{
+  "label": "sim_000728_energy_2p1J",
+  "stage": "stage_2",
+  "parameters": {
+    "peak_neutral_density_cm3": 1.7158660240783393e+18,
+    "density_fwhm_left_m": 0.0009474003095792901,
+    "density_fwhm_right_m": 0.001981068161648776,
+    "density_left_ramp_edge_percent": 0.8941102550720246,
+    "density_right_ramp_edge_percent": 0.5472657108525396,
+    "laser_energy_J": 2.1,
+    "laser_pulse_duration_fwhm_s": 3.0078761274469604e-14,
+    "laser_gdd_relative": -0.08311340857551422,
+    "laser_tod_relative": -0.03148287703581295,
+    "laser_spot_size_m": 1.6e-05,
+    "laser_super_gaussian_order": 3.720352516472343,
+    "laser_focal_position_m": 0.005,
+    "zernike_astigmatism_2": 0.2573032363550836,
+    "zernike_astigmatism_4": -0.44745535277068565,
+    "zernike_coma_y": -0.25,
+    "zernike_coma_x": -0.18688016865325913,
+    "zernike_trefoil_y": -0.044079754491812784,
+    "zernike_trefoil_x": 0.5559191944155133
+  }
+}
