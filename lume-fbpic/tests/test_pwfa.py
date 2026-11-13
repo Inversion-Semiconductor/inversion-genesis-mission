@@ -1,4 +1,5 @@
-"""Tests for the PWFA config classes, `PWFASimulator`, and its actions."""
+"""Tests for beam-driven (PWFA) runs on `FBPICSimulator`: their actions and archives, short real
+runs, the plasma profile of the CLARA example, and the two PWFA examples."""
 
 from __future__ import annotations
 
@@ -6,17 +7,18 @@ import attrs
 import h5py
 import numpy
 import pytest
+from scipy.constants import e
 
+from inversion_fbpic.lib.particle_beam import ExpressionParticleBeam
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from lume_fbpic import archive
-from lume_fbpic.actions import make_pwfa_actions
-from lume_fbpic.density_profiles import LinearRampFlattop, UpDownRampProfile
+from lume_fbpic.actions import make_beam_actions
+from lume_fbpic.density_profiles import UpDownRampProfile
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.pwfa_config import FlatTopBunch, GaussianBunch, PWFAGrid
-from lume_fbpic.pwfa_simulator import PWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.utils import ELECTRON_MC2_EV
 from reference_descriptor import reference_descriptor
-from short_runs import short_pwfa_simulator
+from short_runs import short_pwfa_model, short_pwfa_simulator, uniform_beam_charge
 
 import pwfa_clara_febe as clara_example  # docs/examples, on the path from conftest.py
 import pwfa_gaussian as pwfa_gaussian_example
@@ -24,89 +26,9 @@ import pwfa_gaussian as pwfa_gaussian_example
 
 @pytest.fixture
 def pwfa_model(tmp_path) -> LUMEFBPICModel:
-    """A flat-top-driver PWFA model (no witness) on a coarse grid; `dummy_run`, so nothing runs."""
-    grid = PWFAGrid(
-        zmin=-10.0e-6,
-        zmax=30.0e-6,
-        nz=200,
-        rmax=20.0e-6,
-        nr=100,
-        n_steps=400,
-        write_period=20,
-    )
-    plasma = LinearRampFlattop(
-        nominal_density=1.0e24,
-        species=None,
-        ionization=-1,
-        p_nz=2,
-        p_nr=2,
-        p_nt=4,
-        ramp_start=0.0,
-        ramp_length=50.0e-6,
-    )
-    driver = FlatTopBunch(
-        gamma=2.0e3, density=5.0e24, radius=2.0e-6, zmin=15.0e-6, zmax=20.0e-6
-    )
-    simulator = PWFASimulator(
-        grid, plasma, driver, target_species="driver", working_directory=tmp_path
-    )
-    return LUMEFBPICModel(simulator, make_pwfa_actions(simulator), dummy_run=True)
-
-
-def test_flat_top_bunch_charge_is_the_density_times_the_cylinder_volume():
-    bunch = FlatTopBunch(
-        gamma=10.0, density=1.0e24, radius=1.0e-6, zmin=0.0, zmax=1.0e-5
-    )
-
-    assert bunch.charge == pytest.approx(
-        1.602176634e-19 * 1.0e24 * 3.141592653589793e-12 * 1.0e-5
-    )
-
-
-def test_flat_top_bunch_rejects_a_reversed_extent():
-    with pytest.raises(ValueError, match="zmax"):
-        FlatTopBunch(
-            gamma=10.0, density=1.0e24, radius=1.0e-6, zmin=2.0e-6, zmax=1.0e-6
-        )
-
-
-def test_grid_defaults_to_one_cell_of_light_travel_per_step():
-    grid = PWFAGrid(zmin=0.0, zmax=3.0e-5, nz=100, rmax=1.0e-5, nr=10, n_steps=5)
-
-    assert grid.time_step == pytest.approx(3.0e-5 / 100 / 299792458.0)
-    assert attrs.evolve(grid, dt=1.0e-15).time_step == 1.0e-15
-
-
-@pytest.mark.parametrize(
-    "changes",
-    [{"z_boundary": "reflective"}, {"r_boundary": "periodic"}, {"zmax": -1.0}],
-)
-def test_grid_rejects_bad_values(changes):
-    kwargs = dict(zmin=0.0, zmax=3.0e-5, nz=100, rmax=1.0e-5, nr=10, n_steps=5)
-    with pytest.raises(ValueError):
-        PWFAGrid(**{**kwargs, **changes})
-
-
-def test_the_default_smoother_is_fbpics_own(tmp_path):
-    from fbpic.fields.smoothing import BinomialSmoother
-
-    simulation = short_pwfa_simulator(tmp_path).run_simulation()
-
-    smoother = simulation.fld.smoother
-    # fbpic's, for smoother=None
-    default = BinomialSmoother(n_passes=1, compensator=False)
-    assert smoother.n_passes == default.n_passes
-    assert smoother.compensator == default.compensator
-
-
-def test_zero_smoother_passes_leave_the_charge_and_currents_unfiltered(tmp_path):
-    simulator = short_pwfa_simulator(tmp_path, smoother_passes=0)
-
-    smoother = simulator.run_simulation().fld.smoother
-
-    k = numpy.linspace(0.0, 1.0e6, 7)
-    filt_z, filt_r = smoother.get_filter_array(k, k, 1.0e-6, 1.0e-6)
-    assert numpy.all(filt_z == 1.0) and numpy.all(filt_r == 1.0)
+    """`short_pwfa_model(tmp_path)` (a flat-top driver, no witness), `dummy_run`, so nothing
+    runs."""
+    return short_pwfa_model(tmp_path, dummy_run=True)
 
 
 def test_configure_rejects_a_target_species_that_does_not_exist(pwfa_model):
@@ -143,68 +65,65 @@ def test_the_descriptor_actions_work_on_a_pwfa_simulator(pwfa_model, particle_gr
 
 def test_a_witness_adds_witness_actions(pwfa_model):
     simulator = pwfa_model.simulator
-    witness = FlatTopBunch(
-        gamma=500.0, density=1.0e23, radius=1.0e-6, zmin=0.0, zmax=1.0e-6
-    )
-    with_witness = PWFASimulator(
-        simulator.grid,
-        simulator.plasma,
-        simulator.driver,
-        witness,
-        target_species="witness",
-    )
+    simulator.beams = [
+        *simulator.beams,
+        ExpressionParticleBeam(
+            gamma0=500.0,
+            n=1.0e23,
+            p_zmin=0.0,
+            p_zmax=1.0e-6,
+            p_rmax=1.0e-6,
+            particle_name="witness",
+        ),
+    ]
+    simulator.target_species = "witness"
 
     model = LUMEFBPICModel(
-        with_witness, make_pwfa_actions(with_witness), dummy_run=True
+        simulator, make_beam_actions(simulator, beam_index=1), dummy_run=True
     )
 
     assert {"witness_gamma", "witness_density"} <= set(model.supported_variables)
 
 
 def test_setting_actions_replaces_the_frozen_configs(pwfa_model):
-    original_driver = pwfa_model.simulator.driver
+    original_driver = pwfa_model.simulator.beams[0]
 
     pwfa_model.set({"driver_gamma": 1000.0, "plasma_density": 2.0e24})
 
-    assert pwfa_model.simulator.driver is not original_driver
-    assert pwfa_model.simulator.driver.gamma == 1000.0
-    assert pwfa_model.simulator.plasma.nominal_density == 2.0e24
+    assert pwfa_model.simulator.beams[0] is not original_driver
+    assert pwfa_model.simulator.beams[0].gamma0 == 1000.0
+    assert pwfa_model.simulator.densities[0].nominal_density == 2.0e24
     assert pwfa_model.get(["driver_gamma"]) == {"driver_gamma": 1000.0}
 
 
-def test_a_bunch_action_for_a_missing_witness_raises(pwfa_model):
-    action = pwfa_model.supported_variables["driver_gamma"]
-    missing = type(action)(name="w", bunch="witness", field_name="gamma")
-
-    with pytest.raises(ValueError, match="no witness"):
-        missing._get(pwfa_model.simulator)
-
-
-def test_bunch_actions_come_back_from_an_archive(pwfa_model, tmp_path):
+def test_beam_actions_come_back_from_an_archive(pwfa_model, tmp_path):
     archive.save(pwfa_model, tmp_path / "p.h5")
 
     restored = archive.load(tmp_path / "p.h5")
 
     action = restored.supported_variables["driver_gamma"]
-    assert type(action).__name__ == "BunchFieldAction"
-    assert action.bunch == "driver" and action.field_name == "gamma"
+    assert type(action).__name__ == "BeamFieldAction"
+    assert action.beam_index == 0 and action.field_name == "gamma0"
 
 
-def test_archive_round_trips_a_pwfa_model_and_picks_the_pwfa_class(
-    pwfa_model, tmp_path
-):
+def test_archive_round_trips_a_pwfa_model(pwfa_model, tmp_path):
     simulator = pwfa_model.simulator
-    simulator.grid = attrs.evolve(simulator.grid, save_directory="scan_07")
+    simulator.hyparams = attrs.evolve(simulator.hyparams, save_directory="scan_07")
     archive.save(pwfa_model, tmp_path / "p.h5")
 
     with h5py.File(tmp_path / "p.h5") as f:
-        assert f.attrs["config_kind"] == "pwfa"
+        assert f.attrs["config_kind"] == "fbpic"
     restored = archive.load(tmp_path / "p.h5")
 
-    assert type(restored.simulator) is PWFASimulator
-    assert {k: v.to_dict() for k, v in restored.simulator.config().items()} == {
-        k: v.to_dict() for k, v in pwfa_model.simulator.config().items()
-    }
+    assert type(restored.simulator) is FBPICSimulator
+
+    def dicts(config):
+        return {
+            k: [x.to_dict() for x in v] if isinstance(v, list) else v.to_dict()
+            for k, v in config.items()
+        }
+
+    assert dicts(restored.simulator.config()) == dicts(pwfa_model.simulator.config())
     assert restored.get(["driver_gamma"]) == pwfa_model.get(["driver_gamma"])
 
 
@@ -213,19 +132,20 @@ def test_a_short_run_writes_the_driver_and_reads_it_back(tmp_path):
 
     simulator.run()
 
+    driver = simulator.beams[0]
     assert simulator.final_particles is not None
     assert (tmp_path / "diags" / "hdf5" / "data00000002.h5").exists()
     # the charge is the bunch's to rounding; 3 steps of wake change its energy by about 2e-7
     assert simulator.stats["charge_pc"] == pytest.approx(
-        simulator.driver.charge * 1e12, rel=1e-12
+        uniform_beam_charge(driver) * 1e12, rel=1e-12
     )
     assert simulator.stats["energy_mean_mev"] == pytest.approx(
-        (simulator.driver.gamma - 1) * ELECTRON_MC2_EV / 1e6, rel=1e-6
+        (driver.gamma0 - 1) * ELECTRON_MC2_EV / 1e6, rel=1e-6
     )
 
 
-def test_the_end_of_a_run_is_dumped_and_read_back_whatever_the_write_period(tmp_path):
-    simulator = short_pwfa_simulator(tmp_path)  # 3 steps, write_period 2
+def test_the_start_middle_and_end_of_a_run_are_dumped_and_the_end_read_back(tmp_path):
+    simulator = short_pwfa_simulator(tmp_path)  # 3 steps, 3 dumps
 
     simulator.run()
 
@@ -240,53 +160,112 @@ def test_the_end_of_a_run_is_dumped_and_read_back_whatever_the_write_period(tmp_
     numpy.testing.assert_array_equal(simulator.final_particles.z, z)
 
 
-def test_gaussian_bunch_charge_is_its_field_and_rejects_bad_values():
-    bunch = GaussianBunch(
-        gamma=100.0, charge=1.0e-10, sig_r=1.0e-6, sig_z=2.0e-6, zf=0.0
-    )
+def test_a_run_without_plasma_output_dumps_only_the_beams(tmp_path):
+    simulator = short_pwfa_simulator(tmp_path)  # the plasma has no elec_name
 
-    assert bunch.charge == 1.0e-10
-    assert bunch.tf == 0.0 and bunch.n_emit == 0.0
-    with pytest.raises(ValueError):
-        GaussianBunch(gamma=100.0, charge=-1.0e-10, sig_r=1.0e-6, sig_z=2.0e-6, zf=0.0)
+    simulator.run()
+
+    with h5py.File(tmp_path / "diags" / "hdf5" / "data00000002.h5") as f:
+        assert sorted(f["data/2/particles"]) == ["driver"]
 
 
 def test_the_gaussian_example_has_a_witness_and_gaussian_actions():
     model = pwfa_gaussian_example.build_model(dummy_run=True)
+    simulator = model.simulator
+    h = simulator.hyparams
 
     names = set(model.supported_variables)
     assert {
+        "plasma_density",
         "driver_charge",
         "driver_sigma_z",
         "driver_position",
         "witness_charge",
     } <= names
     assert "driver_density" not in names
-    assert model.simulator.target_species == "witness"
-    assert model.simulator.grid.nz == 209 and model.simulator.grid.nr == 64
-    assert model.simulator.grid.n_steps == 280
+    assert simulator.target_species == "witness"
+    # dz of about 1 um and dr of 0.5 um: the witness spans 4 radial and 6 longitudinal cells
+    dz, dr = (h.zmax - h.zmin) / h.nz, h.rmax / h.nr
+    assert (h.nz, h.nr) == (336, 213)
+    assert simulator.beams[1].sig_r / dr == pytest.approx(4.0, rel=0.01)
+    assert simulator.beams[1].sig_z / dz == pytest.approx(6.0, rel=0.01)
+    assert h.dt == pytest.approx(dz / 299792458.0, rel=1e-12)
+    # by default the witness travels the quick preset's 2 mm in plasma, which starts at the box's
+    # front
+    witness_to_plasma = h.zmax - simulator.beams[1].zf
+    assert h.simulation_length - witness_to_plasma == pytest.approx(2.0e-3)
+    assert simulator.densities[0].ramp_start == h.zmax
 
     model.set({"witness_position": 1.0e-4})
-    assert model.simulator.witness.zf == 1.0e-4
+    assert simulator.beams[1].zf == 1.0e-4
+
+
+def test_the_gaussian_examples_beams_are_matched_to_the_ion_column():
+    from scipy.constants import epsilon_0, m_e
+
+    simulator = pwfa_gaussian_example.build_model(dummy_run=True).simulator
+    n_p = simulator.densities[0].nominal_density
+    k_p = numpy.sqrt(n_p * e**2 / (m_e * epsilon_0)) / 299792458.0
+
+    for beam in simulator.beams:
+        # sigma_r = sqrt(beta_m eps_n / gamma) with beta_m = sqrt(2 gamma) / k_p
+        beta_m = numpy.sqrt(2.0 * beam.gamma0) / k_p
+        assert beam.n_emit == pytest.approx(
+            beam.sig_r**2 * beam.gamma0 / beta_m, rel=1e-12
+        )
+    assert pwfa_gaussian_example.PLASMA_LENGTHS["long"] == pytest.approx(
+        2.0 * numpy.pi * numpy.sqrt(2.0 * simulator.beams[1].gamma0) / k_p, rel=1e-12
+    )
+
+
+def test_the_gaussian_examples_length_is_the_witnesss_travel_in_plasma():
+    for name, length in pwfa_gaussian_example.PLASMA_LENGTHS.items():
+        h = pwfa_gaussian_example.build_model(
+            dummy_run=True, plasma_length=length
+        ).simulator.hyparams
+        assert h.simulation_length == pytest.approx(
+            length + h.zmax - pwfa_gaussian_example.WITNESS_Z
+        ), name
+
+
+def _short_gaussian_example(tmp_path) -> FBPICSimulator:
+    """The Gaussian example, 3 steps on a 40 x 16 grid with few macroparticles, on the CPU, in
+    `tmp_path`."""
+    simulator = pwfa_gaussian_example.build_model().simulator
+    simulator.working_directory = tmp_path
+    h = simulator.hyparams
+    dz = (h.zmax - h.zmin) / 40
+    simulator.hyparams = attrs.evolve(
+        h,
+        nz=40,
+        nr=16,
+        number_dumps=3,
+        # POSIT: the lab-frame step is one cell, dz / c, and the window moves at c; half a cell
+        # of right_buffer keeps the step count from rounding down
+        simulation_length=3 * dz,
+        right_buffer=0.5 * dz,
+        use_cuda=False,
+    )
+    driver, witness = simulator.beams
+    simulator.beams = [
+        attrs.evolve(driver, n_macroparticles=200),
+        attrs.evolve(witness, n_macroparticles=100),
+    ]
+    return simulator
 
 
 def test_a_short_run_with_gaussian_bunches_reads_the_witness_back(tmp_path):
-    model = pwfa_gaussian_example.build_model(n_steps=3)
-    simulator = model.simulator
-    simulator.working_directory = tmp_path
-    simulator.grid = attrs.evolve(simulator.grid, nz=40, nr=16, write_period=2)
-    simulator.driver = attrs.evolve(simulator.driver, n_macroparticles=200)
-    simulator.witness = attrs.evolve(simulator.witness, n_macroparticles=100)
+    simulator = _short_gaussian_example(tmp_path)
+
     simulator.run()
 
-    assert simulator.final_particles is not None
-    witness = simulator.witness
+    witness = simulator.beams[1]
     assert simulator.stats["charge_pc"] == pytest.approx(
-        witness.charge * 1e12, rel=1e-12
+        witness.n_physical_particles * e * 1e12, rel=1e-12
     )
     # the mean of the witness's 100 sampled energies, within 5 standard errors
     assert simulator.stats["energy_mean_mev"] == pytest.approx(
-        (witness.gamma - 1) * ELECTRON_MC2_EV / 1e6,
+        (witness.gamma0 - 1) * ELECTRON_MC2_EV / 1e6,
         abs=5 * witness.sig_gamma * ELECTRON_MC2_EV / 1e6 / numpy.sqrt(100),
     )
     assert len(simulator.final_particles) == 100
@@ -294,13 +273,7 @@ def test_a_short_run_with_gaussian_bunches_reads_the_witness_back(tmp_path):
 
 def test_the_gaussian_example_plots_the_fields_of_a_short_run(tmp_path):
     image = pytest.importorskip("matplotlib.image")
-    model = pwfa_gaussian_example.build_model(n_steps=3)
-    simulator = model.simulator
-    simulator.working_directory = tmp_path
-    simulator.grid = attrs.evolve(simulator.grid, nz=40, nr=16, write_period=2)
-    simulator.driver = attrs.evolve(simulator.driver, n_macroparticles=200)
-    simulator.witness = attrs.evolve(simulator.witness, n_macroparticles=100)
-    simulator.configure()
+    simulator = _short_gaussian_example(tmp_path)
     simulator.run()
 
     files = pwfa_gaussian_example.plot_results(tmp_path, output=tmp_path / "plots")
@@ -315,6 +288,25 @@ def test_the_gaussian_example_plots_the_fields_of_a_short_run(tmp_path):
         assert image.imread(f).ndim == 3, f.name  # a readable image
     with pytest.raises(FileNotFoundError, match="no dumps"):
         pwfa_gaussian_example.plot_results(tmp_path / "plots")
+
+
+def test_the_gaussian_example_analyzes_the_witness_of_a_short_run(tmp_path):
+    image = pytest.importorskip("matplotlib.image")
+    simulator = _short_gaussian_example(tmp_path)
+    simulator.run()
+
+    files = pwfa_gaussian_example.analyze_witness(
+        tmp_path, output=tmp_path / "analysis"
+    )
+
+    assert [f.name for f in files] == ["witness_summary.txt", "witness_analysis.png"]
+    assert "EMITTANCE" in files[0].read_text()
+    assert image.imread(files[1]).ndim == 3  # a readable image
+    # the plots read the fields, so the plasma's macroparticles are not written
+    with h5py.File(tmp_path / "diags" / "hdf5" / "data00000003.h5") as f:
+        assert sorted(f["data/3/particles"]) == ["driver", "witness"]
+    with pytest.raises(FileNotFoundError, match="no dumps"):
+        pwfa_gaussian_example.analyze_witness(tmp_path / "analysis")
 
 
 def _up_down_ramp(**changes) -> UpDownRampProfile:
@@ -377,15 +369,13 @@ def test_up_down_ramp_rejects_inconsistent_stages(changes):
 def test_the_clara_example_follows_the_papers_tables(witness, n0_fraction):
     model = clara_example.build_model(witness=witness, dummy_run=True)
     simulator = model.simulator
+    driver, witness_beam = simulator.beams
 
-    assert simulator.grid.nr == 200 and simulator.grid.nm == 1
-    assert (
-        simulator.grid.r_boundary == "reflective"
-        and simulator.grid.z_boundary == "open"
-    )
-    assert simulator.plasma.base_fraction == pytest.approx(n0_fraction)
-    assert simulator.driver.charge == pytest.approx(150.0e-12)
-    assert simulator.driver.zf - simulator.witness.zf == pytest.approx(90.0e-6)
+    assert simulator.hyparams.nr == 200 and simulator.hyparams.nm == 1
+    assert simulator.hyparams.r_boundary == "reflective"  # z is always open
+    assert simulator.densities[0].base_fraction == pytest.approx(n0_fraction)
+    assert driver.n_physical_particles * e == pytest.approx(150.0e-12)
+    assert driver.zf - witness_beam.zf == pytest.approx(90.0e-6)
     assert simulator.target_species == "witness"
 
 
@@ -411,37 +401,16 @@ def test_the_clara_example_follows_the_papers_tables(witness, n0_fraction):
 )
 def test_the_clara_example_resolution(arguments, nz, n_steps, time_step, plasma_ppc):
     simulator = clara_example.build_model(dummy_run=True, **arguments).simulator
+    h = simulator.hyparams
+    plasma = simulator.densities[0]
 
-    assert simulator.grid.nz == nz
-    assert simulator.grid.n_steps == n_steps  # the whole 20 cm cell
-    assert simulator.grid.time_step == pytest.approx(time_step, rel=1e-12)  # dz / c
-    assert (
-        simulator.plasma.p_nz,
-        simulator.plasma.p_nr,
-        simulator.plasma.p_nt,
-    ) == plasma_ppc
-    assert simulator.grid.write_plasma is False
-
-
-def test_a_seeded_run_restores_the_global_random_state(tmp_path):
-    simulator = short_pwfa_simulator(tmp_path / "seeded", random_seed=7)
-    numpy.random.seed(123)
-    before = numpy.random.get_state()
-
-    simulator.run()
-
-    after = numpy.random.get_state()
-    assert after[0] == before[0] and after[2:] == before[2:]
-    assert numpy.array_equal(after[1], before[1])
-
-
-def test_a_grid_without_plasma_output_still_runs(tmp_path):
-    simulator = short_pwfa_simulator(tmp_path, write_plasma=False)
-
-    simulator.run()
-
-    with h5py.File(tmp_path / "diags" / "hdf5" / "data00000002.h5") as f:
-        assert sorted(f["data/2/particles"]) == ["driver"]
+    assert h.nz == nz
+    assert h.dt == pytest.approx(time_step, rel=1e-12)  # dz / c
+    # the whole 20 cm cell: the window moves n_steps cells, plus half a cell of right_buffer
+    assert round(h.simulation_length / (h.dt * 299792458.0)) == n_steps
+    assert h.right_buffer == pytest.approx(0.5 * h.dt * 299792458.0)
+    assert (plasma.p_nz, plasma.p_nr, plasma.p_nt) == plasma_ppc
+    assert plasma.elec_name is None  # the plasma is not dumped
 
 
 def _write_witness_dump(directory, iteration, time, *, outlier=False):
@@ -559,11 +528,3 @@ def test_plot_results_writes_the_four_plots_from_the_dumps(tmp_path):
 def test_plot_results_needs_dumps(tmp_path):
     with pytest.raises(FileNotFoundError, match="no dumps"):
         clara_example.plot_results(tmp_path)
-
-
-def test_a_bunch_of_another_kind_has_no_actions(pwfa_model):
-    simulator = pwfa_model.simulator
-    simulator.driver = simulator.plasma  # a config object that is not a bunch
-
-    with pytest.raises(ValueError, match="no actions for a bunch"):
-        make_pwfa_actions(simulator)

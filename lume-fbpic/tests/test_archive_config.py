@@ -15,12 +15,11 @@ import pytest
 
 from archive_helpers import load_simulator, simulator_model
 import lume_fbpic.density_profiles  # noqa: F401  (registers its classes)
-import lume_fbpic.pwfa_config  # noqa: F401
 from inversion_fbpic.lib.density_profiles import InterpolateFromH5Profile
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from lume_fbpic import archive, archive_config
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 # Registered config classes with a path-like field the archive does not handle as a path, and why.
 _UNHANDLED_PATH_FIELDS = {
@@ -124,17 +123,17 @@ def test_an_archive_with_a_lasy_laser_holds_no_path_string(tmp_path):
     import ionization_injection
 
     model = ionization_injection.build_model(working_directory=str(tmp_path / "wd"))
-    laser = model.simulator.laser
-    model.simulator.laser = attrs.evolve(laser, lasy_file=tmp_path / "out" / "lasy")
+    laser = model.simulator.lasers[0]
+    model.simulator.lasers = [attrs.evolve(laser, lasy_file=tmp_path / "out" / "lasy")]
     model.dummy_run = True
 
     archive.save(model, tmp_path / "a.h5")
 
     with h5py.File(tmp_path / "a.h5") as f:
         assert not _paths_in(f)
-        assert f["laser/parameters/lasy_file"][()] == b"lasy"
+        assert f["lasers/0/parameters/lasy_file"][()] == b"lasy"
     loaded = archive.load(tmp_path / "a.h5")
-    assert loaded.simulator.laser.lasy_file == Path("diags/lasy")
+    assert loaded.simulator.lasers[0].lasy_file == Path("diags/lasy")
 
 
 def test_an_archive_with_input_files_holds_no_path_string(tmp_path):
@@ -415,11 +414,12 @@ def test_every_config_path_field_is_handled_or_listed():
         for cls in domain._CONCRETE_REGISTRY.values():
             for field in attrs.fields(cls):
                 key = (cls.__name__, field.name)
-                numeric = re.match(r"(float|int|bool)\b", str(field.type))  # not a path
+                # not a path; a type is a string (`"bool"`) or a class (`<class 'bool'>`)
+                numeric = re.match(r"(<class ')?(float|int|bool)\b", str(field.type))
                 pathlike = re.search(r"\bPath\b", str(field.type)) or (
                     not numeric
                     and re.search(
-                        r"(^|_)(directory|file|filename|path)(_|$)", field.name
+                        r"(^|_)(directory|file|filename|path)(_|$)|^save_", field.name
                     )
                 )
                 if (
@@ -495,7 +495,7 @@ def _paths_in(group: h5py.Group) -> list[str]:
     return found
 
 
-def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
+def _referenced(tmp_path: Path) -> tuple[FBPICSimulator, Path]:
     """A simulator whose density profile reads `source/table.h5`, and a `library` directory with
     the same file. `empty` is a directory without it."""
     from inversion_fbpic.lib.laser import GaussianLaserPulse
@@ -519,7 +519,7 @@ def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
         p_nt=1,
         elec_name="electrons",
     )
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         SimulationHyperparameters(
             zmin=-1.0e-5,
             zmax=0.0,
@@ -528,26 +528,29 @@ def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
             nr=8,
             nm=1,
             use_mpi=False,
+            use_cuda=False,
             number_dumps=2,
         ),
-        GaussianLaserPulse(
-            energy=5.0,
-            z0=-3.0e-5,
-            wavelength=8.0e-7,
-            tau_fwhm=3.8e-14,
-            cep=0.0,
-            waist=2.8e-5,
-            focal_position=3.0e-3,
-            polarization=0.0,
-        ),
-        [profile],
+        lasers=[
+            GaussianLaserPulse(
+                energy=5.0,
+                z0=-3.0e-5,
+                wavelength=8.0e-7,
+                tau_fwhm=3.8e-14,
+                cep=0.0,
+                waist=2.8e-5,
+                focal_position=3.0e-3,
+                polarization=0.0,
+            )
+        ],
+        densities=[profile],
         target_species="electrons",
         working_directory=tmp_path / "wd",
     )
     return simulator, tmp_path / "library"
 
 
-def _two_tables(tmp_path: Path) -> LWFASimulator:
+def _two_tables(tmp_path: Path) -> FBPICSimulator:
     """`_referenced()`'s simulator with a second density profile that reads a different file of
     the same basename, `other/table.h5`."""
     simulator, _ = _referenced(tmp_path)
@@ -579,3 +582,33 @@ def _write_table(path: Path, scale: float = 1.0) -> None:
             f[name] = values
         dataset = f.create_dataset("density", data=density)
         dataset.attrs["DIMENSION_LABELS"] = ["z_m", "x_mm", "pressure_bar"]
+
+
+def test_an_archive_refuses_a_directory_input(tmp_path):
+    from inversion_fbpic.lib.particle_beam import OpenPMDParticleBeam
+    from short_runs import short_beam_simulator
+
+    (tmp_path / "series").mkdir()
+    simulator = short_beam_simulator(tmp_path)
+    simulator.beams = [
+        OpenPMDParticleBeam(ts_path=tmp_path / "series", particle_name="beam")
+    ]
+
+    with pytest.raises(ValueError, match="is a directory"):
+        archive.save(simulator_model(simulator), tmp_path / "a.h5")
+
+
+def test_a_beam_save_path_is_archived_as_its_name_and_unset_stays_unset(tmp_path):
+    from short_runs import short_beam_simulator
+
+    named = short_beam_simulator(tmp_path, save_beam=str(tmp_path / "out" / "beam"))
+    unset = short_beam_simulator(tmp_path)
+    archive.save(simulator_model(named), tmp_path / "named.h5")
+    archive.save(simulator_model(unset), tmp_path / "unset.h5")
+
+    with h5py.File(tmp_path / "named.h5") as f:
+        assert not _paths_in(f)
+        assert f["beams/0/parameters/save_beam"][()] == b"beam"
+    assert load_simulator(tmp_path / "named.h5").beams[0].save_beam == "beam"
+    assert load_simulator(tmp_path / "unset.h5").beams[0].save_beam is None
+    assert archive.fingerprint(named) == archive.fingerprint(unset)

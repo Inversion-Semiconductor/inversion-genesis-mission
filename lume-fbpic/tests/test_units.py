@@ -146,7 +146,6 @@ def test_an_explicit_none_unit_survives_an_archive(simulator, tmp_path):
 def test_every_unit_tag_in_a_config_docstring_is_a_unit_beamphysics_knows():
     import inversion_fbpic.lib  # noqa: F401  (registers its config classes)
     import lume_fbpic.density_profiles  # noqa: F401
-    import lume_fbpic.pwfa_config  # noqa: F401
     from inversion_fbpic.lib.serializable_config import SerializableConfig
 
     unknown = _unknown_unit_tags(_subclasses(SerializableConfig))

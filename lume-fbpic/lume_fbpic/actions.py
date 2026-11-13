@@ -1,7 +1,7 @@
 """PV-facing Action/Variable classes for lume_fbpic.
 
 `inversion_fbpic`'s config objects (`SimulationHyperparameters`, `_LaserPulse`,
-`_DensityProfile` subclasses) are frozen `attrs` classes, so writable actions here replace
+`_DensityProfile`, `_ParticleBeam` and `_ExternalField` subclasses) are frozen `attrs` classes, so writable actions here replace
 the whole held object via `attrs.evolve()` rather than mutating a field in place -- unlike
 `lume-cheetah`'s actions, which `setattr()` directly on Cheetah's plain mutable elements.
 
@@ -21,12 +21,16 @@ import pydantic
 from lume.actions import Action, ReadOnlyActionMixin, WritableActionMixin
 from lume.variables import ParticleGroupVariable, ScalarVariable
 
-from lume_fbpic import descriptor
+from inversion_fbpic.lib.external_field import UniformExternalField
+from inversion_fbpic.lib.particle_beam import (
+    ExpressionParticleBeam,
+    FileParticleBeam,
+    GaussianParticleBeam,
+    OpenPMDParticleBeam,
+)
+from lume_fbpic import descriptor, utils
 from lume_fbpic.density_profiles import atom_density, nominal_density
-from lume_fbpic.pwfa_config import FlatTopBunch, GaussianBunch
-from lume_fbpic.lwfa_simulator import LWFASimulator
-from lume_fbpic.pwfa_simulator import PWFASimulator
-from lume_fbpic.simulator import BaseSimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.units import STAT_UNITS, config_unit
 
 from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS
@@ -35,88 +39,109 @@ from inversion_fbpic.utils.distributions import LONGITUDINAL_PROFILE_BINS
 # The prefix of the names `make_descriptor_actions()` gives by default.
 DESCRIPTOR_PREFIX = "descriptor_"
 
-# A laser's amplitude field -> the other one, derived from it (see `evolve_laser()`).
-_AMPLITUDE_SIBLING = {"a0": "energy", "energy": "a0"}
 
-# The writable fields of a PWFA bunch that `make_pwfa_actions()` makes actions for, by the class of
-# the bunch: action name (after the `driver_` or `witness_` prefix) -> field.
-_BUNCH_FIELDS = {
-    FlatTopBunch: {"gamma": "gamma", "density": "density", "radius": "radius"},
-    GaussianBunch: {
-        "gamma": "gamma",
-        "charge": "charge",
+# The writable fields of an `inversion_fbpic` particle beam that `make_beam_actions()` makes actions
+# for, by the class of the beam: action name (after the prefix) -> field. A beam with
+# `n_physical_particles` also gets a `charge` (`BeamTotalChargeAction`).
+_BEAM_FIELDS = {
+    ExpressionParticleBeam: {
+        "gamma": "gamma0",
+        "density": "n",
+        "zmin": "p_zmin",
+        "zmax": "p_zmax",
+        "radius": "p_rmax",
+    },
+    FileParticleBeam: {"z_offset": "z_off"},
+    GaussianParticleBeam: {
+        "gamma": "gamma0",
+        "gamma_spread": "sig_gamma",
         "sigma_r": "sig_r",
         "sigma_z": "sig_z",
+        "emittance": "n_emit",
         "position": "zf",
     },
+    OpenPMDParticleBeam: {"z_offset": "z_off"},
 }
 
 
-class _ConfigFieldAction(WritableActionMixin[BaseSimulator], ScalarVariable):
+class _ConfigFieldAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
     """Writable scalar mapped onto field `field_name` of one of the simulator's config objects,
     which a subclass reaches with `_config()` and puts back with `_replace()`. The config objects
     are frozen, so a set replaces the object with an `attrs.evolve()`d copy."""
 
-    # The class of simulator the action works on; `LUMEFBPICModel` checks it.
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
-
     field_name: str
 
-    def default_unit(self, simulator: BaseSimulator) -> str | None:
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
         return config_unit(self._config(simulator), self.field_name)
 
-    def _config(self, simulator: BaseSimulator) -> typing.Any:
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
         """The config object this action's field is on."""
         raise NotImplementedError
 
-    def _get(self, simulator: BaseSimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         return getattr(self._config(simulator), self.field_name)
 
-    def _replace(self, simulator: BaseSimulator, config: typing.Any) -> None:
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
         """Put `config` in place of the config object `_config()` returns."""
         raise NotImplementedError
 
-    def _set(self, simulator: BaseSimulator, value: typing.Any) -> None:
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
         self._replace(
             simulator, attrs.evolve(self._config(simulator), **{self.field_name: value})
         )
 
 
-class BunchFieldAction(_ConfigFieldAction):
-    """Writable scalar mapped onto one field of a PWFA simulator's `driver` or `witness` bunch."""
+class BeamFieldAction(_ConfigFieldAction):
+    """Writable scalar mapped onto one field of one of the simulator's particle beams, addressed by
+    index into `simulator.beams`."""
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = PWFASimulator
+    beam_index: int
 
-    bunch: typing.Literal["driver", "witness"]
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
+        return simulator.beams[self.beam_index]
 
-    def _config(self, simulator: PWFASimulator) -> typing.Any:
-        bunch = getattr(simulator, self.bunch)
-        if bunch is None:
-            raise ValueError(f"the simulator has no {self.bunch}")
-        return bunch
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
+        beams = list(simulator.beams)
+        beams[self.beam_index] = config
+        simulator.beams = beams
 
-    def _replace(self, simulator: PWFASimulator, config: typing.Any) -> None:
-        setattr(simulator, self.bunch, config)
+
+class BeamTotalChargeAction(BeamFieldAction):
+    """Writable total charge [C] of a particle beam that is given as a number of physical particles
+    (`GaussianParticleBeam`, `FileParticleBeam`): a positive magnitude, `n_physical_particles` times
+    the magnitude of the particles' charge `q`. Setting it sets `n_physical_particles`.
+    """
+
+    field_name: str = "n_physical_particles"
+
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
+        return "C"
+
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
+        b = self._config(simulator)
+        return b.n_physical_particles * abs(b.q)
+
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
+        b = self._config(simulator)
+        self._replace(simulator, attrs.evolve(b, n_physical_particles=value / abs(b.q)))
 
 
 class DensityFieldAction(_ConfigFieldAction):
     """Writable scalar mapped onto one field of one of the simulator's density profiles,
     addressed by index into `simulator.densities`."""
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
-
     density_index: int
 
-    def _config(self, simulator: LWFASimulator) -> typing.Any:
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
         return simulator.densities[self.density_index]
 
-    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
         densities = list(simulator.densities)
         densities[self.density_index] = config
         simulator.densities = densities
 
 
-class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
+class DopantFractionAction(WritableActionMixin[FBPICSimulator], ScalarVariable):
     """Writable dopant fraction of a two-gas mixture, held in two density profiles of
     `simulator.densities` (`host_index` for the background gas, `dopant_index` for the dopant).
 
@@ -130,21 +155,19 @@ class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
     has to stay positive).
     """
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
-
     dopant_atoms_per_molecule: int = pydantic.Field(default=1, ge=1)
     dopant_index: int
     host_atoms_per_molecule: int = pydantic.Field(default=1, ge=1)
     host_index: int
 
-    def default_unit(self, simulator: LWFASimulator) -> str | None:
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
         return "1"  # a fraction
 
-    def _get(self, simulator: LWFASimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         host, dopant = self._molecule_densities(simulator)
         return dopant / (host + dopant)
 
-    def _molecule_densities(self, simulator: LWFASimulator) -> tuple[float, float]:
+    def _molecule_densities(self, simulator: FBPICSimulator) -> tuple[float, float]:
         """The host's and the dopant's molecule densities [m^-3]."""
         host, dopant = self._profiles(simulator)
         return (
@@ -152,14 +175,14 @@ class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
             atom_density(dopant) / self.dopant_atoms_per_molecule,
         )
 
-    def _profiles(self, simulator: LWFASimulator) -> tuple[typing.Any, typing.Any]:
+    def _profiles(self, simulator: FBPICSimulator) -> tuple[typing.Any, typing.Any]:
         """The host and the dopant profiles."""
         return (
             simulator.densities[self.host_index],
             simulator.densities[self.dopant_index],
         )
 
-    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
         if not 0.0 < value < 1.0:
             raise ValueError(
                 f"Dopant fraction must be strictly between 0 and 1, got {value}."
@@ -182,7 +205,48 @@ class DopantFractionAction(WritableActionMixin[LWFASimulator], ScalarVariable):
         simulator.densities = densities
 
 
-class FinalParticlesAction(ReadOnlyActionMixin[BaseSimulator], ParticleGroupVariable):
+class ExternalFieldAction(_ConfigFieldAction):
+    """Writable strength of one component (`field_type`, `"Ex"` ... `"Bz"`) of one of the
+    simulator's uniform external fields (`UniformExternalField`), addressed by index into
+    `simulator.external_fields`; the other components are left as they are. The unit is V/m for
+    an electric field and T for a magnetic one. An `ExpressionExternalField` has no single strength
+    and is refused."""
+
+    field_index: int
+    field_type: typing.Literal["Ex", "Ey", "Ez", "Bx", "By", "Bz"]
+    field_name: str = "field_functions"
+
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
+        return "V/m" if self.field_type.startswith("E") else "T"
+
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
+        f = simulator.external_fields[self.field_index]
+        if not isinstance(f, UniformExternalField):
+            raise TypeError(
+                f"action {self.name!r} needs a UniformExternalField, not a "
+                + f"{type(f).__name__}"
+            )
+        return f
+
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
+        return self._config(simulator).field_functions.get(self.field_type, 0.0)
+
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
+        fields = list(simulator.external_fields)
+        fields[self.field_index] = config
+        simulator.external_fields = fields
+
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
+        f = self._config(simulator)
+        self._replace(
+            simulator,
+            attrs.evolve(
+                f, field_functions={**f.field_functions, self.field_type: value}
+            ),
+        )
+
+
+class FinalParticlesAction(ReadOnlyActionMixin[FBPICSimulator], ParticleGroupVariable):
     """Read-only ParticleGroup sourced from `simulator.final_particles` (populated after a
     run).
 
@@ -192,45 +256,47 @@ class FinalParticlesAction(ReadOnlyActionMixin[BaseSimulator], ParticleGroupVari
     `lume-pva` makes for all variables on each cycle).
     """
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
-
     def validate_value(self, value: typing.Any) -> None:
         if value is not None:
             super().validate_value(value)
 
-    def _get(self, simulator: BaseSimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         return simulator.final_particles
 
 
 class HyperparameterFieldAction(_ConfigFieldAction):
     """Writable scalar mapped onto one field of the simulator's `hyparams` config object."""
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
-
-    def _config(self, simulator: LWFASimulator) -> typing.Any:
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
         return simulator.hyparams
 
-    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
         simulator.hyparams = config
 
 
 class LaserFieldAction(_ConfigFieldAction):
-    """Writable scalar mapped onto one field of the simulator's `laser` config object, set with
-    `evolve_laser()`."""
+    """Writable scalar mapped onto one field of one of the simulator's lasers, addressed by
+    index into `simulator.lasers` (the first by default), set with `utils.evolve_laser()`.
+    """
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = LWFASimulator
+    laser_index: int = 0
 
-    def _config(self, simulator: LWFASimulator) -> typing.Any:
-        return simulator.laser
+    def _config(self, simulator: FBPICSimulator) -> typing.Any:
+        return simulator.lasers[self.laser_index]
 
-    def _replace(self, simulator: LWFASimulator, config: typing.Any) -> None:
-        simulator.laser = config
+    def _replace(self, simulator: FBPICSimulator, config: typing.Any) -> None:
+        lasers = list(simulator.lasers)
+        lasers[self.laser_index] = config
+        simulator.lasers = lasers
 
-    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
-        simulator.laser = evolve_laser(simulator.laser, **{self.field_name: value})
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
+        self._replace(
+            simulator,
+            utils.evolve_laser(self._config(simulator), **{self.field_name: value}),
+        )
 
 
-class MomentDescriptorAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable):
+class MomentDescriptorAction(ReadOnlyActionMixin[FBPICSimulator], ScalarVariable):
     """Read-only scalar: ONE feature of the moment descriptor of `simulator.final_particles`.
 
     The descriptor is `lume_fbpic.descriptor.compute()` -- the 33 features (3 momentum
@@ -246,19 +312,17 @@ class MomentDescriptorAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable)
     all 33 features costs one computation.
     """
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
-
     central_fraction: float | None = descriptor.CENTRAL_FRACTION
     feature: str
     longitudinal_bins: int = LONGITUDINAL_PROFILE_BINS
     uz_min: float | None = descriptor.UZ_MIN
 
-    def default_unit(self, simulator: BaseSimulator) -> str | None:
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
         """The unit of the feature (`lume_fbpic.descriptor.features()`); None for a name that
         is not a feature of the descriptor."""
         return descriptor.features(self.longitudinal_bins).get(self.feature)
 
-    def _get(self, simulator: BaseSimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         if simulator.final_particles is None:
             return simulator.recorded_outputs.get(self.name, float("nan"))
         return simulator.moment_descriptor(
@@ -266,33 +330,19 @@ class MomentDescriptorAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable)
         ).get(self.feature, float("nan"))
 
 
-class PlasmaFieldAction(_ConfigFieldAction):
-    """Writable scalar mapped onto one field of a PWFA simulator's plasma density profile."""
-
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = PWFASimulator
-
-    def _config(self, simulator: PWFASimulator) -> typing.Any:
-        return simulator.plasma
-
-    def _replace(self, simulator: PWFASimulator, config: typing.Any) -> None:
-        simulator.plasma = config
-
-
-class StatAction(ReadOnlyActionMixin[BaseSimulator], ScalarVariable):
+class StatAction(ReadOnlyActionMixin[FBPICSimulator], ScalarVariable):
     """Read-only scalar sourced from `simulator.stats` (populated after a run).
 
     Without a `stat_name` entry, the simulator's `recorded_outputs` value for this action's name
     is used (one loaded from an archive of a reconstructed run has no statistics).
     """
 
-    SIMULATOR: typing.ClassVar[type[BaseSimulator]] = BaseSimulator
-
     stat_name: str
 
-    def default_unit(self, simulator: BaseSimulator) -> str | None:
+    def default_unit(self, simulator: FBPICSimulator) -> str | None:
         return STAT_UNITS.get(self.stat_name)
 
-    def _get(self, simulator: BaseSimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         if self.stat_name in simulator.stats:
             return simulator.stats[self.stat_name]
         return simulator.recorded_outputs.get(self.name, float("nan"))
@@ -308,26 +358,37 @@ class ZernikeCoefficientAction(LaserFieldAction):
     coefficient: str
     field_name: str = "zernike_coefficients"
 
-    def _get(self, simulator: LWFASimulator) -> typing.Any:
+    def _get(self, simulator: FBPICSimulator) -> typing.Any:
         return super()._get(simulator).get(self.coefficient, 0.0)
 
-    def _set(self, simulator: LWFASimulator, value: typing.Any) -> None:
+    def _set(self, simulator: FBPICSimulator, value: typing.Any) -> None:
         super()._set(simulator, {**super()._get(simulator), self.coefficient: value})
 
 
-def evolve_laser(laser: typing.Any, **changes: typing.Any) -> typing.Any:
-    """`attrs.evolve(laser, **changes)` for a `_LaserPulse`.
+def make_beam_actions(
+    simulator: FBPICSimulator, beam_index: int = 0, prefix: str | None = None
+) -> list[Action]:
+    """The writable actions of one particle beam of `simulator` (`simulator.beams[beam_index]`),
+    by the kind of beam (`_BEAM_FIELDS`), named `<prefix>_<name>`: for example `witness_gamma`,
+    `witness_sigma_r` and `witness_charge`. `prefix` defaults to the beam's `particle_name`.
 
-    Every `_LaserPulse` holds *both* `energy` and `a0` -- whichever wasn't given at construction
-    is derived and stored too -- but its constructor takes only one of them. So the one that
-    should not survive the change is dropped first: the other amplitude when `changes` sets
-    `energy` or `a0`, otherwise the derived one. A laser built from `a0` reports the energy it
-    derived as `out_energy`, and no other laser sets it, so that tells which one was given.
+    Raises:
+        ValueError: For a kind of beam that has no entry in `_BEAM_FIELDS`, or with no `prefix`
+            for a beam that has no `particle_name`.
     """
-    changed = [name for name in _AMPLITUDE_SIBLING if name in changes]
-    given = "a0" if laser.out_energy is not None else "energy"
-    derived = _AMPLITUDE_SIBLING[changed[0] if changed else given]
-    return attrs.evolve(laser, **{derived: None, **changes})
+    b = simulator.beams[beam_index]
+    if type(b) not in _BEAM_FIELDS:
+        raise ValueError(f"no actions for a beam of type {type(b).__name__}")
+    p = b.particle_name if prefix is None else prefix
+    if p is None:
+        raise ValueError(f"beam {beam_index} has no particle_name: give a prefix")
+    rv: list[Action] = [
+        BeamFieldAction(name=f"{p}_{name}", beam_index=beam_index, field_name=field)
+        for name, field in _BEAM_FIELDS[type(b)].items()
+    ]
+    if "n_physical_particles" in attrs.fields_dict(type(b)):
+        rv.append(BeamTotalChargeAction(name=f"{p}_charge", beam_index=beam_index))
+    return rv
 
 
 def make_descriptor_actions(
@@ -364,46 +425,9 @@ def make_descriptor_actions(
     ]
 
 
-def make_pwfa_actions(simulator: PWFASimulator) -> list[Action]:
-    """Build the default control/output variable set for a PWFA simulator.
-
-    Control variables (writable): the plasma density, and for the driver and, if there is
-    one, the witness (named `driver_*` / `witness_*`): the Lorentz factor, and for a
-    `FlatTopBunch` the density and radius, for a `GaussianBunch` the charge, the RMS radius and
-    length and the position `zf`.
-    Outputs (read-only): charge and mean/std energy of the `target_species`, and
-    `final_particles`.
-    """
-    actions: list[Action] = [
-        PlasmaFieldAction(name="plasma_density", field_name="nominal_density")
-    ]
-    actions += _bunch_actions("driver", simulator.driver)
-    if simulator.witness is not None:
-        actions += _bunch_actions("witness", simulator.witness)
-    return actions + [
-        *make_stat_actions(),
-        FinalParticlesAction(name="final_particles", read_only=True),
-    ]
-
-
 def make_stat_actions() -> list[Action]:
     """One read-only `StatAction` per statistic a run records (`lume_fbpic.units.STAT_UNITS`),
     named after it: `charge_pc`, `energy_mean_mev` and `energy_std_mev`."""
     return [
         StatAction(name=name, stat_name=name, read_only=True) for name in STAT_UNITS
-    ]
-
-
-def _bunch_actions(bunch: str, config: typing.Any) -> list[Action]:
-    """The writable actions of one PWFA bunch (`driver` or `witness`), by the kind of bunch
-    (`_BUNCH_FIELDS`).
-
-    Raises:
-        ValueError: For a kind of bunch that has no entry in `_BUNCH_FIELDS`.
-    """
-    if type(config) not in _BUNCH_FIELDS:
-        raise ValueError(f"no actions for a bunch of type {type(config).__name__}")
-    return [
-        BunchFieldAction(name=f"{bunch}_{name}", bunch=bunch, field_name=field)
-        for name, field in _BUNCH_FIELDS[type(config)].items()
     ]

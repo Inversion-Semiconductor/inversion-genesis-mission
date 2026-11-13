@@ -582,7 +582,9 @@ def test_a_config_named_like_an_archive_group_cannot_be_archived(
     full_model, tmp_path, mocker
 ):
     simulator = full_model.simulator
-    mocker.patch.object(simulator, "config", return_value={"stats": simulator.laser})
+    mocker.patch.object(
+        simulator, "config", return_value={"stats": simulator.lasers[0]}
+    )
 
     with pytest.raises(ValueError, match="name of an archive group"):
         archive.save(full_model, tmp_path / "m.h5")

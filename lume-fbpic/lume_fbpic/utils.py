@@ -1,5 +1,5 @@
 """Particle conversions: fbpic's openPMD output to an openPMD-beamphysics `ParticleGroup`, and the
-statistics of a run's bunch.
+statistics of a run's bunch. Also `evolve_laser()`, used by both `simulator` and `actions`.
 
 fbpic and `inversion_fbpic` hold a particle's momentum normalized, `u = gamma * beta`, and its
 weight as a number of electrons; a `ParticleGroup` holds the momentum in eV/c and the weight in
@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 import typing
 
+import attrs
 import numpy
 from scipy.constants import e
 
@@ -23,6 +24,10 @@ from inversion_fbpic.utils.distributions import COORD_NAMES
 # The electron rest energy [eV], `p [eV/c] = u * ELECTRON_MC2_EV`: beamphysics's own, the mass its
 # energies use.
 ELECTRON_MC2_EV = mec2
+
+
+# A laser's amplitude field -> the other one, derived from it (see `evolve_laser()`).
+_AMPLITUDE_SIBLING = {"a0": "energy", "energy": "a0"}
 
 
 class Statistic(typing.NamedTuple):
@@ -50,6 +55,21 @@ STATISTICS = {
         lambda particles: particles["sigma_energy"] / 1e6,
     ),
 }
+
+
+def evolve_laser(laser: typing.Any, **changes: typing.Any) -> typing.Any:
+    """`attrs.evolve(laser, **changes)` for a `_LaserPulse`.
+
+    Every `_LaserPulse` holds *both* `energy` and `a0` -- whichever wasn't given at construction
+    is derived and stored too -- but its constructor takes only one of them. So the one that
+    should not survive the change is dropped first: the other amplitude when `changes` sets
+    `energy` or `a0`, otherwise the derived one. A laser built from `a0` reports the energy it
+    derived as `out_energy`, and no other laser sets it, so that tells which one was given.
+    """
+    changed = [name for name in _AMPLITUDE_SIBLING if name in changes]
+    given = "a0" if laser.out_energy is not None else "energy"
+    derived = _AMPLITUDE_SIBLING[changed[0] if changed else given]
+    return attrs.evolve(laser, **{derived: None, **changes})
 
 
 def load_final_particles(

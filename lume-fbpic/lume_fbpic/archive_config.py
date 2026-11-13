@@ -3,10 +3,12 @@
 Each config object is written with `SerializableConfig.to_hdf5()` into a group of the archive. A
 config can hold two kinds of path, and neither goes into the archive as a path:
 
-- Output paths (`save_directory`, `lasy_file`): where a run writes, decided when it runs. Only
-  the basename of the value is stored (`diags`, `scan_07`, `lasy_laser`), and a loaded config
-  has that name in the directory of the class default (`save_directory="scan_07"`, and
-  `lasy_file="diags/<name>"`); the simulator's working directory decides the rest.
+- Output paths (`save_directory`, `lasy_file`, `save_beam`): where a run writes, decided when it
+  runs. Only the basename of the value is stored (`diags`, `scan_07`, `lasy_laser`), and a loaded
+  config has that name in the directory of the class default (`save_directory="scan_07"`, and
+  `lasy_file="diags/<name>"`); the simulator's working directory decides the rest. An output path
+  whose default is None (`GaussianParticleBeam.save_beam`, unset: nothing is written) stays None,
+  and a set one is loaded as its bare basename.
 - Input files (fields marked `input_path`, such as the table of `InterpolateFromH5Profile`): the
   archive keeps only the file's basename and its md5. The file itself is looked for in the
   `input_dirs` given to `archive.save()` and `archive.load()`. When it is not in `input_dirs` at
@@ -37,15 +39,15 @@ import h5py
 import numpy
 
 from inversion_fbpic.lib.laser import LasyLaserPulse
+from inversion_fbpic.lib.particle_beam import GaussianParticleBeam
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from inversion_fbpic.lib.simulation import SimulationHyperparameters
-from lume_fbpic.pwfa_config import PWFAGrid
 
 # The output path fields of the config classes: where a run writes, not data. Another registered
 # class with a path field that is not here, and not an input file, is caught by a test.
 OUTPUT_PATH_FIELDS: dict[type, tuple[str, ...]] = {
+    GaussianParticleBeam: ("save_beam",),
     LasyLaserPulse: ("lasy_file",),
-    PWFAGrid: ("save_directory",),
     SimulationHyperparameters: ("save_directory",),
 }
 
@@ -195,12 +197,19 @@ def collect_inputs(
 
     Raises:
         FileNotFoundError: If a file is in neither place: the simulation could not run.
+        ValueError: If an input is a directory (`OpenPMDParticleBeam.ts_path`): an archive holds
+            files only.
     """
     refs = []
     for name, index, item in items(config):
         _reject_path_values(name, item)
         for field in input_fields(item):
             value = Path(getattr(item, field))
+            if value.is_dir():
+                raise ValueError(
+                    f"The input {str(value)!r} of {name}.{field} is a directory, which an "
+                    + "archive cannot hold."
+                )
             if value.is_file():
                 refs.append(
                     InputRef(
@@ -323,7 +332,10 @@ def normalized(
             for name in names:
                 default = _default(config, name)
                 value = getattr(config, name) if output_names else default
-                basename = Path(value).name or Path(default).name
+                if value is None:
+                    object.__setattr__(result, name, None)
+                    continue
+                basename = Path(value).name or Path(default or "").name
                 object.__setattr__(
                     result,
                     name,
@@ -349,7 +361,12 @@ def read_config(
         if isinstance(config, cls):
             for name in names:
                 default = _default(config, name)
-                value = Path(default).parent / Path(getattr(config, name)).name
+                stored = getattr(config, name)
+                if stored is None:
+                    continue
+                # POSIT: an output path with no default is a bare name, relative like the others
+                parent = Path() if default is None else Path(default).parent
+                value = parent / Path(stored).name
                 object.__setattr__(
                     config, name, value if isinstance(default, Path) else str(value)
                 )

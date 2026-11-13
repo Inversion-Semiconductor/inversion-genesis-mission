@@ -1,9 +1,9 @@
 # lume-fbpic
 
-A [LUME](https://github.com/lume-science) model for fbpic plasma-accelerator simulations: laser-driven
-(LWFA, wrapping [`inversion_fbpic`](../lpa/Simulation_FBPIC)) and beam-driven (PWFA, built directly
-on fbpic), in the way [`lume-cheetah`](https://github.com/lume-science/lume-cheetah) wraps
-Cheetah. With it you can:
+A [LUME](https://github.com/lume-science) model for fbpic plasma-accelerator simulations, wrapping
+[`inversion_fbpic`](../lpa/Simulation_FBPIC): laser-driven (LWFA), beam-driven (PWFA), or a beam
+through external fields, in the way [`lume-cheetah`](https://github.com/lume-science/lume-cheetah)
+wraps Cheetah. With it you can:
 
 - **run** an fbpic simulation through `get()` / `set()`;
 - **archive** it, **load** it back, and **serve** its outputs as EPICS PVs (via `lume-pva`);
@@ -27,8 +27,8 @@ pins, so the two installs agree.
 
 ## Quick start
 
-An `LWFASimulator` holds the config (hyperparameters, laser, density profiles); the scripts in
-`docs/examples/` build one for each case.
+An `FBPICSimulator` holds the config (hyperparameters, and lists of lasers, density profiles,
+particle beams and external fields); the scripts in `docs/examples/` build one for each case.
 
 ```python
 from lume_fbpic.actions import FinalParticlesAction, LaserFieldAction, make_stat_actions
@@ -51,7 +51,8 @@ model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
 - `set()` runs the simulation, as `lume-cheetah` and `lume-impact` do. `dummy_run=True` makes it
   only update parameters.
 - The **actions** are the model's inputs and outputs: laser and density fields, Zernike
-  coefficients, the dopant fraction, run statistics, the 33-scalar moment descriptor and the final
+  coefficients, the dopant fraction, particle-beam fields and charge (`make_beam_actions()`), the
+  components of a uniform external field, run statistics, the 33-scalar moment descriptor and the final
   particles.
 - An action's `unit` is left out and the model fills it in: for an action on a config field, from
   the unit tagged in brackets in that field's documentation (`[J]`, `[m]`, `[m^-3]`, ...); for a
@@ -75,25 +76,64 @@ To serve the outputs as PVs, or to feed the HTU twin, see `docs/htu-twin/README.
 | Path | Purpose |
 |------|---------|
 | `lume_fbpic/model.py` | `LUMEFBPICModel`: the LUME model |
-| `lume_fbpic/simulator.py` | `BaseSimulator`: the lifecycle (`configure()`, `run()`, `reset()`), the results, and the input files of a loaded archive |
-| `lume_fbpic/lwfa_simulator.py` | `LWFASimulator`: LWFA, wraps `inversion_fbpic`'s `Simulation` |
-| `lume_fbpic/pwfa_simulator.py` | `PWFASimulator`: beam-driven PWFA, built directly on fbpic |
+| `lume_fbpic/simulator.py` | `FBPICSimulator`: wraps `inversion_fbpic`'s `Simulation` (lasers, density profiles, particle beams, external fields); the lifecycle (`configure()`, `run()`, `reset()`), the results, and the input files of a loaded archive |
 | `lume_fbpic/archive.py` | Archives of a model, behind `LUMEFBPICModel.archive()` and `from_archive()`: `save()`, `load()`, and the `fingerprint()` of the config, which with the actions names one by default |
 | `lume_fbpic/archive_config.py` | How an archive stores the config: native HDF5 with no paths, input data files by basename and md5 |
-| `lume_fbpic/pwfa_config.py` | PWFA configs: `PWFAGrid` and the electron bunches (`FlatTopBunch`, `GaussianBunch`) |
-| `lume_fbpic/actions.py` | The input and output actions; `make_descriptor_actions()`, `make_stat_actions()` and `make_pwfa_actions()` |
+| `lume_fbpic/actions.py` | The input and output actions; `make_beam_actions()`, `make_descriptor_actions()` and `make_stat_actions()` |
 | `lume_fbpic/descriptor.py` | The moment descriptor of a bunch as `build_dataset.py` computes it: the selection, the features, their names and units |
 | `lume_fbpic/units.py` | The default units of the actions: `STAT_UNITS` and the config-docstring unit tags |
 | `lume_fbpic/utils.py` | fbpic's openPMD output to a `ParticleGroup` and back (`particle_group()`, `normalized_phase_space()`), the run statistics (`STATISTICS`) and `ELECTRON_MC2_EV` |
 | `lume_fbpic/density_profiles.py` | Density profiles for the examples (`LinearRampFlattop`, `GeneralizedGaussianProfile`, `UpDownRampProfile`), and the atom density of a profile (`atom_density()`, `nominal_density()`) |
-| `docs/examples/` | runnable examples: LWFA, two beam-driven PWFA setups (FACET-II type, and CLARA FEBE energy doubling, which plot their dumps with `pwfa_dumps.py`), ionization injection |
+| `docs/examples/` | runnable examples: LWFA, two beam-driven PWFA setups (an illustrative matched-beam case, `pwfa_gaussian.py`, and CLARA FEBE energy doubling, which plot their dumps with `pwfa_dumps.py`), ionization injection, a boosted-frame LWFA with an injected bunch (`lwfa_injected_beam.py`, fbpic's `boosted_frame_script.py`), and a beam through external fields in vacuum with no laser or plasma (`external_field_beam.py`) |
 | `docs/htu-twin/` | The HTU twin demo, with the LPA archive as the twin's source (own README and `pyproject.toml`), in three parts: |
 | &nbsp;&nbsp;`lume_fbpic_twin/` | The package: `twin_stage.py`, `TwinStage` and `build_chain()`, the HTU twin with the LPA bunch as its source, and its helpers (bunch moments, ballistic drift); `archive_selector.py`, `ArchiveSelector`, several archived runs behind one enum variable (`LPA_Archive`); `serve.py`, serve archives as EPICS PVs, optionally with the twin |
 | &nbsp;&nbsp;`twin/` | `lpa_to_twin.py`: an example running the LPA-to-twin chain; `initial_sample_archives.py`: builds the archives (from the NERSC dataset) that the twin demo serves |
 | &nbsp;&nbsp;`phoebus/` | Phoebus displays for the twin chain and the scripts that generate them (own README) |
 | `tests/` | Tests for this package; `downramp_actions.py` is the HTU downramp action set their fixtures use, and `archive_helpers.py`, `bunches.py` and `reference_descriptor.py` are helpers they share |
 
-Run the examples from this directory so their output lands in `diags/`.
+## Running the examples
+
+Run the examples from this directory, so their output lands in `diags/`:
+
+```bash
+python docs/examples/pwfa_gaussian.py --preset quick
+```
+
+`pwfa_gaussian.py` and `pwfa_clara_febe.py` take options (`--help`); the others run as they are.
+Each example runs on a GPU when there is one (`use_cuda`, True by default) and on the CPU otherwise.
+
+### CPU threads
+
+On the CPU, fbpic uses **every core** unless told otherwise. It takes its thread counts from
+environment variables, which must be set **before Python starts**: they are read once, when numba
+(or MKL, or the OpenMP runtime) loads, and importing `lume_fbpic` loads them. Setting them inside a
+script, after its imports, has no effect.
+
+| Variable | What it sets |
+|---|---|
+| `NUMBA_NUM_THREADS` | the threads fbpic's numba kernels split their work among, and the threads of its FFTW transforms (a second pool, of the same size) |
+| `MKL_NUM_THREADS` | the FFT threads, when fbpic uses MKL instead of FFTW |
+| `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` | the OpenMP and BLAS pools under them |
+| `OMP_WAIT_POLICY=passive` | idle OpenMP threads sleep instead of spinning |
+
+Set them together, to the same count:
+
+```bash
+export NUMBA_NUM_THREADS=8 MKL_NUM_THREADS=8 OMP_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
+export OMP_WAIT_POLICY=passive
+python docs/examples/pwfa_gaussian.py
+```
+
+A thread count does not limit the cores a run uses. fbpic's numba and FFTW pools are separate,
+and spinning OpenMP threads keep using CPU, so a run with 8 threads was measured at about 13 cores
+(1340% CPU). To hold a run to given cores, for instance beside another run or for timings, start it
+under `taskset`:
+
+```bash
+taskset -c 0-7 python docs/examples/pwfa_gaussian.py   # cores 0 to 7; a second run on 8-15
+```
+
+The run times recorded in the examples' docstrings give the thread counts they were made with.
 
 ## Tests
 

@@ -5,14 +5,13 @@ from __future__ import annotations
 from beamphysics import ParticleGroup
 from lume.actions import Action, ActionModel
 from lume.staged_model import FinalParticlesMixIn
-from lume_fbpic.simulator import BaseSimulator
+from lume_fbpic.simulator import FBPICSimulator
 from pathlib import Path
 import typing
 
 
-class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
-    """LUMEModel using the actions framework, wrapping a `BaseSimulator`
-    (`LWFASimulator`, or another subclass).
+class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[FBPICSimulator]):
+    """LUMEModel using the actions framework, wrapping an `FBPICSimulator`.
 
     No `InitialParticlesMixIn` -- the plasma-accelerator stage makes its own bunch (by injection
     off a density downramp or dopant, or from a driver bunch's wake), it doesn't consume an
@@ -39,11 +38,10 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
 
     def __init__(
         self,
-        simulator: BaseSimulator,
+        simulator: FBPICSimulator,
         actions: list[Action],
         dummy_run: bool = False,
     ) -> None:
-        _check_simulator(simulator, actions)
         super().__init__(
             simulator=simulator,
             action_variables=_with_default_units(simulator, actions),
@@ -67,7 +65,7 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
 
     @property
     def final_particles(self) -> ParticleGroup | None:
-        """The last run's final electron bunch (`BaseSimulator.final_particles`), or None."""
+        """The last run's final electron bunch (`FBPICSimulator.final_particles`), or None."""
         return self.simulator.final_particles
 
     @classmethod
@@ -94,7 +92,7 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
 
     def reset(self) -> None:
         """Restore the simulator's starting state: its config and results when it was built or,
-        for a model loaded from an archive, the archived ones (see `BaseSimulator.reset()`).
+        for a model loaded from an archive, the archived ones (see `FBPICSimulator.reset()`).
 
         Replaces `ActionModel.reset()`, which sets every writable action to its
         `default_value` -- `None` for all of ours, which fails. Nothing is run.
@@ -114,23 +112,8 @@ class LUMEFBPICModel(FinalParticlesMixIn, ActionModel[BaseSimulator]):
             raise
 
 
-def _check_simulator(simulator: BaseSimulator, actions: list[Action]) -> None:
-    """Check that each action works on `simulator`, an instance of its `SIMULATOR`.
-
-    Raises:
-        TypeError: For an action of another kind of simulator.
-    """
-    for action in actions:
-        required = getattr(action, "SIMULATOR", None)
-        if required is not None and not isinstance(simulator, required):
-            raise TypeError(
-                f"action {action.name!r} needs a {required.__name__}, "
-                f"not a {type(simulator).__name__}"
-            )
-
-
 def _with_default_units(
-    simulator: BaseSimulator, actions: list[Action]
+    simulator: FBPICSimulator, actions: list[Action]
 ) -> list[Action]:
     """`actions`, each made without a `unit` replaced by a copy with the one its
     `default_unit()` finds; the actions given are left as they are, so a list can serve several

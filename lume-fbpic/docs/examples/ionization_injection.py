@@ -5,11 +5,16 @@ LASY laser pulse (`LasyLaserPulse`), coarsened to run on a CPU.
 
 It uses the runscript's physical parameters and sets the simulation up as the template does:
 
-- Gas jet: two `BilateralSuperGaussian` profiles of the same symmetric shape (equal FWHM and
-  exponent on both sides), one of He and one of N2. The dopant fraction is one of molecules: the
+- Gas jet: two `BilateralSuperGaussian` profiles of the same shape (equal FWHM on both sides, an
+  exponent for each side derived as the template does, below), one of He and one of N2. The dopant fraction is one of molecules: the
   He atom density is `n_gas * (1 - fraction)` and the N atom density `2 * n_gas * fraction`,
   where `n_gas` is the peak neutral density. `nominal_density` is the atom density times the
   species' ionization levels, because `_DensityProfile` divides by the level count.
+- Density exponents: the runscript gives each side's ramp as `density_*_ramp_edge_percent`, the
+  fractional place between the half-maximum point and `p_zmin` / `p_zmax` where the density is 1%
+  of its peak, and the template's `_resolved_density_ramp_parameters` derives the super-Gaussian
+  exponent from it. `_ramp_beta` repeats that formula (for the template's default, unremapped
+  ramps), so the right side (`p_zmax` 9 mm) gets a different exponent (1.31) from the left (1.50).
 - Moving window: `Simulation` sets `beta_window` from the laser's mean group velocity.
 - Interaction length: the profiles' z extent, clipped to `p_zmin=0`, plus the default
   `right_buffer` (the window length).
@@ -29,6 +34,7 @@ actions.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from lume_fbpic.actions import (
@@ -42,7 +48,7 @@ from lume_fbpic.actions import (
 )
 from lume_fbpic.density_profiles import nominal_density
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 from inversion_fbpic.lib.density_profiles import BilateralSuperGaussian
 from inversion_fbpic.lib.laser import LasyLaserPulse
@@ -52,7 +58,7 @@ from inversion_fbpic.lib.simulation import SimulationHyperparameters
 PEAK_NEUTRAL_DENSITY_CM3 = 1.5e18
 NITROGEN_DOPANT_FRACTION = 0.03  # of N2 molecules
 DENSITY_FWHM_M = 1.0e-3
-DENSITY_BETA = 1.5
+DENSITY_RAMP_EDGE_PERCENT = 0.36177002857272215  # left and right
 DENSITY_CENTER_LOCATION_M = 4.0e-3
 LASER_WAVELENGTH_M = 800e-9
 LASER_ENERGY_J = 2.5
@@ -68,7 +74,7 @@ GAMMA_BOOST = 1.5
 NUMBER_DUMPS = 10
 WRITE_PERIOD = 10
 P_NZ, P_NR, P_NT = 2, 2, 4
-P_ZMIN, P_RMAX = 0.0, 90.0e-6
+P_ZMIN, P_ZMAX, P_RMAX = 0.0, 9.0e-3, 90.0e-6
 # The runscript's `diagnostic_select`: only electrons with uz >= 10 are written.
 DIAGNOSTIC_SELECT = {"uz": [10.0, None]}
 # --- LASY laser grid, coarsened to match (the runscript's in `PRODUCTION`) ---
@@ -132,15 +138,16 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         centering_angles=72,
         lasy_file=Path("diags") / "lasy_laser",
     )
-    # The same symmetric shape for both gases; the atom densities follow the molecular dopant
+    # The same shape for both gases; the atom densities follow the molecular dopant
     # fraction (see the module docstring).
     shape = dict(
         fwhm_left=DENSITY_FWHM_M,
         fwhm_right=DENSITY_FWHM_M,
-        beta_left=DENSITY_BETA,
-        beta_right=DENSITY_BETA,
+        beta_left=_ramp_beta(DENSITY_CENTER_LOCATION_M - P_ZMIN),
+        beta_right=_ramp_beta(P_ZMAX - DENSITY_CENTER_LOCATION_M),
         center=DENSITY_CENTER_LOCATION_M,
         p_zmin=P_ZMIN,
+        p_zmax=P_ZMAX,
         p_rmax=P_RMAX,
         p_nz=P_NZ,
         p_nr=P_NR,
@@ -160,10 +167,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         elec_name="electrons_n2",
         **shape,
     )
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         hyparams,
-        laser,
-        [density_he, density_n2],
+        lasers=[laser],
+        densities=[density_he, density_n2],
         target_species="electrons_n2",
         working_directory=working_directory,
     )
@@ -198,6 +205,18 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         *make_descriptor_actions(),
     ]
     return LUMEFBPICModel(simulator, actions)
+
+
+def _ramp_beta(edge_distance_m: float) -> float:
+    """The super-Gaussian exponent of one side of the density profile (the template's formula):
+    `edge_distance_m` is the center's distance to `p_zmin` or `p_zmax`."""
+    half = DENSITY_FWHM_M / 2.0
+    d = half + DENSITY_RAMP_EDGE_PERCENT * (
+        edge_distance_m - half
+    )  # the 1% point's distance
+    return math.log(math.log(100.0) / math.log(2.0)) / math.log(
+        2.0 * d / DENSITY_FWHM_M
+    )
 
 
 if __name__ == "__main__":

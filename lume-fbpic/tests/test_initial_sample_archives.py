@@ -70,7 +70,7 @@ def test_archive_config_has_the_production_grid_and_the_runs_inputs(
     model = archive.load(path, dummy_run=True)
     hyparams = model.simulator.hyparams
     assert (hyparams.nz, hyparams.nr, hyparams.nm) == (1500, 300, 5)
-    assert model.simulator.laser.num_points == (600, 900)
+    assert model.simulator.lasers[0].num_points == (600, 900)
     assert model.get(["zernike_astigmatism_4"])["zernike_astigmatism_4"] == 8.0
     assert (
         model.get(["laser_energy"])["laser_energy"] == record["input"]["laser_energy_J"]

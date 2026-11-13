@@ -1,6 +1,6 @@
 """The HTU downramp-injection action set: `make_actions(simulator)`.
 
-An action list for an `LWFASimulator` shaped like `demo_downramp_simulation`: one
+An action list for an `FBPICSimulator` shaped like `demo_downramp_simulation`: one
 `GaussianLaserPulse` and two `SmoothSineFlattop` density profiles (index 0 the flattop, index 1 the
 downramp). Hardcoded to that shape; `docs/examples/lwfa.py` and `ionization_injection.py` show lists
 built for other shapes from the same building-block action classes (`lume_fbpic.actions`). A test
@@ -17,10 +17,10 @@ from lume_fbpic.actions import (
     LaserFieldAction,
     make_stat_actions,
 )
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 
-def make_actions(simulator: LWFASimulator) -> list[Action]:
+def make_actions(simulator: FBPICSimulator) -> list[Action]:
     """Build the HTU downramp-injection control/output variable set.
 
     Matches `demo_downramp_simulation`'s config shape: one `GaussianLaserPulse` and two

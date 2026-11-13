@@ -10,7 +10,7 @@ from lume.exceptions import ReadOnlyError
 
 from downramp_actions import make_actions
 from lume_fbpic.model import LUMEFBPICModel
-from short_runs import short_lwfa_model, short_pwfa_model
+from short_runs import short_lwfa_model, short_pwfa_model, uniform_beam_charge
 
 
 def test_the_model_has_the_actions_it_was_given(simulator):
@@ -35,10 +35,10 @@ def test_set_runs_the_simulation_with_the_new_values(tmp_path):
 
     model.set({"driver_density": 1.0e25})
 
-    assert simulator.driver.density == 1.0e25
+    assert simulator.beams[0].n == 1.0e25
     # the run saw the new density: the driver's charge is proportional to it
     assert model.get(["charge_pc"])["charge_pc"] == pytest.approx(
-        simulator.driver.charge * 1e12, rel=1e-12
+        uniform_beam_charge(simulator.beams[0]) * 1e12, rel=1e-12
     )
 
 
@@ -108,13 +108,3 @@ def test_a_set_with_an_unchanged_config_runs_again(tmp_path):
     model.set({})
 
     assert last_dump.stat().st_mtime_ns > written
-
-
-def test_an_action_of_another_kind_of_simulator_is_refused(simulator):
-    from lume_fbpic.actions import PlasmaFieldAction
-
-    with pytest.raises(TypeError, match="needs a PWFASimulator"):
-        LUMEFBPICModel(
-            simulator,
-            [PlasmaFieldAction(name="plasma_density", field_name="nominal_density")],
-        )

@@ -13,7 +13,8 @@ cell with an up-ramp, a plateau and a down-ramp; the witness is meant to reach 5
 The defaults are coarser than the paper's: dz = 1.5 um (paper: 0.30 um) and 2 x 2 x 4 plasma
 macroparticles per cell (paper: 4 x 4 x 4). A 20 cm run at these settings is 133,333 steps. At
 the paper's resolution it is 666,667 steps on a grid five times as long, with four times the plasma
-macroparticles per cell, which is better run on a GPU (`use_cuda=True`); `--dz 0.30 --ppc 4 4 4`
+macroparticles per cell, which is better run on a GPU (`use_cuda`, True by default, uses one when there
+is one); `--dz 0.30 --ppc 4 4 4`
 gives it.
 
 The 20 cm run, measured as the paper does (with its 5-sigma particle cut) against the paper's
@@ -35,6 +36,9 @@ Chosen here, as the paper's text does not give them:
 - The cell is 20 cm long for both cases, and the 250 MeV is taken as the total energy.
 - Macroparticles of the bunches: 100000 for the driver, 20000 for the witness.
 
+The table has not been reproduced with this version of the example: rerun it before relying on
+its numbers.
+
 The model's mean energy is kinetic, 0.511 MeV below the total energy the paper quotes. Its
 charge, energy and spread outputs cover all the witness's particles; the emittance, size and
 charge in the table are computed from the dumps with the cut.
@@ -51,14 +55,21 @@ import argparse
 import pathlib
 
 import numpy
+from scipy.constants import e
 from scipy.ndimage import gaussian_filter
 
 from inversion_fbpic.utils.distributions import COORD_NAMES
-from lume_fbpic.actions import make_pwfa_actions
+from inversion_fbpic.lib.particle_beam import GaussianParticleBeam
+from inversion_fbpic.lib.simulation import SimulationHyperparameters
+from lume_fbpic.actions import (
+    DensityFieldAction,
+    FinalParticlesAction,
+    make_beam_actions,
+    make_stat_actions,
+)
 from lume_fbpic.density_profiles import UpDownRampProfile
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.pwfa_config import GaussianBunch, PWFAGrid
-from lume_fbpic.pwfa_simulator import PWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.utils import ELECTRON_MC2_EV, particle_group
 import pwfa_dumps  # docs/examples/pwfa_dumps.py, this directory
 
@@ -116,32 +127,39 @@ def build_model(
     dz: float = DZ,
     n_steps: int | None = None,
     plasma_ppc: tuple[int, int, int] = PLASMA_PPC,
-    use_cuda: bool = False,
-    write_period: int | None = None,
+    use_cuda: bool = True,
+    number_dumps: int = 81,
     write_plasma: bool = False,
 ) -> LUMEFBPICModel:
     """The paper's setup at the module's coarser resolution (see the module docstring): `dz` [m]
     sets the longitudinal cell size (the window stays 150 um, so `nz = 150 um / dz`, and the time
     step is `dz / c`), `plasma_ppc` the plasma macroparticles per cell (z, r, theta). The paper's
     own are `dz=0.30e-6` and `plasma_ppc=(4, 4, 4)`. `n_steps` defaults to the whole 20 cm cell at
-    that `dz`; `write_period` to an eightieth of the steps (80 dumps for `plot_results`).
+    that `dz`: the window travels `n_steps` cells (`simulation_length`), and half a cell of
+    `right_buffer` keeps the step count from rounding down. `number_dumps` counts the start, so
+    the default 81 is a dump every eightieth of the run for `plot_results`. With `write_plasma`
+    the plasma electrons are dumped too, as `plasma`. `use_cuda`, True by default, runs on a GPU
+    when there is one and on the CPU otherwise; False keeps it on the CPU.
     """
     case = CASES[witness]
     nz = int(round(WINDOW_LENGTH / dz))
     n_steps = n_steps if n_steps is not None else int(round(CELL_LENGTH / dz))
-    grid = PWFAGrid(
+    hyparams = SimulationHyperparameters(
         zmin=-WINDOW_LENGTH,
         zmax=0.0,
         nz=nz,  # paper: 500 (dz = 0.30 um); here 150 um / dz
         rmax=150.0e-6,  # paper: 150 um transverse window
         nr=200,  # paper: 200 (dr = 0.75 um)
         nm=1,  # paper: m = 0 only
-        n_steps=n_steps,
-        write_period=write_period or max(n_steps // 80, 1),
-        write_plasma=write_plasma,
-        r_boundary="reflective",  # paper: reflective in r
-        z_boundary="open",  # paper: open in z
+        use_mpi=False,
         use_cuda=use_cuda,
+        number_dumps=number_dumps,
+        # POSIT: the lab-frame time step is one cell, dz / c, and the window moves at c
+        simulation_length=n_steps * (WINDOW_LENGTH / nz),
+        right_buffer=0.5 * WINDOW_LENGTH / nz,
+        beta_window=1.0,
+        field_diagnostics=["rho", "E", "B"],
+        r_boundary="reflective",  # paper: reflective in r (z is open, as in the paper)
         random_seed=0,
     )
     plasma = UpDownRampProfile(
@@ -159,31 +177,47 @@ def build_model(
         down_length=RAMP_LENGTH,
         z_start=0.0,
         z_end=CELL_LENGTH,
+        elec_name="plasma" if write_plasma else None,
     )
-    driver = GaussianBunch(
-        charge=150.0e-12,  # paper: 150 pC
-        gamma=GAMMA,  # paper: 250 MeV
+    driver = GaussianParticleBeam(
+        n_physical_particles=150.0e-12 / e,  # paper: 150 pC
+        gamma0=GAMMA,  # paper: 250 MeV
         sig_gamma=0.01 * GAMMA,  # paper: 1 % energy spread
         sig_r=70.0e-6,  # paper: 70 um
         sig_z=10.0e-6,  # paper: 10 um
         n_emit=5.0e-6,  # paper: 5 mm mrad
         n_macroparticles=100_000,  # not in the paper
         zf=DRIVER_POSITION,
+        particle_name="driver",
     )
-    witness_bunch = GaussianBunch(
-        charge=case["charge"],  # paper: 10 pC (longer) or 5 pC (shorter)
-        gamma=GAMMA,  # paper: 250 MeV
+    witness_bunch = GaussianParticleBeam(
+        n_physical_particles=case["charge"]
+        / e,  # paper: 10 pC (longer) or 5 pC (shorter)
+        gamma0=GAMMA,  # paper: 250 MeV
         sig_gamma=0.01 * GAMMA,  # paper: 1 % energy spread
         sig_r=case["sig_r"],  # paper: 14 um or 7 um
         sig_z=case["sig_z"],  # paper: 10 um or 2 um
         n_emit=case["n_emit"],  # paper: 5 or 2 mm mrad
         n_macroparticles=20_000,  # not in the paper
         zf=DRIVER_POSITION - SEPARATION,  # paper: 90 um behind the driver
+        particle_name="witness",
     )
-    simulator = PWFASimulator(
-        grid, plasma, driver, witness_bunch, target_species="witness"
+    simulator = FBPICSimulator(
+        hyparams,
+        densities=[plasma],
+        beams=[driver, witness_bunch],
+        target_species="witness",
     )
-    return LUMEFBPICModel(simulator, make_pwfa_actions(simulator), dummy_run=dummy_run)
+    actions = [
+        DensityFieldAction(
+            name="plasma_density", density_index=0, field_name="nominal_density"
+        ),
+        *make_beam_actions(simulator, 0),
+        *make_beam_actions(simulator, 1),
+        *make_stat_actions(),
+        FinalParticlesAction(name="final_particles", read_only=True),
+    ]
+    return LUMEFBPICModel(simulator, actions, dummy_run=dummy_run)
 
 
 def plot_results(
@@ -220,7 +254,7 @@ def plot_results(
     rows = numpy.array([_dump_metrics(path, case) for path in paths]).T
     output = pathlib.Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    plasma = simulator.plasma
+    plasma = simulator.densities[0]
     density = plasma.build_density_function()
 
     def plasma_density(z):  # [m^-3]

@@ -3,12 +3,12 @@
 An archive is one HDF5 file (or group). It holds:
 
 - attributes `dataType`, `software`, `format_version` (the layout described here, which `load()`
-  checks), `config_kind` (the simulator's `CONFIG_KIND`, which `load()` uses to pick the simulator
-  class) and `target_species`;
-- one group per config object of `BaseSimulator.config()`, named as in its `CONFIG_NAMES` (a
+  checks), `config_kind` (`fbpic`, which `load()` checks) and `target_species`;
+- one group per config object of `FBPICSimulator.config()`, named as in its `CONFIG_NAMES` (a
   list is a group with the attribute `list` and one numbered group per object), written by
-  `archive_config.write_config()`: native HDF5 and no paths. An output path (`save_directory`, `lasy_file`) is stored as its basename,
-  and a loaded config has that name in the directory of the class default;
+  `archive_config.write_config()`: native HDF5 and no paths. An output path (`save_directory`,
+  `lasy_file`, `save_beam`) is stored as its basename, and a loaded config has that name in the
+  directory of the class default;
 - `inputs`: the input files the config names, by basename and md5. A file is looked for in the
   `input_dirs` given to `save()` and `load()`; one that is not in `input_dirs` at `save()` is
   embedded instead (with a warning over 10 MB), and a loaded archive uses the embedded copy (see
@@ -56,7 +56,7 @@ import lume_fbpic.density_profiles  # noqa: F401
 from inversion_fbpic.lib.serializable_config import GIT_HASH_STR
 from lume_fbpic import archive_config
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.simulator import BaseSimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 # The groups of an archive that are not config: the model's actions, the final particles, the
 # input files, the `parameters` metadata, and the statistics.
@@ -66,12 +66,14 @@ _INPUTS = "inputs"
 _PARAMETERS = "parameters"
 _STATS = "stats"
 _RESERVED_GROUPS = {_ACTIONS, _FINAL_PARTICLES, _INPUTS, _PARAMETERS, _STATS}
+# The kind of simulator an archive holds, `FBPICSimulator`'s; `load()` reads only this one.
+_CONFIG_KIND = "fbpic"
 # The archive layout `save()` writes and `load()` reads. 2: an action's class is stored as its
 # module and qualified name (1 stored the bare name of a class of `lume_fbpic.actions`).
 _FORMAT_VERSION = 2
 
 
-def fingerprint(simulator: BaseSimulator) -> str:
+def fingerprint(simulator: FBPICSimulator) -> str:
     """Stable hash of the simulator's current config: the same on any machine, and for any
     `save_directory` or `lasy_file`. `save()` names an archive by it and the model's actions by
     default.
@@ -98,7 +100,7 @@ def fingerprint(simulator: BaseSimulator) -> str:
         for ref in archive_config.collect_inputs(config, simulator.embedded_inputs)
     ]
     text = json.dumps(
-        [simulator.CONFIG_KIND, simulator.target_species, configs, inputs],
+        [_CONFIG_KIND, simulator.target_species, configs, inputs],
         sort_keys=True,
         default=_json_value,
     )
@@ -115,11 +117,10 @@ def load(
 ) -> LUMEFBPICModel:
     """Rebuild a model, simulator and actions, from an archive written by `save()`.
 
-    The simulator class is the one registered for the archive's `config_kind`
-    (`BaseSimulator.of_kind()`), and its `CONFIG_NAMES` are the groups read as config. The final
-    particles and `stats` are back if they were saved; otherwise the recorded output values are
-    the simulator's `recorded_outputs`, where the output actions find them. What is loaded is the
-    state `reset()` restores.
+    The archive's `config_kind` must be `fbpic`, and `FBPICSimulator.CONFIG_NAMES` are the groups
+    read as config. The final particles and `stats` are back if they were saved; otherwise the
+    recorded output values are the simulator's `recorded_outputs`, where the output actions find
+    them. What is loaded is the state `reset()` restores.
 
     Each action is rebuilt from its stored class, imported by its module and qualified name, and
     its parameters. An action whose class cannot be imported (its package is not installed, or it
@@ -341,10 +342,14 @@ def _load_simulator(
     working_directory: str | Path | None,
     input_dirs: typing.Any,
     outputs: dict[str, float],
-) -> BaseSimulator:
+) -> FBPICSimulator:
     """The simulator of the open archive `h5`; see `load()`. `outputs` (the recorded output
     values) are its `recorded_outputs` if the archive holds no final particles."""
-    cls = BaseSimulator.of_kind(str(h5.attrs["config_kind"]))
+    kind = str(h5.attrs["config_kind"])
+    if kind != _CONFIG_KIND:
+        raise ValueError(
+            f"unknown kind {kind!r} of simulator: only {_CONFIG_KIND!r} archives are read"
+        )
     temporary = (
         None
         if working_directory
@@ -353,7 +358,7 @@ def _load_simulator(
     try:
         contents = _read_simulator(
             h5,
-            cls.CONFIG_NAMES,
+            FBPICSimulator.CONFIG_NAMES,
             input_dirs,
             Path(working_directory) if working_directory else Path(temporary.name),
         )
@@ -364,7 +369,7 @@ def _load_simulator(
     if temporary is not None and not contents["embedded"]:
         temporary.cleanup()
         temporary = None
-    simulator = cls.from_config(
+    simulator = FBPICSimulator.from_config(
         contents["config"],
         target_species=contents["target_species"],
         working_directory=working_directory,
@@ -584,7 +589,7 @@ def _write_model(
 
 def _write_simulator(
     g,
-    simulator: BaseSimulator,
+    simulator: FBPICSimulator,
     config: dict[str, typing.Any],
     refs: list[archive_config.InputRef],
     save_final_particles: bool,
@@ -594,7 +599,7 @@ def _write_simulator(
     g.attrs["dataType"] = "lume-fbpic"
     g.attrs["software"] = "lume-fbpic"
     g.attrs["format_version"] = _FORMAT_VERSION
-    g.attrs["config_kind"] = simulator.CONFIG_KIND
+    g.attrs["config_kind"] = _CONFIG_KIND
     g.attrs["target_species"] = simulator.target_species
 
     for name, value in config.items():

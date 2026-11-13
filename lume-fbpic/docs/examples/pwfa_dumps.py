@@ -1,5 +1,5 @@
-"""The openPMD dumps of a `PWFASimulator` run, read for the plots of the PWFA examples
-(`pwfa_gaussian.py`, `pwfa_clara_febe.py`)."""
+"""The openPMD dumps of a PWFA run (an `FBPICSimulator` with `driver` and `witness` beams), read
+for the plots of the PWFA examples (`pwfa_gaussian.py`, `pwfa_clara_febe.py`)."""
 
 from __future__ import annotations
 

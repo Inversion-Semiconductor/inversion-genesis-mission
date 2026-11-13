@@ -71,7 +71,7 @@ from lume_fbpic.density_profiles import (
     atom_density,
     nominal_density,
 )
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.model import LUMEFBPICModel
 
 from inversion_fbpic.lib.datapoint import Parameters
@@ -234,10 +234,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         elec_name=NITROGEN_ELECTRONS,
         elec_select={"uz": [10.0, None]},  # the template's particle diagnostic
     )
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         hyparams,
-        laser,
-        [density_he, density_n],
+        lasers=[laser],
+        densities=[density_he, density_n],
         target_species=NITROGEN_ELECTRONS,
         working_directory=working_directory,
     )
@@ -330,9 +330,9 @@ def _check_fixed_inputs(model: LUMEFBPICModel, inputs: dict[str, float]) -> None
         "density_beta": he.beta,
         "density_center_location_m": he.z0,
         "density_peak": he.gauss_peak,
-        "laser_spot_size_m": simulator.laser.waist,
-        "laser_super_gaussian_order": simulator.laser.super_gaussian_order,
-        "laser_wavelength_m": simulator.laser.wavelength,
+        "laser_spot_size_m": simulator.lasers[0].waist,
+        "laser_super_gaussian_order": simulator.lasers[0].super_gaussian_order,
+        "laser_wavelength_m": simulator.lasers[0].wavelength,
         # n_plasma = 2 * n_gas, and n_gas is the He + N atom density
         "peak_plasma_density_cm3": 2.0
         * (atom_density(he) + atom_density(nitrogen))

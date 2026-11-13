@@ -1,4 +1,5 @@
-"""Tests for LWFASimulator's config/lifecycle/archive paths -- no real fbpic run."""
+"""Tests for FBPICSimulator's config/lifecycle/archive paths, and a few short real fbpic runs
+(`short_runs`)."""
 
 from __future__ import annotations
 
@@ -11,12 +12,24 @@ import numpy
 import pytest
 
 from inversion_fbpic.lib.datapoint import Parameters
+from inversion_fbpic.lib.density_profiles import ExpressionDensityProfile
+from inversion_fbpic.lib.external_field import (
+    ExpressionExternalField,
+    UniformExternalField,
+)
+from inversion_fbpic.lib.math_expression import MathExpression
+from scipy.constants import e
 from archive_helpers import load_simulator, simulator_model
 from lume_fbpic import archive
 from lume_fbpic.actions import make_descriptor_actions
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.model import LUMEFBPICModel
-from short_runs import short_lwfa_simulator, short_pwfa_simulator
+from short_runs import (
+    short_beam_simulator,
+    short_lwfa_simulator,
+    short_pwfa_simulator,
+    uniform_beam_charge,
+)
 
 
 def test_configure_accepts_complete_config(simulator):
@@ -24,10 +37,10 @@ def test_configure_accepts_complete_config(simulator):
 
 
 def test_configure_rejects_missing_densities(hyparams, laser, tmp_path):
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         hyparams,
-        laser,
-        [],
+        lasers=[laser],
+        densities=[],
         target_species="electrons_flattop",
         working_directory=tmp_path,
     )
@@ -39,7 +52,7 @@ def test_run_checks_a_config_that_changed_after_it_was_configured(simulator):
     simulator.configure()
     simulator.densities = []
 
-    with pytest.raises(ValueError, match="densities is required"):
+    with pytest.raises(ValueError, match="a density profile"):
         simulator.run()
 
     assert not simulator.diagnostics_directory(simulator.working_directory).exists()
@@ -48,7 +61,7 @@ def test_run_checks_a_config_that_changed_after_it_was_configured(simulator):
 def test_run_with_an_incomplete_config_raises_and_runs_nothing(simulator):
     simulator.densities = []
 
-    with pytest.raises(ValueError, match="densities is required"):
+    with pytest.raises(ValueError, match="a density profile"):
         simulator.run()
 
     assert not simulator.diagnostics_directory(simulator.working_directory).exists()
@@ -59,13 +72,14 @@ def test_reset_restores_the_starting_state_without_rerunning(simulator):
     simulator.configure()
     simulator.stats = {"charge_pc": 1.0}
     simulator.final_particles = object()
-    simulator.laser = None
+    simulator.lasers = []
 
     simulator.reset()
 
     assert simulator.stats == {}
     assert simulator.final_particles is None
-    assert simulator.laser is config["laser"]
+    assert simulator.lasers == config["lasers"]
+    assert simulator.lasers[0] is config["lasers"][0]
     assert simulator.densities == config["densities"]
 
 
@@ -78,14 +92,14 @@ def test_reset_restores_the_archived_state_of_a_loaded_simulator(
         simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
     )
     restored = load_simulator(tmp_path / "a.h5")
-    laser = restored.laser
+    laser = restored.lasers[0]
 
-    restored.laser = None
+    restored.lasers = []
     restored.stats = {}
     restored.final_particles = None
     restored.reset()
 
-    assert restored.laser is laser
+    assert restored.lasers[0] is laser
     assert restored.stats == {"charge_pc": 7.0}
     assert len(restored.final_particles) == len(particle_group)
 
@@ -99,13 +113,6 @@ def test_an_archive_with_particles_keeps_its_own_stats_not_the_recorded_outputs(
     archive.save(model, tmp_path / "a.h5", save_final_particles=True)
 
     assert load_simulator(tmp_path / "a.h5").stats == {"charge_pc": 7.0}
-
-
-def test_reset_needs_a_starting_state(simulator):
-    simulator._initial_state = None
-
-    with pytest.raises(RuntimeError, match="starting state"):
-        simulator.reset()
 
 
 def test_the_default_archive_name_comes_from_the_config(
@@ -159,10 +166,10 @@ def test_the_fingerprint_sees_all_of_a_large_array():
 
 
 def test_the_fingerprint_depends_on_the_target_species(simulator):
-    other = LWFASimulator(
+    other = FBPICSimulator(
         simulator.hyparams,
-        simulator.laser,
-        simulator.densities,
+        lasers=simulator.lasers,
+        densities=simulator.densities,
         target_species="electrons_downramp",
     )
 
@@ -182,7 +189,7 @@ def test_archive_round_trips_config_only(simulator, tmp_path):
     restored = load_simulator(archive_path, working_directory=tmp_path)
 
     assert restored.hyparams.to_dict() == simulator.hyparams.to_dict()
-    assert restored.laser.to_dict() == simulator.laser.to_dict()
+    assert restored.lasers[0].to_dict() == simulator.lasers[0].to_dict()
     assert len(restored.densities) == len(simulator.densities)
     for original, loaded in zip(simulator.densities, restored.densities):
         assert loaded.to_dict() == original.to_dict()
@@ -196,7 +203,7 @@ def test_archive_stores_target_species_and_load_restores_it(simulator, tmp_path)
 
     assert restored.target_species == simulator.target_species
     assert restored.hyparams.to_dict() == simulator.hyparams.to_dict()
-    assert restored.laser.to_dict() == simulator.laser.to_dict()
+    assert restored.lasers[0].to_dict() == simulator.lasers[0].to_dict()
     assert [d.to_dict() for d in restored.densities] == [
         d.to_dict() for d in simulator.densities
     ]
@@ -217,17 +224,10 @@ def test_load_results_reads_diagnostics_under_the_given_directory(tmp_path):
     assert list(ran.diagnostics_directory(tmp_path / "ran").glob("data*.h5"))
 
 
-def _pwfa_of_steps(directory, n_steps):
-    """`short_pwfa_simulator(directory)` running `n_steps` steps."""
-    simulator = short_pwfa_simulator(directory)
-    simulator.grid = attrs.evolve(simulator.grid, n_steps=n_steps)
-    return simulator
-
-
 def test_a_run_does_not_read_the_dumps_of_a_longer_earlier_run(tmp_path):
-    _pwfa_of_steps(tmp_path / "run", 6).run()
-    shorter = _pwfa_of_steps(tmp_path / "run", 3)
-    fresh = _pwfa_of_steps(tmp_path / "fresh", 3)
+    short_pwfa_simulator(tmp_path / "run", n_steps=6).run()
+    shorter = short_pwfa_simulator(tmp_path / "run", n_steps=3)
+    fresh = short_pwfa_simulator(tmp_path / "fresh", n_steps=3)
 
     shorter.run()
     fresh.run()
@@ -284,10 +284,10 @@ def test_archive_with_a_lume_fbpic_profile_loads_in_a_fresh_process(
         ramp_length=1.0e-5,
         elec_name="electrons",
     )
-    ramp = LWFASimulator(
+    ramp = FBPICSimulator(
         simulator.hyparams,
-        simulator.laser,
-        [profile],
+        lasers=simulator.lasers,
+        densities=[profile],
         target_species="electrons",
         working_directory=tmp_path,
     )
@@ -312,8 +312,8 @@ def test_an_archive_records_its_kind_and_load_builds_the_matching_class(
     archive.save(simulator_model(simulator), tmp_path / "a.h5")
 
     with h5py.File(tmp_path / "a.h5") as f:
-        assert f.attrs["config_kind"] == "lwfa"
-    assert type(load_simulator(tmp_path / "a.h5")) is LWFASimulator
+        assert f.attrs["config_kind"] == "fbpic"
+    assert type(load_simulator(tmp_path / "a.h5")) is FBPICSimulator
 
 
 def test_loading_an_archive_of_an_unknown_kind_raises(simulator, tmp_path):
@@ -327,12 +327,13 @@ def test_loading_an_archive_of_an_unknown_kind_raises(simulator, tmp_path):
 
 def test_config_and_set_config_round_trip(simulator):
     config = simulator.config()
-    original = simulator.laser
-    simulator.laser = None
+    original = simulator.lasers[0]
+    simulator.lasers = []
 
     simulator.set_config(config)
 
-    assert simulator.laser is original
+    assert simulator.lasers[0] is original
+    assert config["lasers"] is not simulator.lasers
     assert config["densities"] is not simulator.densities
 
 
@@ -356,5 +357,129 @@ def test_results_read_back_replace_the_recorded_outputs(tmp_path):
 
     assert simulator.recorded_outputs == {}
     assert simulator.stats["charge_pc"] == pytest.approx(
-        simulator.driver.charge * 1e12, rel=1e-12
+        uniform_beam_charge(simulator.beams[0]) * 1e12, rel=1e-12
     )
+
+
+def test_a_beam_with_no_laser_and_no_plasma_runs_and_is_read_back(tmp_path):
+    simulator = short_beam_simulator(tmp_path)
+
+    simulator.run()
+
+    beam = simulator.beams[0]
+    assert len(simulator.final_particles) == beam.n_macroparticles
+    assert simulator.final_particles.charge == pytest.approx(
+        beam.n_physical_particles * e, rel=1e-9
+    )
+
+
+def test_an_external_field_on_the_beam_deflects_it(tmp_path):
+    field = 1.0e9  # [V/m]
+    plain = short_beam_simulator(tmp_path / "plain")
+    pushed = short_beam_simulator(
+        tmp_path / "pushed",
+        external_fields=[
+            UniformExternalField(field_functions={"Ex": field}, species="beam")
+        ],
+    )
+
+    plain.run()
+    pushed.run()
+
+    # POSIT: an electron (charge -e) at about c gains px = -e E t, t the time the run lasts:
+    # the window travels `simulation_length` plus its own length (`right_buffer`'s default)
+    h = plain.hyparams
+    expected = -field * (h.simulation_length + (h.zmax - h.zmin))  # [eV/c]
+    kick = numpy.mean(pushed.final_particles.px) - numpy.mean(plain.final_particles.px)
+    assert kick == pytest.approx(expected, rel=0.2)
+
+
+def test_an_archive_round_trips_beams_external_fields_and_expressions(tmp_path):
+    density = ExpressionDensityProfile(
+        nominal_density=1.0e24,
+        function=MathExpression(expression="1 + z", variables=("z",)),
+        z_min=0.0,
+        z_max=1.0e-5,
+        p_nz=1,
+        p_nr=1,
+        p_nt=1,
+        species=None,
+        ionization=-1,
+        elec_name="plasma",
+    )
+    field = ExpressionExternalField(
+        field_functions={"Bx": MathExpression(expression="2.0 * y", variables=("y",))},
+        species="beam",
+    )
+    simulator = short_beam_simulator(tmp_path, external_fields=[field])
+    simulator.densities = [density]
+    archive.save(simulator_model(simulator), tmp_path / "a.h5")
+
+    loaded = load_simulator(tmp_path / "a.h5", working_directory=tmp_path)
+
+    for name in ("lasers", "densities", "beams", "external_fields"):
+        assert [x.to_dict() for x in getattr(loaded, name)] == [
+            x.to_dict() for x in getattr(simulator, name)
+        ], name
+    assert archive.fingerprint(loaded) == archive.fingerprint(simulator)
+
+
+def test_configure_rejects_a_config_with_no_laser_and_no_beam(simulator):
+    simulator.lasers = []
+
+    with pytest.raises(ValueError, match="a laser or a particle beam"):
+        simulator.configure()
+
+
+def test_configure_rejects_a_target_species_the_config_does_not_write(tmp_path):
+    simulator = short_beam_simulator(tmp_path)
+    simulator.target_species = "electrons"
+
+    with pytest.raises(ValueError, match="'electrons' is not one of \\['beam'\\]"):
+        simulator.configure()
+
+
+def test_a_beam_run_without_a_simulation_length_needs_a_plasma(tmp_path):
+    simulator = short_beam_simulator(tmp_path)
+    simulator.hyparams = attrs.evolve(simulator.hyparams, simulation_length=None)
+
+    with pytest.raises(ValueError, match="simulation_length"):
+        simulator.configure()
+
+
+def test_a_list_left_out_of_a_config_is_set_as_empty(tmp_path):
+    simulator = short_beam_simulator(tmp_path)
+    config = simulator.config()
+    del config["external_fields"]
+
+    simulator.set_config(config)
+
+    assert simulator.external_fields == []
+
+
+def test_an_antenna_laser_with_no_v_antenna_runs_at_rest_and_keeps_its_none(tmp_path):
+    from lume_fbpic.utils import evolve_laser
+
+    simulator = short_lwfa_simulator(tmp_path)
+    simulator.lasers = [
+        evolve_laser(simulator.lasers[0], method="antenna", z0_antenna=-5.0e-6)
+    ]
+    assert simulator.lasers[0].v_antenna is None
+
+    simulation = simulator.run_simulation()  # fbpic fails on a v_antenna of None
+
+    assert [a.vz.mean() for a in simulation.simulation.laser_antennas] == [0.0]
+    assert simulator.lasers[0].v_antenna is None  # the config is left as it was
+    archive.save(simulator_model(simulator), tmp_path / "a.h5")
+    assert load_simulator(tmp_path / "a.h5").lasers[0].v_antenna is None
+
+
+def test_a_laser_that_is_not_an_antenna_or_has_a_v_antenna_is_run_as_it_is(simulator):
+    from lume_fbpic.simulator import _antenna_at_rest
+    from lume_fbpic.utils import evolve_laser
+
+    direct = simulator.lasers[0]
+    moving = evolve_laser(direct, method="antenna", z0_antenna=0.0, v_antenna=1.0e3)
+
+    assert _antenna_at_rest(direct) is direct
+    assert _antenna_at_rest(moving) is moving
