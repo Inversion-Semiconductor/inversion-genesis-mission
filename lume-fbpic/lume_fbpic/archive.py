@@ -15,7 +15,8 @@ An archive is one HDF5 file (or group). It holds:
   `archive_config`);
 - `parameters`: the simulator's `parameters`, if it has one;
 - with `save_final_particles`, `final_particles` (openPMD-beamphysics, so the file opens with
-  `ParticleGroup(h5=...)`) and `stats`;
+  `ParticleGroup(h5=...)`) and `stats`. A run that ended with no particles has an empty
+  `final_particles` group with the attribute `empty`, and loads back as an empty `ParticleGroup`;
 - `actions`: one numbered group per action: the module and qualified name of its class, the
   version of the package that provides it (when it has one; for information only), its
   parameters and, for a read-only scalar action, its value when it was saved (NaN where there was
@@ -54,7 +55,7 @@ from beamphysics.writers import pmd_init
 # imported here, so that a fresh process can load an archive that uses one.
 import lume_fbpic.density_profiles  # noqa: F401
 from inversion_fbpic.lib.serializable_config import GIT_HASH_STR
-from lume_fbpic import archive_config
+from lume_fbpic import archive_config, utils
 from lume_fbpic.model import LUMEFBPICModel
 from lume_fbpic.simulator import FBPICSimulator
 
@@ -68,6 +69,8 @@ _STATS = "stats"
 _RESERVED_GROUPS = {_ACTIONS, _FINAL_PARTICLES, _INPUTS, _PARAMETERS, _STATS}
 # The kind of simulator an archive holds, `FBPICSimulator`'s; `load()` reads only this one.
 _CONFIG_KIND = "fbpic"
+# The attribute of the `final_particles` group of a run that ended with no particles
+_EMPTY = "empty"
 # The archive layout `save()` writes and `load()` reads. 2: an action's class is stored as its
 # module and qualified name (1 stored the bare name of a class of `lume_fbpic.actions`).
 _FORMAT_VERSION = 2
@@ -483,7 +486,13 @@ def _read_simulator(
     final_particles = None
     stats: dict[str, typing.Any] = {}
     if _FINAL_PARTICLES in h5:
-        final_particles = ParticleGroup(h5=h5)
+        final_particles = (
+            utils.particle_group(
+                numpy.zeros((0, len(utils.COORD_NAMES))), numpy.zeros(0)
+            )
+            if h5[_FINAL_PARTICLES].attrs.get(_EMPTY, False)
+            else ParticleGroup(h5=h5)
+        )
         stats = {name: float(value) for name, value in h5[_STATS].attrs.items()}
     return {
         "config": config,
@@ -620,8 +629,13 @@ def _write_simulator(
     if save_final_particles:
         # openPMD root attributes pointing at the `final_particles` group make the archive
         # itself readable as a particle file: `ParticleGroup(h5=<archive path>)`.
-        pmd_init(g, basePath="/", particlesPath=_FINAL_PARTICLES)
-        simulator.final_particles.write(g.create_group(_FINAL_PARTICLES))
+        if len(simulator.final_particles):
+            pmd_init(g, basePath="/", particlesPath=_FINAL_PARTICLES)
+            simulator.final_particles.write(g.create_group(_FINAL_PARTICLES))
+        else:
+            # openPMD-beamphysics cannot write an empty ParticleGroup (it has no species string,
+            # and its writer indexes the first particle), so mark the group instead
+            g.create_group(_FINAL_PARTICLES).attrs[_EMPTY] = True
         stats_group = g.create_group(_STATS)
         for name, value in simulator.stats.items():
             stats_group.attrs[name] = value

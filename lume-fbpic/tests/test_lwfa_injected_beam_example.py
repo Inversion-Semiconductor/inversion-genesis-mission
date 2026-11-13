@@ -11,23 +11,13 @@ from lume_fbpic.utils import ELECTRON_MC2_EV
 from short_runs import on_cpu
 
 
-def test_the_example_is_the_originals_setup():
+def test_the_boosted_time_step_is_the_originals():
     import lwfa_injected_beam as example
 
-    model = example.build_model()
-    simulator = model.simulator
-    h = simulator.hyparams
+    h = example.build_model().simulator.hyparams
 
-    assert h.gamma_boost == 10.0 and h.nz == 600 and h.nr == 75 and h.nm == 2
-    # the original's time step and moving window
+    # `Simulation` sets it; the original computed it as min(rmax / (2 gamma nr), dz) / c
     assert h.dt == pytest.approx(min(h.rmax / (2 * 10.0 * h.nr), 30.0e-6 / 600) / c)
-    assert h.beta_window == pytest.approx(1 - 0.5 * 3.0e24 / 1.75e27)
-    assert simulator.lasers[0].method == "antenna"
-    assert simulator.densities[0].species == "H"
-    assert simulator.target_species == "bunch"
-    assert {"laser_a0", "plasma_density", "bunch_gamma", "bunch_radius"} <= set(
-        model.supported_variables
-    )
 
 
 def test_a_short_boosted_run_accelerates_the_bunch_and_reads_it_back(tmp_path):

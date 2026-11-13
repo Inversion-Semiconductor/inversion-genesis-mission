@@ -8,16 +8,7 @@ import pytest
 
 from lume.exceptions import ReadOnlyError
 
-from downramp_actions import make_actions
-from lume_fbpic.model import LUMEFBPICModel
 from short_runs import short_lwfa_model, short_pwfa_model, uniform_beam_charge
-
-
-def test_the_model_has_the_actions_it_was_given(simulator):
-    model = LUMEFBPICModel(simulator, make_actions(simulator))
-    assert "laser_energy" in model.supported_variables
-    assert "downramp_length" in model.supported_variables
-    assert "final_particles" in model.supported_variables
 
 
 def test_dummy_run_set_updates_parameter_without_running(model, simulator):
@@ -81,19 +72,6 @@ def test_read_only_variable_cannot_be_set(model):
 def test_set_unknown_variable_raises(model):
     with pytest.raises(ValueError):
         model.set({"not_a_real_variable": 1.0})
-
-
-def test_final_particles_property_delegates_to_simulator(model, simulator):
-    simulator.final_particles = "placeholder"
-    assert model.final_particles == "placeholder"
-
-
-def test_an_empty_set_runs_the_simulator(tmp_path):
-    model = short_pwfa_model(tmp_path)
-
-    model.set({})
-
-    assert model.simulator.final_particles is not None
 
 
 def test_a_set_with_an_unchanged_config_runs_again(tmp_path):

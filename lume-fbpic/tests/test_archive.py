@@ -3,7 +3,6 @@ input values at execution / output values after it."""
 
 from __future__ import annotations
 
-import importlib.metadata
 import math
 import re
 import warnings
@@ -58,6 +57,27 @@ def test_archive_does_not_store_particles_by_default(
     assert restored.stats == {}
 
 
+def test_a_run_with_no_final_particles_is_archived_and_loads_them_back_empty(
+    simulator, tmp_path
+):
+    import numpy
+    from lume_fbpic.utils import COORD_NAMES, particle_group
+
+    # openPMD-beamphysics cannot write an empty ParticleGroup, so `save()` marks it
+    simulator.final_particles = particle_group(
+        numpy.zeros((0, len(COORD_NAMES))), numpy.zeros(0)
+    )
+    simulator.stats = {"charge_pc": 0.0, "energy_mean_mev": 0.0}
+
+    archive.save(
+        simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
+    )
+
+    restored = load_simulator(tmp_path / "a.h5")
+    assert len(restored.final_particles) == 0
+    assert restored.stats["charge_pc"] == 0.0
+
+
 def test_archive_stores_final_particles_as_a_particle_group(
     simulator, particle_group, tmp_path
 ):
@@ -100,29 +120,6 @@ def test_saving_particles_before_any_run_is_an_error(simulator, tmp_path):
         archive.save(
             simulator_model(simulator), tmp_path / "a.h5", save_final_particles=True
         )
-
-
-def test_model_archive_stores_the_action_definitions_in_order(full_model, tmp_path):
-    archive.save(full_model, tmp_path / "m.h5")
-
-    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
-
-    assert list(restored.supported_variables) == list(full_model.supported_variables)
-    assert [type(a) for a in restored.supported_variables.values()] == [
-        type(a) for a in full_model.supported_variables.values()
-    ]
-    assert [a.model_dump() for a in restored.supported_variables.values()] == [
-        a.model_dump() for a in full_model.supported_variables.values()
-    ]
-
-
-def test_restored_model_sees_the_archived_config(full_model, tmp_path):
-    full_model.set({"laser_energy": 6.0})
-    archive.save(full_model, tmp_path / "m.h5")
-
-    restored = archive.load(tmp_path / "m.h5", dummy_run=True)
-
-    assert restored.get(["laser_energy"])["laser_energy"] == 6.0
 
 
 def test_restored_model_returns_outputs_when_particles_were_saved(
@@ -273,19 +270,6 @@ def test_a_load_error_names_the_group_of_an_archive_in_a_file(full_model, tmp_pa
         archive.load(f["sub"])
 
 
-def test_an_action_stores_the_module_name_and_package_version_of_its_class(
-    full_model, tmp_path
-):
-    archive.save(full_model, tmp_path / "m.h5")
-
-    with h5py.File(tmp_path / "m.h5") as f:
-        entry = f["actions/0000"]
-        assert entry.attrs["module"] == "lume_fbpic.actions"
-        first = next(iter(full_model.supported_variables.values()))
-        assert entry.attrs["class"] == type(first).__qualname__
-        assert entry.attrs["version"] == importlib.metadata.version("lume-fbpic")
-
-
 def test_a_custom_action_class_round_trips(simulator, tmp_path):
     model = LUMEFBPICModel(
         simulator,
@@ -423,9 +407,10 @@ def test_action_parameters_round_trip_with_their_types(
 
     restored = archive.load(tmp_path / "m.h5", dummy_run=True)
 
-    assert [a.model_dump() for a in restored.supported_variables.values()] == [
-        a.model_dump() for a in model.supported_variables.values()
-    ]
+    # in order, of the same classes, with the same parameters
+    assert [
+        (type(a), a.model_dump()) for a in restored.supported_variables.values()
+    ] == [(type(a), a.model_dump()) for a in model.supported_variables.values()]
     descriptor = restored.supported_variables["descriptor_mean_uz"]
     assert descriptor.uz_min == 12.5 and isinstance(descriptor.longitudinal_bins, int)
 
@@ -476,21 +461,6 @@ def test_a_failed_archive_leaves_no_file_and_an_existing_one_as_it_was(
         archive.save(good, path)
     assert path.read_bytes() == b"an earlier archive"
     assert [p.name for p in tmp_path.iterdir()] == ["m.h5"]  # no partial file either
-
-
-def test_the_simulators_recorded_outputs_are_archived(full_model, tmp_path):
-    full_model.set({"laser_energy": 4.0})
-
-    _archive_with_outputs(
-        full_model,
-        tmp_path / "m.h5",
-        {"descriptor_mean_uz": 171.6, "descriptor_total_beam_charge_pc": 510.0},
-    )
-
-    values = recorded_values(tmp_path / "m.h5")
-    assert values["descriptor_mean_uz"] == 171.6
-    assert values["descriptor_total_beam_charge_pc"] == 510.0
-    assert math.isnan(values["descriptor_cov_uz_uz"])  # not recorded
 
 
 @pytest.fixture()

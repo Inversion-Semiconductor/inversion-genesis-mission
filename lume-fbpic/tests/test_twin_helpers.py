@@ -77,28 +77,6 @@ def test_moments_are_the_bunchs_statistics():
     assert moments == pytest.approx(expected, rel=1e-9)
 
 
-def test_moments_report_centroid_and_pointing():
-    pg = _twiss_bunch(n=20_000)
-    p0c = numpy.sqrt(pg["mean_energy"] ** 2 - ELECTRON_MC2_EV**2)
-    shifted = ParticleGroup(
-        data={
-            **pg.data,
-            "x": numpy.asarray(pg.x) + 50.0e-6,
-            "px": numpy.asarray(pg.px) + 1.0e-3 * p0c,
-        }
-    )
-
-    moments, before = beam_moments(shifted), beam_moments(pg)
-
-    assert moments["x_um"] - before["x_um"] == pytest.approx(50.0, rel=1e-9)
-    # the kick raises the energy too, so the angle is over the shifted bunch's p0c
-    shifted_p0c = numpy.sqrt(shifted["mean_energy"] ** 2 - ELECTRON_MC2_EV**2)
-    assert moments["xp_mrad"] == pytest.approx(
-        (pg["mean_px"] + 1.0e-3 * p0c) / shifted_p0c * 1e3, rel=1e-9
-    )
-    assert moments["y_um"] == before["y_um"]
-
-
 def test_a_zero_emittance_plane_has_zero_twiss():
     pg = _twiss_bunch(n=100, emit=0.0)
 

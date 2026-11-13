@@ -42,7 +42,9 @@ These are RECONSTRUCTED archives, not the runs themselves:
    baseline, which equals `sim_0000`. Any other input that differs raises an error rather than
    being dropped silently; the dataset's runs vary only five of the 24 inputs.
 
-Usage: `python initial_sample_archives.py [sample_dataset.json] [output dir]`.
+Usage: `python initial_sample_archives.py [sample_dataset.json] [output dir]`. The output directory
+defaults to `docs/htu-twin/initial_sample_archives` (`DEFAULT_OUTPUT_DIR`), wherever the script is
+run from.
 """
 
 from __future__ import annotations
@@ -82,6 +84,8 @@ DEFAULT_DATASET = (
     Path(__file__).resolve().parents[4]
     / "lpa/Simulation_FBPIC/runs/initial_sample/sample_dataset/sample_dataset.json"
 )
+# Where the archives are written by default: beside the twin demo, their only user
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "initial_sample_archives"
 
 # --- physical parameters: sim_0000 of sample_dataset.json ---
 PEAK_PLASMA_DENSITY_CM3 = 4.0e18
@@ -274,9 +278,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("dataset", nargs="?", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument(
-        "output_dir", nargs="?", type=Path, default=Path("initial_sample_archives")
-    )
+    parser.add_argument("output_dir", nargs="?", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args(argv)
 
     dataset = json.loads(args.dataset.read_text())

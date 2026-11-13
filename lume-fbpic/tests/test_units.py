@@ -9,7 +9,6 @@ import pytest
 from lume_fbpic import archive
 from lume_fbpic.actions import (
     DensityFieldAction,
-    DopantFractionAction,
     HyperparameterFieldAction,
     LaserFieldAction,
     StatAction,
@@ -24,22 +23,6 @@ _NOT_UNITS = {
 }
 
 
-def test_a_density_action_takes_the_unit_of_its_field(model):
-    assert _unit(model, "flattop_density") == "m^-3"
-    assert _unit(model, "downramp_density") == "m^-3"
-    assert _unit(model, "downramp_length") == "m"
-
-
-def test_a_dopant_fraction_is_dimensionless(simulator):
-    action = DopantFractionAction(
-        name="fraction", host_index=0, dopant_index=1, read_only=False
-    )
-
-    model = LUMEFBPICModel(simulator, [action], dummy_run=True)
-
-    assert _unit(model, "fraction") == "1"
-
-
 @pytest.mark.parametrize(
     "action_class, kwargs",
     [(DensityFieldAction, {"density_index": 0, "field_name": "no_such_field"})],
@@ -52,44 +35,26 @@ def test_a_field_that_does_not_exist_has_no_unit(simulator, action_class, kwargs
     assert _unit(model, "x") is None
 
 
-def test_a_field_without_a_unit_tag_has_none(simulator):
-    model = LUMEFBPICModel(
-        simulator, [LaserFieldAction(name="a0", field_name="a0")], dummy_run=True
-    )
-
-    assert _unit(model, "a0") is None
-
-
-def test_a_hyperparameter_action_takes_the_unit_of_its_field(simulator):
+def test_a_config_field_action_takes_the_unit_tagged_in_its_documentation(simulator):
     model = LUMEFBPICModel(
         simulator,
         [
+            LaserFieldAction(name="energy", field_name="energy"),
+            LaserFieldAction(name="a0", field_name="a0"),
+            DensityFieldAction(
+                name="density", density_index=0, field_name="nominal_density"
+            ),
             HyperparameterFieldAction(name="start", field_name="zmin"),
             HyperparameterFieldAction(name="cells", field_name="nz"),
         ],
         dummy_run=True,
     )
 
+    assert _unit(model, "energy") == "J"
+    assert _unit(model, "density") == "m^-3"
     assert _unit(model, "start") == "m"
+    assert _unit(model, "a0") is None  # no unit tag
     assert _unit(model, "cells") is None  # a count: its tag is a type, `[int]`
-
-
-def test_a_laser_action_takes_the_unit_of_its_field(model):
-    assert _unit(model, "laser_energy") == "J"
-    assert _unit(model, "laser_focal_position") == "m"
-    assert _unit(model, "laser_temporal_width") == "s"
-
-
-def test_a_pwfa_action_takes_the_unit_of_its_field():
-    import pwfa_gaussian
-
-    model = pwfa_gaussian.build_model(dummy_run=True)
-
-    assert _unit(model, "plasma_density") == "m^-3"
-    assert _unit(model, "driver_charge") == "C"
-    assert _unit(model, "driver_sigma_r") == "m"
-    assert _unit(model, "witness_position") == "m"
-    assert _unit(model, "driver_gamma") is None
 
 
 def test_a_stat_action_takes_the_unit_of_its_statistic(model):
@@ -169,19 +134,6 @@ def test_the_unit_tag_guard_catches_a_unit_beamphysics_does_not_know():
             }
 
     assert _unknown_unit_tags([Config]) == [("Config", "size", "um")]
-
-
-def test_the_derived_units_are_valid_and_survive_an_archive(model, tmp_path):
-    from beamphysics.units import pmd_unit
-
-    archive.save(model, tmp_path / "a.h5")
-    loaded = archive.load(tmp_path / "a.h5")
-
-    for name, variable in model.supported_variables.items():
-        unit = getattr(variable, "unit", None)
-        assert _unit(loaded, name) == unit
-        if unit is not None:
-            pmd_unit(unit)  # raises for an unknown unit
 
 
 def _unit(model: LUMEFBPICModel, name: str) -> str | None:

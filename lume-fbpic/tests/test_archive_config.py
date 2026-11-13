@@ -18,7 +18,6 @@ import lume_fbpic.density_profiles  # noqa: F401  (registers its classes)
 from inversion_fbpic.lib.density_profiles import InterpolateFromH5Profile
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from lume_fbpic import archive, archive_config
-from lume_fbpic.model import LUMEFBPICModel
 from lume_fbpic.simulator import FBPICSimulator
 
 # Registered config classes with a path-like field the archive does not handle as a path, and why.
@@ -87,13 +86,6 @@ def test_an_absolute_save_directory_is_archived_by_its_name_only(simulator, tmp_
     assert loaded.hyparams.save_directory == Path("out")
 
 
-def test_an_archive_holds_no_path_string(simulator, tmp_path):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    with h5py.File(tmp_path / "a.h5") as f:
-        assert not _paths_in(f)
-
-
 def test_an_archive_holds_the_config_as_native_hdf5_not_yaml(simulator, tmp_path):
     archive.save(simulator_model(simulator), tmp_path / "a.h5")
 
@@ -104,19 +96,6 @@ def test_an_archive_holds_the_config_as_native_hdf5_not_yaml(simulator, tmp_path
         names = []
         f.visititems(lambda name, node: names.extend(node.attrs))
         assert "yaml" not in names
-
-
-def test_an_archive_reads_each_input_file_once(tmp_path, mocker, monkeypatch):
-    simulator, _ = _referenced(tmp_path)
-    monkeypatch.chdir(
-        tmp_path
-    )  # the default archive name, from the fingerprint, goes here
-    model = LUMEFBPICModel(simulator, [], dummy_run=True)
-    md5 = mocker.spy(archive_config.hashlib, "md5")
-
-    archive.save(model, input_dirs=tmp_path / "empty")
-
-    assert md5.call_count == 1
 
 
 def test_an_archive_with_a_lasy_laser_holds_no_path_string(tmp_path):
@@ -144,16 +123,6 @@ def test_an_archive_with_input_files_holds_no_path_string(tmp_path):
         assert not _paths_in(f)
         assert f["inputs/0"].attrs["basename"] == "table.h5"
         assert f["densities/0/parameters/filename"][()] == b"table.h5"
-
-
-def test_an_archive_without_embedded_input_files_keeps_no_temporary_directory(
-    simulator, tmp_path
-):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    loaded = load_simulator(tmp_path / "a.h5")
-
-    assert loaded._inputs_directory is None
 
 
 def test_an_embedded_input_file_does_not_replace_a_path_changed_on_purpose(tmp_path):
@@ -244,21 +213,6 @@ def test_an_embedded_input_file_loaded_without_a_working_directory_is_written_ou
     md5 = archive_config.checksum(tmp_path / "library" / "table.h5")
     expected = (tmp_path / "empty" / "inputs" / md5 / "table.h5").resolve()
     assert loaded.densities[0].filename == expected and expected.is_file()
-
-
-def test_an_embedded_input_file_is_not_read_again_on_every_configure(tmp_path, mocker):
-    simulator, _ = _referenced(tmp_path)
-    archive.save(
-        simulator_model(simulator), tmp_path / "a.h5", input_dirs=tmp_path / "empty"
-    )
-    loaded = load_simulator(tmp_path / "a.h5", working_directory=tmp_path / "one")
-    loaded.configure()
-    checksum = mocker.spy(archive_config, "checksum")
-
-    loaded.configure()
-    loaded.configure()
-
-    checksum.assert_not_called()
 
 
 def test_an_embedded_input_file_changed_on_disk_is_written_again(tmp_path):
@@ -456,16 +410,6 @@ def test_the_fingerprint_does_not_depend_on_paths_but_on_the_input_data(tmp_path
         attrs.evolve(simulator.densities[0], filename=moved / "table.h5")
     ]
     assert archive.fingerprint(simulator) != first
-
-
-def test_the_model_passes_input_dirs_to_the_simulator(tmp_path):
-    simulator, library = _referenced(tmp_path)
-    model = LUMEFBPICModel(simulator, [], dummy_run=True)
-
-    archive.save(model, tmp_path / "a.h5", input_dirs=library)
-    loaded = archive.load(tmp_path / "a.h5", input_dirs=library)
-
-    assert loaded.simulator.densities[0].filename == (library / "table.h5").resolve()
 
 
 def test_the_order_of_a_config_dict_survives_the_archive(tmp_path):

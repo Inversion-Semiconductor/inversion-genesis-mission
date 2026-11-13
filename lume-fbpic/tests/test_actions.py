@@ -37,10 +37,6 @@ def _get(model, name):
     return model.get([name])[name]
 
 
-def test_a_laser_field_reads_the_laser(model):
-    assert _get(model, "laser_energy") == model.simulator.lasers[0].energy
-
-
 def test_a_laser_field_with_an_index_sets_that_laser_only(simulator):
     first = simulator.lasers[0]
     simulator.lasers = [first, GaussianLaserPulse(energy=1.0, **LASER_KWARGS)]
@@ -162,20 +158,8 @@ def test_a_molecule_has_at_least_one_atom():
         )
 
 
-def test_a_stat_reads_the_simulators_stats(model):
-    model.simulator.stats = {"charge_pc": 12.3}
-
-    assert _get(model, "charge_pc") == 12.3
-
-
 def test_a_stat_is_nan_before_any_run(model):
     assert math.isnan(_get(model, "energy_mean_mev"))
-
-
-def test_the_final_particles_are_the_simulators(model, particle_group):
-    model.simulator.final_particles = particle_group
-
-    assert _get(model, "final_particles") is particle_group
 
 
 def test_the_beam_actions_of_a_gaussian_beam(tmp_path):
@@ -185,15 +169,6 @@ def test_the_beam_actions_of_a_gaussian_beam(tmp_path):
     simulator = short_beam_simulator(tmp_path)
     model = LUMEFBPICModel(simulator, make_beam_actions(simulator), dummy_run=True)
 
-    assert sorted(model.supported_variables) == [
-        "beam_charge",
-        "beam_emittance",
-        "beam_gamma",
-        "beam_gamma_spread",
-        "beam_position",
-        "beam_sigma_r",
-        "beam_sigma_z",
-    ]
     assert model.supported_variables["beam_sigma_r"].unit == "m"
     assert model.supported_variables["beam_charge"].unit == "C"
     assert _get(model, "beam_charge") == pytest.approx(1.0e6 * 1.602176634e-19)

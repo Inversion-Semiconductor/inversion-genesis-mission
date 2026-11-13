@@ -2,14 +2,11 @@
 
 A [LUME](https://github.com/lume-science) model for fbpic plasma-accelerator simulations, wrapping
 [`inversion_fbpic`](../lpa/Simulation_FBPIC): laser-driven (LWFA), beam-driven (PWFA), or a beam
-through external fields, in the way [`lume-cheetah`](https://github.com/lume-science/lume-cheetah)
-wraps Cheetah. With it you can:
+through external fields. With it you can:
 
-- **run** an fbpic simulation through `get()` / `set()`;
-- **archive** it, **load** it back, and **serve** its outputs as EPICS PVs (via `lume-pva`);
-- use its bunch as the **source of the HTU transport twin**, with a selector
-  that switches between several archived runs;
-- turn the **existing NERSC runs** (`runs/initial_sample`) into archives that serve the same way.
+- **run** an fbpic simulation through `get()` / `set()`, with the config's fields as inputs and the
+  run's statistics, moment descriptor and final particles as outputs;
+- **archive** a model with its config, actions and results, and **load** it back.
 
 ## Install
 
@@ -17,13 +14,7 @@ wraps Cheetah. With it you can:
 pip install -e ../lpa/Simulation_FBPIC      # inversion_fbpic, which this package wraps
 pip install -e .                            # lume_fbpic
 pip install -e .[dev]                       # also pytest and pytest-mock
-pip install -e docs/htu-twin[serve]         # lume_fbpic_twin, the HTU twin demo, with lume-pva
 ```
-
-The HTU twin code (`TwinStage`, the archive selector, the PV server) is its own package,
-`lume_fbpic_twin` in `docs/htu-twin`, so that `lume_fbpic` needs neither the twin (`htu`, torch,
-Cheetah) nor `lume-pva`. Its `serve` extra installs the `lume-pva` commit that `geecs-lume-twin`
-pins, so the two installs agree.
 
 ## Quick start
 
@@ -34,6 +25,7 @@ particle beams and external fields); the scripts in `docs/examples/` build one f
 from lume_fbpic.actions import FinalParticlesAction, LaserFieldAction, make_stat_actions
 from lume_fbpic.model import LUMEFBPICModel
 
+simulator = ...   # an FBPICSimulator; docs/examples/lwfa.py builds one for a laser-driven run
 actions = [   # the model's inputs and outputs; docs/examples build the lists for each case
     LaserFieldAction(name="laser_energy", field_name="energy"),
     *make_stat_actions(),                 # charge_pc, energy_mean_mev, energy_std_mev
@@ -48,8 +40,8 @@ model.archive("run.h5", save_final_particles=True)
 model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
 ```
 
-- `set()` runs the simulation, as `lume-cheetah` and `lume-impact` do. `dummy_run=True` makes it
-  only update parameters.
+- `set()` runs the simulation. `LUMEFBPICModel(simulator, actions, dummy_run=True)` (or
+  `from_archive(..., dummy_run=True)`) makes it only update parameters.
 - The **actions** are the model's inputs and outputs: laser and density fields, Zernike
   coefficients, the dopant fraction, particle-beam fields and charge (`make_beam_actions()`), the
   components of a uniform external field, run statistics, the 33-scalar moment descriptor and the final
@@ -58,7 +50,6 @@ model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
   the unit tagged in brackets in that field's documentation (`[J]`, `[m]`, `[m^-3]`, ...); for a
   statistic, from `lume_fbpic.units.STAT_UNITS`; for a moment-descriptor feature, from
   `lume_fbpic.descriptor.features()`. A `unit` given to the action, `None` included, is kept.
-  The units are served as the PVs' display units.
 - An archive (`model.archive()` and `LUMEFBPICModel.from_archive()`, lume-base's names; the
   format is `lume_fbpic.archive`'s) holds the config (as native HDF5 groups, written by
   `SerializableConfig.to_hdf5()`), the actions, the output values and optionally the final
@@ -68,8 +59,6 @@ model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
   files are. A file that is not in `input_dirs` when archiving is embedded in the archive (with a
   warning over 10 MB), and a loaded archive uses the embedded copy. A referenced file missing
   from `input_dirs` raises `FileNotFoundError`, and one with a different md5 gives a warning.
-
-To serve the outputs as PVs, or to feed the HTU twin, see `docs/htu-twin/README.md`.
 
 ## Layout
 
@@ -84,56 +73,44 @@ To serve the outputs as PVs, or to feed the HTU twin, see `docs/htu-twin/README.
 | `lume_fbpic/units.py` | The default units of the actions: `STAT_UNITS` and the config-docstring unit tags |
 | `lume_fbpic/utils.py` | fbpic's openPMD output to a `ParticleGroup` and back (`particle_group()`, `normalized_phase_space()`), the run statistics (`STATISTICS`) and `ELECTRON_MC2_EV` |
 | `lume_fbpic/density_profiles.py` | Density profiles for the examples (`LinearRampFlattop`, `GeneralizedGaussianProfile`, `UpDownRampProfile`), and the atom density of a profile (`atom_density()`, `nominal_density()`) |
-| `docs/examples/` | runnable examples: LWFA, two beam-driven PWFA setups (an illustrative matched-beam case, `pwfa_gaussian.py`, and CLARA FEBE energy doubling, which plot their dumps with `pwfa_dumps.py`), ionization injection, a boosted-frame LWFA with an injected bunch (`lwfa_injected_beam.py`, fbpic's `boosted_frame_script.py`), and a beam through external fields in vacuum with no laser or plasma (`external_field_beam.py`) |
-| `docs/htu-twin/` | The HTU twin demo, with the LPA archive as the twin's source (own README and `pyproject.toml`), in three parts: |
-| &nbsp;&nbsp;`lume_fbpic_twin/` | The package: `twin_stage.py`, `TwinStage` and `build_chain()`, the HTU twin with the LPA bunch as its source, and its helpers (bunch moments, ballistic drift); `archive_selector.py`, `ArchiveSelector`, several archived runs behind one enum variable (`LPA_Archive`); `serve.py`, serve archives as EPICS PVs, optionally with the twin |
-| &nbsp;&nbsp;`twin/` | `lpa_to_twin.py`: an example running the LPA-to-twin chain; `initial_sample_archives.py`: builds the archives (from the NERSC dataset) that the twin demo serves |
-| &nbsp;&nbsp;`phoebus/` | Phoebus displays for the twin chain and the scripts that generate them (own README) |
+| `docs/examples/` | runnable examples: LWFA, two beam-driven PWFA setups (an illustrative matched-beam case, `pwfa_gaussian.py`, and CLARA FEBE energy doubling, which plot their dumps with `pwfa_dumps.py`), ionization injection, and a boosted-frame LWFA with an injected bunch (`lwfa_injected_beam.py`, fbpic's `boosted_frame_script.py`) |
+| `docs/htu-twin/` | The HTU twin demo, with an archived run as the twin's source (own README and `pyproject.toml`) |
 | `tests/` | Tests for this package; `downramp_actions.py` is the HTU downramp action set their fixtures use, and `archive_helpers.py`, `bunches.py` and `reference_descriptor.py` are helpers they share |
 
 ## Running the examples
 
-Run the examples from this directory, so their output lands in `diags/`:
+Each example writes its output (fbpic's `diags/`, and any plots) into the current directory, so run
+it from where you want that output:
 
 ```bash
-python docs/examples/pwfa_gaussian.py --preset quick
+examples=path/to/lume-fbpic/docs/examples
+mkdir -p run && cd run
+python $examples/pwfa_gaussian.py --preset quick
 ```
 
 `pwfa_gaussian.py` and `pwfa_clara_febe.py` take options (`--help`); the others run as they are.
 Each example runs on a GPU when there is one (`use_cuda`, True by default) and on the CPU otherwise.
 
-### CPU threads
+### CPU cores
 
-On the CPU, fbpic uses **every core** unless told otherwise. It takes its thread counts from
-environment variables, which must be set **before Python starts**: they are read once, when numba
-(or MKL, or the OpenMP runtime) loads, and importing `lume_fbpic` loads them. Setting them inside a
-script, after its imports, has no effect.
-
-| Variable | What it sets |
-|---|---|
-| `NUMBA_NUM_THREADS` | the threads fbpic's numba kernels split their work among, and the threads of its FFTW transforms (a second pool, of the same size) |
-| `MKL_NUM_THREADS` | the FFT threads, when fbpic uses MKL instead of FFTW |
-| `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` | the OpenMP and BLAS pools under them |
-| `OMP_WAIT_POLICY=passive` | idle OpenMP threads sleep instead of spinning |
-
-Set them together, to the same count:
+On the CPU, fbpic uses every core. To limit the cores a run uses, start it under `taskset`, with
+`OMP_WAIT_POLICY=passive` so that idle OpenMP threads sleep instead of spinning:
 
 ```bash
-export NUMBA_NUM_THREADS=8 MKL_NUM_THREADS=8 OMP_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8
-export OMP_WAIT_POLICY=passive
-python docs/examples/pwfa_gaussian.py
+OMP_WAIT_POLICY=passive taskset -c 0-7 python $examples/pwfa_gaussian.py   # cores 0 to 7
 ```
 
-A thread count does not limit the cores a run uses. fbpic's numba and FFTW pools are separate,
-and spinning OpenMP threads keep using CPU, so a run with 8 threads was measured at about 13 cores
-(1340% CPU). To hold a run to given cores, for instance beside another run or for timings, start it
-under `taskset`:
+fbpic's thread pools size themselves to the cores `taskset` allows, so no thread counts need
+setting.
 
-```bash
-taskset -c 0-7 python docs/examples/pwfa_gaussian.py   # cores 0 to 7; a second run on 8-15
-```
+The run times recorded in the examples' docstrings give the cores they were run on.
 
-The run times recorded in the examples' docstrings give the thread counts they were made with.
+### HTU twin demo
+
+`docs/htu-twin/` uses an archived run as the source of the HTU transport twin, serves archives and
+the twin as EPICS PVs (via `lume-pva`), and has Phoebus displays for them. It is its own package,
+`lume_fbpic_twin`, so that `lume_fbpic` needs neither the twin nor `lume-pva`; its README says how
+to install and run it.
 
 ## Tests
 
@@ -141,27 +118,8 @@ The run times recorded in the examples' docstrings give the thread counts they w
 pytest
 ```
 
-The twin tests need `htu` importable and `lume-pva` installed; without them they are skipped.
-
-CI (`.github/workflows/pytest.yml`) installs `lume_fbpic_twin` but not geecs-lume-twin, torch or
-`lume-pva`, so these run only locally, in an environment with the twin installed:
-
-- `tests/test_twin.py` (needs `htu` and `lume-pva`)
-- `tests/test_twin_helpers.py` (`twin_stage` imports torch)
-- the tests in `tests/test_serve.py` that need `lume-pva` or `htu`, and the one in
-  `tests/test_phoebus_displays.py` that needs `htu`
-- the Cheetah comparison in `tests/test_bunch_frame.py`
-
-Run them before merging a change to the twin stage, the server or the displays. geecs-lume-twin's
-own tests are not collected by the repository's `pytest.ini` either; run them from that package.
-
-## Status and limits
-
-- Archives reconstructed from `runs/initial_sample` hold the recorded outputs but no particles. To
-  feed the twin, a bunch is built from the moment descriptor (`--synthesize-bunch`): an
-  approximation, not the real bunch.
-- Served values are recorded results; nothing re-runs the simulation when an input changes.
-- `lume-pva` currently runs against `lume-base` 0.5.0, although it declares `>= 0.6.0`.
+The HTU twin demo's tests are skipped unless the twin is installed; `docs/htu-twin/README.md`
+lists them.
 
 ## Relationship to `inversion_fbpic`
 

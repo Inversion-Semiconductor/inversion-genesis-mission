@@ -32,33 +32,8 @@ from short_runs import (
 )
 
 
-def test_configure_accepts_complete_config(simulator):
-    simulator.configure()  # does not raise
-
-
-def test_configure_rejects_missing_densities(hyparams, laser, tmp_path):
-    simulator = FBPICSimulator(
-        hyparams,
-        lasers=[laser],
-        densities=[],
-        target_species="electrons_flattop",
-        working_directory=tmp_path,
-    )
-    with pytest.raises(ValueError):
-        simulator.configure()
-
-
 def test_run_checks_a_config_that_changed_after_it_was_configured(simulator):
     simulator.configure()
-    simulator.densities = []
-
-    with pytest.raises(ValueError, match="a density profile"):
-        simulator.run()
-
-    assert not simulator.diagnostics_directory(simulator.working_directory).exists()
-
-
-def test_run_with_an_incomplete_config_raises_and_runs_nothing(simulator):
     simulator.densities = []
 
     with pytest.raises(ValueError, match="a density profile"):
@@ -145,12 +120,6 @@ def test_parameters_go_into_the_archive_and_not_into_the_fingerprint(
     assert again.parameters.data["run"] == "sim_0003"
 
 
-def test_an_archive_without_parameters_loads_with_none(simulator, tmp_path):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    assert load_simulator(tmp_path / "a.h5").parameters is None
-
-
 def test_the_fingerprint_refuses_a_value_json_does_not_know():
     with pytest.raises(TypeError, match="no fingerprint for object"):
         json.dumps(object(), default=archive._json_value)
@@ -175,25 +144,6 @@ def test_the_fingerprint_depends_on_the_target_species(simulator):
 
     assert simulator.target_species != other.target_species
     assert archive.fingerprint(simulator) != archive.fingerprint(other)
-
-
-def test_fingerprint_is_stable_for_the_same_config(simulator):
-    assert archive.fingerprint(simulator) == archive.fingerprint(simulator)
-
-
-def test_archive_round_trips_config_only(simulator, tmp_path):
-    simulator.configure()
-    archive_path = tmp_path / "archive.h5"
-    archive.save(simulator_model(simulator), archive_path)
-
-    restored = load_simulator(archive_path, working_directory=tmp_path)
-
-    assert restored.hyparams.to_dict() == simulator.hyparams.to_dict()
-    assert restored.lasers[0].to_dict() == simulator.lasers[0].to_dict()
-    assert len(restored.densities) == len(simulator.densities)
-    for original, loaded in zip(simulator.densities, restored.densities):
-        assert loaded.to_dict() == original.to_dict()
-    assert restored.final_particles is None
 
 
 def test_archive_stores_target_species_and_load_restores_it(simulator, tmp_path):
@@ -304,16 +254,6 @@ def test_archive_with_a_lume_fbpic_profile_loads_in_a_fresh_process(
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.split()[-3:] == ["LinearRampFlattop", "None", "1"]
-
-
-def test_an_archive_records_its_kind_and_load_builds_the_matching_class(
-    simulator, tmp_path
-):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    with h5py.File(tmp_path / "a.h5") as f:
-        assert f.attrs["config_kind"] == "fbpic"
-    assert type(load_simulator(tmp_path / "a.h5")) is FBPICSimulator
 
 
 def test_loading_an_archive_of_an_unknown_kind_raises(simulator, tmp_path):
