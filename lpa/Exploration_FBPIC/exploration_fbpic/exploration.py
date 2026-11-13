@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
@@ -172,10 +172,10 @@ class XoptFBPICExplorer:
                 f"(fingerprint != {expected_fingerprint}): {names}{suffix}"
             )
 
-    def make_xopt(self, data: pd.DataFrame | None = None):
+    def make_xopt(self, data: pd.DataFrame | None = None, gp_constructor=None):
         """Create a generator trained on compatible completed campaign rows."""
         try:
-            from xopt import Evaluator, VOCS, Xopt
+            from xopt import VOCS, Evaluator, Xopt
             from xopt.generators.bayesian import BayesianExplorationGenerator
         except ImportError as error:
             raise RuntimeError(
@@ -186,7 +186,11 @@ class XoptFBPICExplorer:
             variables=self.variable_bounds,
             objectives={feature: "EXPLORE" for feature in self.feature_names},
         )
-        generator = BayesianExplorationGenerator(vocs=vocs)
+        generator = (
+            BayesianExplorationGenerator(vocs=vocs)
+            if gp_constructor is None
+            else BayesianExplorationGenerator(vocs=vocs, gp_constructor=gp_constructor)
+        )
         xopt = Xopt(
             generator=generator, evaluator=Evaluator(function=self.evaluate), vocs=vocs
         )

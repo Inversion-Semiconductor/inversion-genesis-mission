@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import json
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -75,6 +76,7 @@ def preview_xopt_batch(
     count: int,
     minimum_beam_feasibility: float | None = None,
     candidate_pool_factor: int = 8,
+    gp_constructor=None,
 ) -> dict[str, object]:
     """Return a no-submit preview of the Xopt/feasibility candidate decision."""
     if count < 1:
@@ -88,7 +90,11 @@ def preview_xopt_batch(
     if not 0.0 <= minimum_beam_feasibility <= 1.0:
         raise ValueError("minimum_beam_feasibility must be in [0, 1]")
 
-    xopt = explorer.make_xopt(data)
+    xopt = (
+        explorer.make_xopt(data)
+        if gp_constructor is None
+        else explorer.make_xopt(data, gp_constructor=gp_constructor)
+    )
     feasibility = BeamFeasibilityModel(explorer)
     feasibility.fit_campaign_data(data)
     pool_count = count * candidate_pool_factor
@@ -99,7 +105,9 @@ def preview_xopt_batch(
         proposed = xopt.generator.generate(pool_count)
         source = "xopt_generator"
     probabilities = feasibility.beam_probability(proposed)
-    uncertainty = _relative_combined_gp_uncertainty(explorer, xopt, data, proposed)
+    total_uncertainty, relative_uncertainty = _combined_gp_uncertainty(
+        explorer, xopt, data, proposed
+    )
     selected_indices = select_feasible_candidate_indices(
         proposed, feasibility, count, minimum_beam_feasibility
     )
@@ -113,8 +121,13 @@ def preview_xopt_batch(
                 "xopt_rank": index + 1,
                 "beam_feasibility": float(probabilities[index]),
                 "relative_combined_gp_uncertainty": (
-                    float(uncertainty[index])
-                    if np.isfinite(uncertainty[index])
+                    float(relative_uncertainty[index])
+                    if np.isfinite(relative_uncertainty[index])
+                    else None
+                ),
+                "total_combined_gp_uncertainty": (
+                    float(total_uncertainty[index])
+                    if np.isfinite(total_uncertainty[index])
                     else None
                 ),
                 "meets_feasibility_floor": bool(
@@ -146,15 +159,100 @@ def preview_xopt_batch(
     }
 
 
-def _relative_combined_gp_uncertainty(
+def mock_stage_extension(
+    explorer: XoptFBPICExplorer,
+    data: pd.DataFrame,
+    count: int,
+    minimum_beam_feasibility: float | None = None,
+    candidate_pool_factor: int = 8,
+    model_family: str = "approximate",
+) -> pd.DataFrame:
+    """Return selected production-style candidates from archived campaign data.
+
+    This is a no-submit simulation of the next Xopt/libEnsemble proposal batch.
+    Historical parquet rows are stamped with the current in-memory campaign
+    fingerprint only to pass the normal training-data admission contract; their
+    parameters and scalar observations are otherwise unmodified.
+    """
+    historical = data.copy()
+    historical["campaign_fingerprint"] = explorer.campaign.config.fingerprint()
+    if model_family == "approximate":
+        from xopt.generators.bayesian.models.approximate import (
+            ApproximateModelConstructor,
+        )
+        from xopt.generators.bayesian.models.standard import (
+            AdamNumericalOptimizerConfig,
+        )
+
+        gp_constructor = ApproximateModelConstructor(
+            inducing_points=128,
+            train_method="adam",
+            train_config=AdamNumericalOptimizerConfig(timeout=120.0),
+        )
+    elif model_family == "exact":
+        gp_constructor = None
+    else:
+        raise ValueError("model_family must be 'approximate' or 'exact'")
+    preview = preview_xopt_batch(
+        explorer,
+        historical,
+        count,
+        minimum_beam_feasibility,
+        candidate_pool_factor,
+        gp_constructor,
+    )
+    rows = []
+    for candidate in preview["selected"]:
+        physical = candidate["physical_point"]
+        complete = explorer.campaign.config.complete_parameters(
+            explorer.stage, physical
+        )
+        rows.append(
+            {
+                "selected_rank": candidate["selected_rank"],
+                "model_family": model_family,
+                "xopt_rank": candidate["xopt_rank"],
+                "varying_parameters_at_limit": _count_parameter_limits(
+                    explorer, physical
+                ),
+                "total_uncertainty": candidate["total_combined_gp_uncertainty"],
+                "relative_uncertainty": candidate["relative_combined_gp_uncertainty"],
+                "beam_feasibility_percent": 100.0 * candidate["beam_feasibility"],
+                "meets_feasibility_floor": candidate["meets_feasibility_floor"],
+                "complete_input_vector": json.dumps(
+                    complete, sort_keys=True, separators=(",", ":")
+                ),
+                **{f"p:{name}": value for name, value in complete.items()},
+            }
+        )
+    return pd.DataFrame(rows).sort_values("selected_rank").reset_index(drop=True)
+
+
+def _count_parameter_limits(
+    explorer: XoptFBPICExplorer, physical_point: dict[str, float]
+) -> int:
+    """Count active physical parameters proposed at an inclusive bound."""
+    at_limit = 0
+    for parameter in explorer.parameters:
+        assert parameter.lower is not None and parameter.upper is not None
+        value = physical_point[parameter.name]
+        tolerance = 1e-9 * max(1.0, abs(parameter.lower), abs(parameter.upper))
+        if np.isclose(value, parameter.lower, atol=tolerance, rtol=0.0) or np.isclose(
+            value, parameter.upper, atol=tolerance, rtol=0.0
+        ):
+            at_limit += 1
+    return at_limit
+
+
+def _combined_gp_uncertainty(
     explorer: XoptFBPICExplorer,
     xopt: Any,
     raw_data: pd.DataFrame,
     candidates: list[dict[str, float]],
-) -> np.ndarray:
-    """Calculate marginal multi-feature GP uncertainty for preview diagnostics."""
+) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate raw and max-normalized multi-feature GP uncertainty."""
     if not candidates:
-        return np.empty(0)
+        return np.empty(0), np.empty(0)
     try:
         import torch
 
@@ -179,9 +277,11 @@ def _relative_combined_gp_uncertainty(
         scales[scales == 0] = 1.0
         combined = np.sqrt(np.mean((standard_deviation / scales) ** 2, axis=1))
         maximum = float(combined.max())
-        return combined / maximum if maximum > 0 else np.zeros(len(combined))
+        relative = combined / maximum if maximum > 0 else np.zeros(len(combined))
+        return combined, relative
     except (AttributeError, KeyError, RuntimeError, ValueError):
-        return np.full(len(candidates), np.nan)
+        unavailable = np.full(len(candidates), np.nan)
+        return unavailable, unavailable
 
 
 def persistent_xopt(

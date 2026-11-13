@@ -7,22 +7,23 @@ import json
 from pathlib import Path
 
 import pandas as pd
+from inversion_fbpic.utils.virtual_waist import shift_run_result
 
 from .campaign import Campaign
 from .campaign_analysis import (
     analyze_campaign,
     plot_charge_slice,
-    plot_feature_slice,
     plot_feasibility_slice,
+    plot_feature_slice,
     plot_input_pca_projections,
 )
 from .density_envelope import plot_density_envelope
 from .density_ramps import plot_density_ramp_parameter_space, plot_density_ramps
 from .executor import FBPICRunExecutor
 from .exploration import XoptFBPICExplorer
-from .libensemble_driver import preview_xopt_batch
+from .libensemble_driver import mock_stage_extension, preview_xopt_batch
 from .store import CampaignStore
-from inversion_fbpic.utils.virtual_waist import shift_run_result
+from .surrogate_cache import train_surrogates
 
 
 def main() -> None:
@@ -128,6 +129,26 @@ def main() -> None:
     )
     input_projections.add_argument("--output", type=Path, required=True)
     input_projections.add_argument("--data", type=Path)
+    train_surrogate = subparsers.add_parser(
+        "train-surrogate",
+        help="train and cache one scalar GP or all scalar GPs from a campaign parquet",
+    )
+    train_surrogate.add_argument(
+        "--data", type=Path, required=True, help="source campaign_runs.parquet"
+    )
+    train_surrogate.add_argument(
+        "--output", type=Path, required=True, help="surrogate cache root directory"
+    )
+    train_surrogate.add_argument(
+        "--variable",
+        required=True,
+        help="one f: scalar name without its prefix, or 'all'",
+    )
+    train_surrogate.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="retrain and replace existing per-variable cache directories",
+    )
     preview = subparsers.add_parser(
         "preview-batch",
         help="log a no-submit Xopt/feasibility batch proposal",
@@ -137,6 +158,21 @@ def main() -> None:
     preview.add_argument("--count", type=int, default=32)
     preview.add_argument("--candidate-pool-factor", type=int, default=8)
     preview.add_argument("--minimum-beam-feasibility", type=float)
+    mock_extend = subparsers.add_parser(
+        "mock-extend",
+        help="write no-submit next-batch candidates from an archived campaign parquet",
+    )
+    mock_extend.add_argument("--data", type=Path, required=True)
+    mock_extend.add_argument("--output", type=Path, required=True)
+    mock_extend.add_argument("--count", type=int, default=32)
+    mock_extend.add_argument("--candidate-pool-factor", type=int, default=8)
+    mock_extend.add_argument("--minimum-beam-feasibility", type=float)
+    mock_extend.add_argument(
+        "--model-family",
+        choices=("approximate", "exact"),
+        default="approximate",
+        help="surrogate family used during mock candidate generation (default: approximate)",
+    )
     subparsers.add_parser("status", help="show reusable successful evaluations")
     rebuild = subparsers.add_parser(
         "rebuild-store",
@@ -219,6 +255,21 @@ def main() -> None:
         print(
             json.dumps({"projections": [str(output) for output in outputs]}, indent=2)
         )
+    elif args.command == "train-surrogate":
+        caches = train_surrogates(
+            explorer, args.data, args.output, args.variable, args.overwrite
+        )
+        print(
+            json.dumps(
+                {
+                    "data": str(args.data.resolve()),
+                    "variable": args.variable,
+                    "trained": [str(cache) for cache in caches.trained],
+                    "skipped": [str(cache) for cache in caches.skipped],
+                },
+                indent=2,
+            )
+        )
     elif args.command == "preview-batch":
         data = (
             pd.read_parquet(args.data)
@@ -240,6 +291,28 @@ def main() -> None:
                     "output": str(args.output),
                     "candidate_pool_count": preview["candidate_pool_count"],
                     "selected_count": len(preview["selected"]),
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "mock-extend":
+        report = mock_stage_extension(
+            explorer,
+            pd.read_parquet(args.data),
+            args.count,
+            args.minimum_beam_feasibility,
+            args.candidate_pool_factor,
+            args.model_family,
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        report.to_csv(args.output, index=False)
+        print(
+            json.dumps(
+                {
+                    "data": str(args.data.resolve()),
+                    "output": str(args.output),
+                    "selected_count": len(report),
+                    "model_family": args.model_family,
                 },
                 indent=2,
             )

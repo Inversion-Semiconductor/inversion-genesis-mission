@@ -1,25 +1,24 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
-
 from exploration_fbpic.campaign import Campaign
+from exploration_fbpic.executor import EvaluationResult
 from exploration_fbpic.exploration import XoptFBPICExplorer
 from exploration_fbpic.libensemble_driver import (
     fallback_design,
     main,
     make_ensemble,
+    mock_stage_extension,
     next_run_id_offset,
     persistent_xopt,
     preview_xopt_batch,
     select_feasible_candidates,
 )
 from exploration_fbpic.store import CampaignStore
-from exploration_fbpic.executor import EvaluationResult
-
+from libensemble.message_numbers import FINISHED_PERSISTENT_GEN_TAG, STOP_TAG
 
 CONFIG = Path(__file__).parent / "smoke_campaigns" / "nersc_smoke" / "campaign.yaml"
 SURROGATE_CONFIG = (
@@ -320,6 +319,39 @@ def test_preview_xopt_batch_reports_rank_feasibility_and_selection(monkeypatch) 
         candidate["relative_combined_gp_uncertainty"] is None
         for candidate in preview["candidates"]
     )
+
+
+def test_mock_stage_extension_reports_complete_candidate_vectors(monkeypatch) -> None:
+    explorer = XoptFBPICExplorer(
+        Campaign.from_file(SURROGATE_CONFIG), "surrogate_smoke"
+    )
+    point = {"laser_spot_size_m": 24e-6, "laser_focal_position_m": 3.5e-3}
+    monkeypatch.setattr(
+        "exploration_fbpic.libensemble_driver.preview_xopt_batch",
+        lambda *_: {
+            "selected": [
+                {
+                    "selected_rank": 1,
+                    "xopt_rank": 3,
+                    "beam_feasibility": 0.75,
+                    "total_combined_gp_uncertainty": 2.5,
+                    "relative_combined_gp_uncertainty": 0.5,
+                    "meets_feasibility_floor": True,
+                    "physical_point": point,
+                }
+            ]
+        },
+    )
+    historical = pd.DataFrame({"campaign_fingerprint": ["archived"]})
+
+    report = mock_stage_extension(explorer, historical, count=1)
+
+    assert report.loc[0, "selected_rank"] == 1
+    assert report.loc[0, "model_family"] == "approximate"
+    assert report.loc[0, "varying_parameters_at_limit"] == 0
+    assert report.loc[0, "total_uncertainty"] == 2.5
+    assert report.loc[0, "beam_feasibility_percent"] == 75.0
+    assert '"laser_spot_size_m":2.4e-05' in report.loc[0, "complete_input_vector"]
 
 
 def test_continuation_uses_only_compatible_stored_evaluations(tmp_path: Path) -> None:
