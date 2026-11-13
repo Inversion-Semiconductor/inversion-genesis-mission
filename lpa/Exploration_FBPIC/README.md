@@ -168,6 +168,49 @@ explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 rebuild-store \
 run could not produce a shifted record. Shifted rebuilds retain native `no_beam`
 records so feasibility modeling continues to include physical no-beam outcomes.
 
+## Cached scalar surrogates
+
+`train-surrogate` trains independent one-output GP models from an archived
+campaign Parquet and caches each model under its scalar name:
+
+```text
+stage2_gp_cache/
+  var_total_beam_charge_pc/
+    metadata.json
+    training.parquet
+    model_state.pt
+```
+
+`training.parquet` freezes the model-coordinate inputs and one selected output;
+`model_state.pt` stores the fitted BoTorch/GPyTorch state dictionary; and
+`metadata.json` records source and artifact hashes, the source campaign
+fingerprint, ordered inputs/bounds, GP constructor settings, and package versions.
+The cache uses a bounded 128-inducing-point approximate GP rather than an exact
+GP, so loading and posterior scans remain fast as the campaign grows. The cache
+loader rebuilds the architecture from the snapshot and applies the state
+dictionary without fitting again.
+
+Train charge first, or train every scalar feature in the input Parquet:
+
+```bash
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 train-surrogate \
+  --data /path/to/campaign_runs.parquet \
+  --output stage2_gp_cache \
+  --variable total_beam_charge_pc
+
+explore-fbpic runs/initial_study/campaign.yaml --stage stage_2 train-surrogate \
+  --data /path/to/campaign_runs.parquet \
+  --output stage2_gp_cache \
+  --variable all
+```
+
+`--variable all` skips any existing `var_<feature>` directory by default, so a
+later invocation resumes an interrupted multi-scalar cache build. Pass
+`--overwrite` to retrain and replace those existing caches.
+
+The input Parquet must contain exactly one historical campaign fingerprint. This
+allows post-analysis of archived campaign data even after the live YAML has evolved.
+
 ## Compact campaign assessment
 
 The aggregate `campaign_runs.parquet` contains the complete parameter vector,
