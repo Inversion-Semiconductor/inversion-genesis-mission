@@ -24,9 +24,11 @@ values read off its Figures 6a and 7 (approximate):
     500 MeV reached at        about 17 cm                    15.7 cm
     energy at 10 cm           about 372 MeV                  377 MeV
     spread at 6 cm / end      2.1 % / 5.8 % (at 17 cm)       2.2 % / 5.0 % (at 17 cm)
-    charge                    10 pC to 6 cm, then 8.6 pC     10 pC to 6 cm, then 8.57 pC
+    charge                    10 pC to 6 cm, then 8.6 pC     10 pC to 6 cm, then 8.59 pC
     emittance peak / end      16 at 7 cm / 6.5 mm mrad       13.1 at 6.7 cm / 4.74 mm mrad
-    transverse size, end      about 3.1 um                   about 3.0 um
+    transverse size, end      about 3.1 um                   3.0 um at 17 cm, 3.15 at 20 cm
+
+The run took 6 hours on 8 CPU cores.
 
 Chosen here, as the paper's text does not give them:
 
@@ -35,9 +37,6 @@ Chosen here, as the paper's text does not give them:
 - The helium is a fully ionized, immobile bare electron plasma (`species=None`).
 - The cell is 20 cm long for both cases, and the 250 MeV is taken as the total energy.
 - Macroparticles of the bunches: 100000 for the driver, 20000 for the witness.
-
-The table has not been reproduced with this version of the example: rerun it before relying on
-its numbers.
 
 The model's mean energy is kinetic, 0.511 MeV below the total energy the paper quotes. Its
 charge, energy and spread outputs cover all the witness's particles; the emittance, size and

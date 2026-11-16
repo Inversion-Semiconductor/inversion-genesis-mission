@@ -20,6 +20,8 @@ pip install -e .[dev]                       # also pytest and pytest-mock
 
 An `FBPICSimulator` holds the config (hyperparameters, and lists of lasers, density profiles,
 particle beams and external fields); the scripts in `docs/examples/` build one for each case.
+[`docs/schema.md`](docs/schema.md) describes the config, the actions and the archive, and how to
+transcribe an fbpic script.
 
 ```python
 from lume_fbpic.actions import FinalParticlesAction, LaserFieldAction, make_stat_actions
@@ -44,8 +46,8 @@ model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
   `from_archive(..., dummy_run=True)`) makes it only update parameters.
 - The **actions** are the model's inputs and outputs: laser and density fields, Zernike
   coefficients, the dopant fraction, particle-beam fields and charge (`make_beam_actions()`), the
-  components of a uniform external field, run statistics, the 33-scalar moment descriptor and the final
-  particles.
+  components of a uniform external field, run statistics, the 33-scalar moment descriptor and the
+  final particles. `docs/schema.md` lists them with their units.
 - An action's `unit` is left out and the model fills it in: for an action on a config field, from
   the unit tagged in brackets in that field's documentation (`[J]`, `[m]`, `[m^-3]`, ...); for a
   statistic, from `lume_fbpic.units.STAT_UNITS`; for a moment-descriptor feature, from
@@ -73,6 +75,7 @@ model = LUMEFBPICModel.from_archive("run.h5")      # actions come back with it
 | `lume_fbpic/units.py` | The default units of the actions: `STAT_UNITS` and the config-docstring unit tags |
 | `lume_fbpic/utils.py` | fbpic's openPMD output to a `ParticleGroup` and back (`particle_group()`, `normalized_phase_space()`), the run statistics (`STATISTICS`) and `ELECTRON_MC2_EV` |
 | `lume_fbpic/density_profiles.py` | Density profiles for the examples (`LinearRampFlattop`, `GeneralizedGaussianProfile`, `UpDownRampProfile`), and the atom density of a profile (`atom_density()`, `nominal_density()`) |
+| `docs/schema.md` | The schema: the config, the actions, the archive layout, and how to transcribe an fbpic script |
 | `docs/examples/` | runnable examples: LWFA, two beam-driven PWFA setups (an illustrative matched-beam case, `pwfa_gaussian.py`, and CLARA FEBE energy doubling, which plot their dumps with `pwfa_dumps.py`), ionization injection, and a boosted-frame LWFA with an injected bunch (`lwfa_injected_beam.py`, fbpic's `boosted_frame_script.py`) |
 | `docs/htu-twin/` | The HTU twin demo, with an archived run as the twin's source (own README and `pyproject.toml`) |
 | `tests/` | Tests for this package; `downramp_actions.py` is the HTU downramp action set their fixtures use, and `archive_helpers.py`, `bunches.py` and `reference_descriptor.py` are helpers they share |
