@@ -208,7 +208,8 @@ def collect_inputs(
             if value.is_dir():
                 raise ValueError(
                     f"The input {str(value)!r} of {name}.{field} is a directory, which an "
-                    + "archive cannot hold."
+                    + "archive cannot hold: a model with it cannot be archived or fingerprinted, "
+                    + "even under an explicit archive path."
                 )
             if value.is_file():
                 refs.append(

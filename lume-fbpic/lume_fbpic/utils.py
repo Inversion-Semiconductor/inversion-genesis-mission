@@ -67,6 +67,8 @@ def evolve_laser(laser: typing.Any, **changes: typing.Any) -> typing.Any:
     derived as `out_energy`, and no other laser sets it, so that tells which one was given.
     """
     changed = [name for name in _AMPLITUDE_SIBLING if name in changes]
+    # POSIT: `inversion_fbpic.lib.laser`'s `_LaserPulse` sets `out_energy` only for a laser
+    # built from `a0`.
     given = "a0" if laser.out_energy is not None else "energy"
     derived = _AMPLITUDE_SIBLING[changed[0] if changed else given]
     return attrs.evolve(laser, **{derived: None, **changes})
