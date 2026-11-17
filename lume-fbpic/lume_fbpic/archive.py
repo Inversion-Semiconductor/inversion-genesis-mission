@@ -72,8 +72,10 @@ _CONFIG_KIND = "fbpic"
 # The attribute of the `final_particles` group of a run that ended with no particles
 _EMPTY = "empty"
 # The archive layout `save()` writes and `load()` reads. 2: an action's class is stored as its
-# module and qualified name (1 stored the bare name of a class of `lume_fbpic.actions`).
-_FORMAT_VERSION = 2
+# module and qualified name (1 stored the bare name of a class of `lume_fbpic.actions`). 3: one
+# `fbpic` config kind, with `lasers`, `beams` and `external_fields` lists (2 had an `lwfa` or
+# `pwfa` kind and a single `laser`; such archives must be written again).
+_FORMAT_VERSION = 3
 
 
 def fingerprint(simulator: FBPICSimulator) -> str:

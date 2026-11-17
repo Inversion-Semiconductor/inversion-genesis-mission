@@ -61,7 +61,7 @@ results. `set()` applies the values and runs the simulation (`dummy_run=True` on
 | `LaserFieldAction(field_name, laser_index=0)` | a field of a laser; `energy` and `a0` stay consistent | from the field's docstring |
 | `ZernikeCoefficientAction(coefficient)` | one Zernike coefficient of a `LasyLaserPulse` | rad |
 | `DensityFieldAction(density_index, field_name)` | a field of a density profile | from the field's docstring |
-| `DopantFractionAction(host_index, dopant_index, dopant_atoms_per_molecule=1)` | a two-gas mixture's dopant fraction, keeping the neutral density | 1 |
+| `DopantFractionAction(host_index, dopant_index, dopant_atoms_per_molecule=1, host_atoms_per_molecule=1)` | a two-gas mixture's dopant fraction, keeping the neutral density | 1 |
 | `BeamFieldAction(beam_index, field_name)` | a field of a beam | from the field's docstring |
 | `BeamTotalChargeAction(beam_index)` | a beam's charge, through `n_physical_particles` | C |
 | `ExternalFieldAction(field_index, field_type)` | one component of a `UniformExternalField` | V/m or T |
@@ -83,11 +83,11 @@ model as the tables say; a unit given explicitly is kept.
 ## 3. The archive
 
 `model.archive(path)` writes, and `LUMEFBPICModel.from_archive(path)` reads back, one HDF5 file (or
-a group of one), layout version 2 (`lume_fbpic/archive.py`):
+a group of one), layout version 3 (`lume_fbpic/archive.py`):
 
 | Part | Contents |
 |---|---|
-| root attributes | `dataType` and `software` (`lume-fbpic`), `format_version` (2), `config_kind` (`fbpic`), `target_species` |
+| root attributes | `dataType` and `software` (`lume-fbpic`), `format_version` (3), `config_kind` (`fbpic`), `target_species` |
 | `hyparams`, `lasers`, `densities`, `beams`, `external_fields` | the config as native HDF5 (`lume_fbpic/archive_config.py`); a list is a group with the attribute `list` and one numbered group per object |
 | `actions` | one numbered group per action: its class (module and name), its parameters, and for a read-only scalar its value when saved |
 | `inputs` | the input files the config reads (a gas-jet table, for example), by basename and md5; embedded when not found in `input_dirs` at save |
@@ -96,8 +96,8 @@ a group of one), layout version 2 (`lume_fbpic/archive.py`):
 
 An archive holds no paths: output paths are stored by basename, and input files by basename and
 md5, found again through `input_dirs` or the embedded copy. fbpic's own `diags/` are not archived.
-`archive.fingerprint(simulator)` names an archive by its config and actions, so the same model gets
-the same default name.
+`save()`'s default name hashes `archive.fingerprint(simulator)` (the config, the target species
+and the input files' md5s) with the actions, so the same model gets the same name.
 
 ## 4. Transcribing an fbpic script
 
