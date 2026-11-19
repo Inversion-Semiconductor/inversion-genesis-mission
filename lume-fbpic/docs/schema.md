@@ -42,7 +42,7 @@ These are not in the config, so a transcription has to match them:
   back-transformed lab-frame dumps are set up automatically.
 - **Plasma species:** a profile with `species` (for example `"He"`) adds the ions as well as the
   electrons, ionizable from `ionization` up; `species=None` is a bare-electron plasma.
-  `nominal_density` is divided by the species' number of ionization levels, so for a neutral gas of
+  `nominal_density` is the fully-ionized plasma electron number density, so for a neutral gas of
   atom density `n`, set `nominal_density = n * levels`: `nominal_density()` in
   `lume_fbpic.density_profiles` does this, and `atom_density()` is its inverse.
 
