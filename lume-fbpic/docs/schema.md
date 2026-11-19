@@ -18,7 +18,7 @@ An `FBPICSimulator` (`lume_fbpic/simulator.py`) holds five config parts, all `in
 | `hyparams` | one | `SimulationHyperparameters`: grid (`zmin`, `zmax`, `nz`, `rmax`, `nr`, `nm`), boost (`gamma_boost`), moving window (`beta_window`), run length (`simulation_length`, `right_buffer`), diagnostics (`number_dumps`, `field_diagnostics`, `write_period`, `save_directory`), `use_cuda`, `use_mpi`, `random_seed`, `r_boundary` |
 | `lasers` | list | `GaussianLaserPulse`, `LasyLaserPulse` (with Zernike aberrations) |
 | `densities` | list | `inversion_fbpic`: `SmoothSineFlattop`, `PowerLawFlattop`, `BilateralSuperGaussian`, `AsymmetricSine`, `GaussianPlusTriangle`, `GeneralizedGaussianPlusTriangle`, `GeneralizedLorentzianSum`, `GenericConicalTarget`, `InterpolateFromH5Profile` (a gas-jet table), `ExpressionDensityProfile` (a formula), `ModifiedDensityProfile` (with `MatchedRadialModifier`); `lume_fbpic.density_profiles`: `LinearRampFlattop`, `GeneralizedGaussianProfile`, `UpDownRampProfile` |
-| `beams` | list | `GaussianParticleBeam`, `ExpressionParticleBeam` (a formula, as fbpic's `add_particle_bunch`), `FileParticleBeam`, `OpenPMDParticleBeam` |
+| `beams` | list | `GaussianParticleBeam`, `ExpressionParticleBeam` (a formula), `FileParticleBeam`, `OpenPMDParticleBeam` |
 | `external_fields` | list | `UniformExternalField`, `ExpressionExternalField` |
 
 Besides the config, the simulator takes `target_species`, the electron species its outputs
