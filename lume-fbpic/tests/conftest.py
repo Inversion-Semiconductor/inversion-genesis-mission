@@ -46,7 +46,7 @@ from inversion_fbpic.lib.density_profiles import SmoothSineFlattop  # noqa: E402
 
 from downramp_actions import make_actions  # noqa: E402
 from lume_fbpic.model import LUMEFBPICModel  # noqa: E402
-from lume_fbpic.lwfa_simulator import LWFASimulator  # noqa: E402
+from lume_fbpic.simulator import FBPICSimulator  # noqa: E402
 
 HYPERPARAMETERS_KWARGS: dict = {
     "zmin": -1.0e-5,
@@ -56,6 +56,7 @@ HYPERPARAMETERS_KWARGS: dict = {
     "nr": 8,
     "nm": 1,
     "use_mpi": False,
+    "use_cuda": False,  # the tests run on the CPU, whatever the machine has
     "number_dumps": 2,
 }
 
@@ -108,11 +109,11 @@ def densities() -> list[SmoothSineFlattop]:
 
 
 @pytest.fixture()
-def simulator(hyparams, laser, densities, tmp_path) -> LWFASimulator:
-    return LWFASimulator(
+def simulator(hyparams, laser, densities, tmp_path) -> FBPICSimulator:
+    return FBPICSimulator(
         hyparams,
-        laser,
-        densities,
+        lasers=[laser],
+        densities=densities,
         target_species="electrons_flattop",
         working_directory=tmp_path,
     )

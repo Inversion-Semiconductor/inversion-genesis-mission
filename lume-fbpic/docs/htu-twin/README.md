@@ -28,7 +28,8 @@ The displays in `phoebus/` are laid out for those PVs.
   (`ParticleGroup.drift_to_z()`), shared by `TwinStage` and the synthetic bunch.
 - `serve.py` (`python -m lume_fbpic_twin.serve`): serves archives as EPICS PVs through `lume-pva`.
   It loads each archive without running anything (`dummy_run=True`) and serves the model's
-  variables as `<prefix><name>`: the outputs, and the inputs read-only. With `--twin` it also
+  variables as `<prefix><name>`: the outputs, and the inputs read-only, with the actions' units as
+  the PVs' display units. With `--twin` it also
   builds the chain and serves the twin's variables, which re-track on each put.
 - `archive_selector.py`: `ArchiveSelector` holds several archives and presents the active one as a single
   LPA model, with one writable enum PV (`LPA_Archive`) to switch. A switch reaches the twin like
@@ -44,6 +45,11 @@ The displays in `phoebus/` are laid out for those PVs.
   archives. They hold the recorded 33 moment-descriptor values and no particles, so the twin gets a
   synthesized bunch from them. Each also holds its dataset record (run name, inputs, outputs and
   descriptor selection, as recorded) as `Parameters`, in `model.simulator.parameters`.
+
+**`initial_sample_archives/`**
+
+- The archives `twin/initial_sample_archives.py` writes by default, which `serve` serves in "Run
+  the twin". Generated, and not in the repository.
 
 **`phoebus/`**
 
@@ -69,6 +75,10 @@ pip install -e geecs-lume-twin           # the twin (htu), with Cheetah, lume-pv
 The twin installs the `lume-pva` commit it pins (from GitHub), replacing any other `lume-pva` in the
 environment.
 
+To serve archives without the twin, install `lume_fbpic_twin` with its `serve` extra instead of
+`geecs-lume-twin`: `pip install -e "lume-fbpic/docs/htu-twin[serve]"` installs the same
+`lume-pva` commit the twin pins.
+
 No EPICS installation is needed. The server is itself the EPICS server: `lume-pva` serves PV Access
 through `p4p`, and both `p4p` and `pcaspy` install from pip with the EPICS libraries built in.
 Phoebus has its own PV Access client. EPICS base is needed only for its command-line tools, such
@@ -80,8 +90,8 @@ From the repository root, with the environment active:
 
 ```bash
 cd lume-fbpic
-python docs/htu-twin/twin/initial_sample_archives.py      # writes ./initial_sample_archives
-python -m lume_fbpic_twin.serve initial_sample_archives --twin --synthesize-bunch
+python docs/htu-twin/twin/initial_sample_archives.py   # writes docs/htu-twin/initial_sample_archives
+python -m lume_fbpic_twin.serve docs/htu-twin/initial_sample_archives --twin --synthesize-bunch
 ```
 
 Wait for `serving N variables` (a few seconds) and leave the terminal open. The first read of a
@@ -164,6 +174,22 @@ To run the chain once without a server, from an archive saved with `save_final_p
 python docs/htu-twin/twin/lpa_to_twin.py run.h5
 ```
 
+## Tests
+
+The demo's tests are in `lume-fbpic/tests/`, with the package's; run `pytest` from `lume-fbpic`.
+Those that need the twin (`htu`) or `lume-pva` are skipped without them, and CI
+(`.github/workflows/pytest.yml`) installs `lume_fbpic_twin` but not geecs-lume-twin, torch or
+`lume-pva`, so these run only locally, in an environment with the twin installed:
+
+- `tests/test_twin.py` (needs `htu` and `lume-pva`)
+- `tests/test_twin_helpers.py` (`twin_stage` imports torch)
+- the tests in `tests/test_serve.py` that need `lume-pva` or `htu`, and the one in
+  `tests/test_phoebus_displays.py` that needs `htu`
+- the drift comparison in `tests/test_bunch_frame.py` (needs the twin's tracking code)
+
+Run them before merging a change to the twin stage, the server or the displays. geecs-lume-twin's
+own tests are not collected by the repository's `pytest.ini` either; run them from that package.
+
 ## Limits
 
 - The reconstructed `initial_sample` archives hold no particles, so their bunch is synthesized from
@@ -171,3 +197,4 @@ python docs/htu-twin/twin/lpa_to_twin.py run.h5
 - Served values are recorded results; nothing re-runs the simulation when an input changes.
 - The twin's magnets keep the settings they have for a 100 MeV beam, so a bunch of very different
   energy or large energy spread is mostly lost. The demo shows the hand-off, not matched optics.
+- `lume-pva` currently runs against `lume-base` 0.5.0, although it declares `>= 0.6.0`.

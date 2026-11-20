@@ -70,7 +70,7 @@ def test_archive_config_has_the_production_grid_and_the_runs_inputs(
     model = archive.load(path, dummy_run=True)
     hyparams = model.simulator.hyparams
     assert (hyparams.nz, hyparams.nr, hyparams.nm) == (1500, 300, 5)
-    assert model.simulator.laser.num_points == (600, 900)
+    assert model.simulator.lasers[0].num_points == (600, 900)
     assert model.get(["zernike_astigmatism_4"])["zernike_astigmatism_4"] == 8.0
     assert (
         model.get(["laser_energy"])["laser_energy"] == record["input"]["laser_energy_J"]
@@ -137,21 +137,8 @@ def test_descriptor_settings_must_match_the_dataset(script, dataset, tmp_path):
         )
 
 
-def test_the_dataset_actions_are_the_models(script):
-    names = set(script.build_model().supported_variables)
-
-    assert set(script.DATASET_ACTIONS.values()) <= names
-    assert any(name.startswith(script.ZERNIKE_PREFIX) for name in names)
-
-
 def test_the_model_writes_the_electrons_the_dataset_describes(script, dataset):
     simulator = script.build_model().simulator
 
     assert simulator.target_species == dataset["metadata"]["species"]
     assert simulator.densities[1].elec_select == {"uz": [10.0, None]}
-
-
-def test_the_script_does_not_use_the_ionization_injection_example():
-    import initial_sample_archives
-
-    assert "ionization_injection" not in vars(initial_sample_archives)

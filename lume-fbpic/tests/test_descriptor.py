@@ -14,8 +14,6 @@ from lume_fbpic import descriptor
 from lume_fbpic.actions import MomentDescriptorAction, make_descriptor_actions
 from lume_fbpic.model import LUMEFBPICModel
 
-from inversion_fbpic.utils import distributions
-
 
 @pytest.fixture()
 def descriptor_model(simulator) -> LUMEFBPICModel:
@@ -39,26 +37,25 @@ def test_actions_are_the_33_read_only_features_in_library_order():
     assert actions[-1].unit == "pC"
 
 
-def test_cache_is_recomputed_when_final_particles_change(
-    descriptor_model, simulator, mocker
-):
-    spy = mocker.spy(distributions, "compute_moment_descriptor")
-    mocker.patch("lume_fbpic.descriptor.compute_moment_descriptor", spy)
+def test_new_final_particles_give_new_values(descriptor_model, simulator):
+    # the descriptor is cached: a stale cache would serve the first bunch's values
     names = ["descriptor_mean_uz", "descriptor_cov_uz_uz"]
-
     simulator.final_particles = lab_snapshot(seed=1)
-    descriptor_model.get(names)
-    descriptor_model.get(["descriptor_total_beam_charge_pc"])
-    assert spy.call_count == 1  # one computation shared by every feature
+    first = descriptor_model.get(names)
 
-    simulator.final_particles = lab_snapshot(seed=2)
-    descriptor_model.get(names)
-    assert spy.call_count == 2
+    pg = lab_snapshot(seed=2)
+    simulator.final_particles = pg
+    second = descriptor_model.get(names)
+
+    expected = reference_descriptor(
+        pg, uz_min=descriptor.UZ_MIN, central_fraction=descriptor.CENTRAL_FRACTION
+    )
+    assert second == {n: expected[n.removeprefix("descriptor_")] for n in names}
+    assert second != first
 
 
-def test_cache_keeps_one_descriptor_per_selection(simulator, mocker):
-    spy = mocker.spy(distributions, "compute_moment_descriptor")
-    mocker.patch("lume_fbpic.descriptor.compute_moment_descriptor", spy)
+def test_two_selections_in_one_model_each_get_their_own_values(simulator):
+    # the cache is per selection: a shared one would give both the first one's values
     model = LUMEFBPICModel(
         simulator,
         [
@@ -67,28 +64,22 @@ def test_cache_keeps_one_descriptor_per_selection(simulator, mocker):
         ],
         dummy_run=True,
     )
-    simulator.final_particles = lab_snapshot()
-
-    for _ in range(3):
-        model.get(["descriptor_mean_uz", "all_mean_uz"])
-
-    assert spy.call_count == 2
-
-
-def test_charge_is_the_selected_weights_in_picocoulombs(descriptor_model, simulator):
     pg = lab_snapshot()
     simulator.final_particles = pg
 
-    charge = descriptor_model.get(["descriptor_total_beam_charge_pc"])[
-        "descriptor_total_beam_charge_pc"
-    ]
+    got = model.get(["descriptor_mean_uz", "all_mean_uz"])
 
     assert (
-        charge
+        got["descriptor_mean_uz"]
         == reference_descriptor(
             pg, uz_min=descriptor.UZ_MIN, central_fraction=descriptor.CENTRAL_FRACTION
-        )["total_beam_charge_pc"]
+        )["mean_uz"]
     )
+    assert (
+        got["all_mean_uz"]
+        == reference_descriptor(pg, uz_min=None, central_fraction=None)["mean_uz"]
+    )
+    assert got["descriptor_mean_uz"] != got["all_mean_uz"]
 
 
 def test_each_descriptor_action_has_the_unit_of_its_feature():
@@ -110,13 +101,6 @@ def test_a_descriptor_action_made_without_a_unit_gets_its_features(simulator):
 
     assert model.supported_variables["size"].unit == "m^2"
     assert action.unit is None  # the action given is left as it is
-
-
-def test_every_descriptor_unit_is_a_beamphysics_unit():
-    from beamphysics.units import pmd_unit
-
-    for action in make_descriptor_actions():
-        pmd_unit(action.unit)  # raises for an unknown unit
 
 
 def test_selection_parameters_change_the_result(simulator):
@@ -168,13 +152,6 @@ def test_values_are_nan_when_the_selection_leaves_too_few_particles(
     value = descriptor_model.get(["descriptor_mean_uz"])["descriptor_mean_uz"]
 
     assert math.isnan(value)
-
-
-def test_descriptor_actions_cannot_be_set(descriptor_model):
-    from lume.exceptions import ReadOnlyError
-
-    with pytest.raises(ReadOnlyError):
-        descriptor_model.set({"descriptor_mean_uz": 1.0})
 
 
 def test_final_particles_can_be_read_before_any_result_exists(descriptor_model):

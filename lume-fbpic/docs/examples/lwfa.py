@@ -14,7 +14,7 @@ Substitutions made in the conversion:
   to `tau_fwhm`.
 - `a0 = 4.0` maps directly onto `GaussianLaserPulse(a0=...)`.
 - `p_rmax` is not reproduced: the profile leaves it unset, so macroparticles load out to `rmax`.
-  `_DensityProfile` now passes `p_rmax` on to fbpic, so it could be set.
+  `_DensityProfile` passes `p_rmax` on to fbpic, so it could be set.
 
 After the run, the model is archived with its final particles as `lwfa.h5` and loaded back. The
 archive holds the config, the actions and the bunch, and serves as it is:
@@ -32,7 +32,7 @@ from lume_fbpic.actions import (
 )
 from lume_fbpic.density_profiles import LinearRampFlattop
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 from inversion_fbpic.lib.simulation import SimulationHyperparameters
 from inversion_fbpic.lib.laser import GaussianLaserPulse
@@ -68,7 +68,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         # The original hardcodes v_window=c (beta_window=1.0) exactly, ignoring the small
         # plasma-dispersion correction to the group velocity. Left at the default (None),
         # Simulation auto-calculates a physically slightly-more-accurate beta_window via
-        # calculate_mean_group_beta(), which gives 1801 steps instead of upstream's exact
+        # resolve_beta_window(), which gives 1801 steps instead of upstream's exact
         # 1800 -- forcing 1.0 here bit-matches upstream's num_steps instead.
         beta_window=1.0,
     )
@@ -100,10 +100,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         },  # matches the original's ParticleDiagnostic select
     )
 
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         hyparams,
-        laser,
-        [density],
+        lasers=[laser],
+        densities=[density],
         target_species="electrons",
         working_directory=working_directory,
     )

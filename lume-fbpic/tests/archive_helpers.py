@@ -9,14 +9,14 @@ import h5py
 from lume_fbpic import archive
 from lume_fbpic.actions import LaserFieldAction
 from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.simulator import BaseSimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 
 class CustomLaserAction(LaserFieldAction):
     """A user's action, importable by its module and name, as an archive needs."""
 
 
-def load_simulator(*args, **kwargs) -> BaseSimulator:
+def load_simulator(*args, **kwargs) -> FBPICSimulator:
     """The simulator of the model `archive.load()` rebuilds."""
     return archive.load(*args, **kwargs).simulator
 
@@ -27,6 +27,6 @@ def recorded_values(path) -> dict[str, float]:
         return archive._read_output_values(f)
 
 
-def simulator_model(simulator: BaseSimulator) -> LUMEFBPICModel:
+def simulator_model(simulator: FBPICSimulator) -> LUMEFBPICModel:
     """`simulator` in a model without actions, to archive the simulator alone."""
     return LUMEFBPICModel(simulator, [], dummy_run=True)

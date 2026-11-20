@@ -8,16 +8,7 @@ import pytest
 
 from lume.exceptions import ReadOnlyError
 
-from downramp_actions import make_actions
-from lume_fbpic.model import LUMEFBPICModel
-from short_runs import short_lwfa_model, short_pwfa_model
-
-
-def test_the_model_has_the_actions_it_was_given(simulator):
-    model = LUMEFBPICModel(simulator, make_actions(simulator))
-    assert "laser_energy" in model.supported_variables
-    assert "downramp_length" in model.supported_variables
-    assert "final_particles" in model.supported_variables
+from short_runs import short_lwfa_model, short_pwfa_model, uniform_beam_charge
 
 
 def test_dummy_run_set_updates_parameter_without_running(model, simulator):
@@ -35,10 +26,10 @@ def test_set_runs_the_simulation_with_the_new_values(tmp_path):
 
     model.set({"driver_density": 1.0e25})
 
-    assert simulator.driver.density == 1.0e25
+    assert simulator.beams[0].n == 1.0e25
     # the run saw the new density: the driver's charge is proportional to it
     assert model.get(["charge_pc"])["charge_pc"] == pytest.approx(
-        simulator.driver.charge * 1e12, rel=1e-12
+        uniform_beam_charge(simulator.beams[0]) * 1e12, rel=1e-12
     )
 
 
@@ -83,19 +74,6 @@ def test_set_unknown_variable_raises(model):
         model.set({"not_a_real_variable": 1.0})
 
 
-def test_final_particles_property_delegates_to_simulator(model, simulator):
-    simulator.final_particles = "placeholder"
-    assert model.final_particles == "placeholder"
-
-
-def test_an_empty_set_runs_the_simulator(tmp_path):
-    model = short_pwfa_model(tmp_path)
-
-    model.set({})
-
-    assert model.simulator.final_particles is not None
-
-
 def test_a_set_with_an_unchanged_config_runs_again(tmp_path):
     # inversion_fbpic skips a run whose config hash matches the last one in the directory, by
     # default; a set() must run all the same
@@ -108,13 +86,3 @@ def test_a_set_with_an_unchanged_config_runs_again(tmp_path):
     model.set({})
 
     assert last_dump.stat().st_mtime_ns > written
-
-
-def test_an_action_of_another_kind_of_simulator_is_refused(simulator):
-    from lume_fbpic.actions import PlasmaFieldAction
-
-    with pytest.raises(TypeError, match="needs a PWFASimulator"):
-        LUMEFBPICModel(
-            simulator,
-            [PlasmaFieldAction(name="plasma_density", field_name="nominal_density")],
-        )

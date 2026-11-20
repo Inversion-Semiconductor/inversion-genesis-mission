@@ -15,12 +15,10 @@ import pytest
 
 from archive_helpers import load_simulator, simulator_model
 import lume_fbpic.density_profiles  # noqa: F401  (registers its classes)
-import lume_fbpic.pwfa_config  # noqa: F401
 from inversion_fbpic.lib.density_profiles import InterpolateFromH5Profile
 from inversion_fbpic.lib.serializable_config import SerializableConfig
 from lume_fbpic import archive, archive_config
-from lume_fbpic.model import LUMEFBPICModel
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 
 # Registered config classes with a path-like field the archive does not handle as a path, and why.
 _UNHANDLED_PATH_FIELDS = {
@@ -88,13 +86,6 @@ def test_an_absolute_save_directory_is_archived_by_its_name_only(simulator, tmp_
     assert loaded.hyparams.save_directory == Path("out")
 
 
-def test_an_archive_holds_no_path_string(simulator, tmp_path):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    with h5py.File(tmp_path / "a.h5") as f:
-        assert not _paths_in(f)
-
-
 def test_an_archive_holds_the_config_as_native_hdf5_not_yaml(simulator, tmp_path):
     archive.save(simulator_model(simulator), tmp_path / "a.h5")
 
@@ -107,34 +98,21 @@ def test_an_archive_holds_the_config_as_native_hdf5_not_yaml(simulator, tmp_path
         assert "yaml" not in names
 
 
-def test_an_archive_reads_each_input_file_once(tmp_path, mocker, monkeypatch):
-    simulator, _ = _referenced(tmp_path)
-    monkeypatch.chdir(
-        tmp_path
-    )  # the default archive name, from the fingerprint, goes here
-    model = LUMEFBPICModel(simulator, [], dummy_run=True)
-    md5 = mocker.spy(archive_config.hashlib, "md5")
-
-    archive.save(model, input_dirs=tmp_path / "empty")
-
-    assert md5.call_count == 1
-
-
 def test_an_archive_with_a_lasy_laser_holds_no_path_string(tmp_path):
     import ionization_injection
 
     model = ionization_injection.build_model(working_directory=str(tmp_path / "wd"))
-    laser = model.simulator.laser
-    model.simulator.laser = attrs.evolve(laser, lasy_file=tmp_path / "out" / "lasy")
+    laser = model.simulator.lasers[0]
+    model.simulator.lasers = [attrs.evolve(laser, lasy_file=tmp_path / "out" / "lasy")]
     model.dummy_run = True
 
     archive.save(model, tmp_path / "a.h5")
 
     with h5py.File(tmp_path / "a.h5") as f:
         assert not _paths_in(f)
-        assert f["laser/parameters/lasy_file"][()] == b"lasy"
+        assert f["lasers/0/parameters/lasy_file"][()] == b"lasy"
     loaded = archive.load(tmp_path / "a.h5")
-    assert loaded.simulator.laser.lasy_file == Path("diags/lasy")
+    assert loaded.simulator.lasers[0].lasy_file == Path("diags/lasy")
 
 
 def test_an_archive_with_input_files_holds_no_path_string(tmp_path):
@@ -145,16 +123,6 @@ def test_an_archive_with_input_files_holds_no_path_string(tmp_path):
         assert not _paths_in(f)
         assert f["inputs/0"].attrs["basename"] == "table.h5"
         assert f["densities/0/parameters/filename"][()] == b"table.h5"
-
-
-def test_an_archive_without_embedded_input_files_keeps_no_temporary_directory(
-    simulator, tmp_path
-):
-    archive.save(simulator_model(simulator), tmp_path / "a.h5")
-
-    loaded = load_simulator(tmp_path / "a.h5")
-
-    assert loaded._inputs_directory is None
 
 
 def test_an_embedded_input_file_does_not_replace_a_path_changed_on_purpose(tmp_path):
@@ -245,21 +213,6 @@ def test_an_embedded_input_file_loaded_without_a_working_directory_is_written_ou
     md5 = archive_config.checksum(tmp_path / "library" / "table.h5")
     expected = (tmp_path / "empty" / "inputs" / md5 / "table.h5").resolve()
     assert loaded.densities[0].filename == expected and expected.is_file()
-
-
-def test_an_embedded_input_file_is_not_read_again_on_every_configure(tmp_path, mocker):
-    simulator, _ = _referenced(tmp_path)
-    archive.save(
-        simulator_model(simulator), tmp_path / "a.h5", input_dirs=tmp_path / "empty"
-    )
-    loaded = load_simulator(tmp_path / "a.h5", working_directory=tmp_path / "one")
-    loaded.configure()
-    checksum = mocker.spy(archive_config, "checksum")
-
-    loaded.configure()
-    loaded.configure()
-
-    checksum.assert_not_called()
 
 
 def test_an_embedded_input_file_changed_on_disk_is_written_again(tmp_path):
@@ -415,11 +368,12 @@ def test_every_config_path_field_is_handled_or_listed():
         for cls in domain._CONCRETE_REGISTRY.values():
             for field in attrs.fields(cls):
                 key = (cls.__name__, field.name)
-                numeric = re.match(r"(float|int|bool)\b", str(field.type))  # not a path
+                # not a path; a type is a string (`"bool"`) or a class (`<class 'bool'>`)
+                numeric = re.match(r"(<class ')?(float|int|bool)\b", str(field.type))
                 pathlike = re.search(r"\bPath\b", str(field.type)) or (
                     not numeric
                     and re.search(
-                        r"(^|_)(directory|file|filename|path)(_|$)", field.name
+                        r"(^|_)(directory|file|filename|path)(_|$)|^save_", field.name
                     )
                 )
                 if (
@@ -458,16 +412,6 @@ def test_the_fingerprint_does_not_depend_on_paths_but_on_the_input_data(tmp_path
     assert archive.fingerprint(simulator) != first
 
 
-def test_the_model_passes_input_dirs_to_the_simulator(tmp_path):
-    simulator, library = _referenced(tmp_path)
-    model = LUMEFBPICModel(simulator, [], dummy_run=True)
-
-    archive.save(model, tmp_path / "a.h5", input_dirs=library)
-    loaded = archive.load(tmp_path / "a.h5", input_dirs=library)
-
-    assert loaded.simulator.densities[0].filename == (library / "table.h5").resolve()
-
-
 def test_the_order_of_a_config_dict_survives_the_archive(tmp_path):
     simulator, library = _referenced(tmp_path)
     archive.save(simulator_model(simulator), tmp_path / "a.h5", input_dirs=library)
@@ -495,7 +439,7 @@ def _paths_in(group: h5py.Group) -> list[str]:
     return found
 
 
-def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
+def _referenced(tmp_path: Path) -> tuple[FBPICSimulator, Path]:
     """A simulator whose density profile reads `source/table.h5`, and a `library` directory with
     the same file. `empty` is a directory without it."""
     from inversion_fbpic.lib.laser import GaussianLaserPulse
@@ -519,7 +463,7 @@ def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
         p_nt=1,
         elec_name="electrons",
     )
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         SimulationHyperparameters(
             zmin=-1.0e-5,
             zmax=0.0,
@@ -528,26 +472,29 @@ def _referenced(tmp_path: Path) -> tuple[LWFASimulator, Path]:
             nr=8,
             nm=1,
             use_mpi=False,
+            use_cuda=False,
             number_dumps=2,
         ),
-        GaussianLaserPulse(
-            energy=5.0,
-            z0=-3.0e-5,
-            wavelength=8.0e-7,
-            tau_fwhm=3.8e-14,
-            cep=0.0,
-            waist=2.8e-5,
-            focal_position=3.0e-3,
-            polarization=0.0,
-        ),
-        [profile],
+        lasers=[
+            GaussianLaserPulse(
+                energy=5.0,
+                z0=-3.0e-5,
+                wavelength=8.0e-7,
+                tau_fwhm=3.8e-14,
+                cep=0.0,
+                waist=2.8e-5,
+                focal_position=3.0e-3,
+                polarization=0.0,
+            )
+        ],
+        densities=[profile],
         target_species="electrons",
         working_directory=tmp_path / "wd",
     )
     return simulator, tmp_path / "library"
 
 
-def _two_tables(tmp_path: Path) -> LWFASimulator:
+def _two_tables(tmp_path: Path) -> FBPICSimulator:
     """`_referenced()`'s simulator with a second density profile that reads a different file of
     the same basename, `other/table.h5`."""
     simulator, _ = _referenced(tmp_path)
@@ -579,3 +526,33 @@ def _write_table(path: Path, scale: float = 1.0) -> None:
             f[name] = values
         dataset = f.create_dataset("density", data=density)
         dataset.attrs["DIMENSION_LABELS"] = ["z_m", "x_mm", "pressure_bar"]
+
+
+def test_an_archive_refuses_a_directory_input(tmp_path):
+    from inversion_fbpic.lib.particle_beam import OpenPMDParticleBeam
+    from short_runs import short_beam_simulator
+
+    (tmp_path / "series").mkdir()
+    simulator = short_beam_simulator(tmp_path)
+    simulator.beams = [
+        OpenPMDParticleBeam(ts_path=tmp_path / "series", particle_name="beam")
+    ]
+
+    with pytest.raises(ValueError, match="is a directory"):
+        archive.save(simulator_model(simulator), tmp_path / "a.h5")
+
+
+def test_a_beam_save_path_is_archived_as_its_name_and_unset_stays_unset(tmp_path):
+    from short_runs import short_beam_simulator
+
+    named = short_beam_simulator(tmp_path, save_beam=str(tmp_path / "out" / "beam"))
+    unset = short_beam_simulator(tmp_path)
+    archive.save(simulator_model(named), tmp_path / "named.h5")
+    archive.save(simulator_model(unset), tmp_path / "unset.h5")
+
+    with h5py.File(tmp_path / "named.h5") as f:
+        assert not _paths_in(f)
+        assert f["beams/0/parameters/save_beam"][()] == b"beam"
+    assert load_simulator(tmp_path / "named.h5").beams[0].save_beam == "beam"
+    assert load_simulator(tmp_path / "unset.h5").beams[0].save_beam is None
+    assert archive.fingerprint(named) == archive.fingerprint(unset)

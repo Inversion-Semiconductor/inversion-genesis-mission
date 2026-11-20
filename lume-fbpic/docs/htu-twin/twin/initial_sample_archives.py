@@ -42,7 +42,9 @@ These are RECONSTRUCTED archives, not the runs themselves:
    baseline, which equals `sim_0000`. Any other input that differs raises an error rather than
    being dropped silently; the dataset's runs vary only five of the 24 inputs.
 
-Usage: `python initial_sample_archives.py [sample_dataset.json] [output dir]`.
+Usage: `python initial_sample_archives.py [sample_dataset.json] [output dir]`. The output directory
+defaults to `docs/htu-twin/initial_sample_archives` (`DEFAULT_OUTPUT_DIR`), wherever the script is
+run from.
 """
 
 from __future__ import annotations
@@ -71,7 +73,7 @@ from lume_fbpic.density_profiles import (
     atom_density,
     nominal_density,
 )
-from lume_fbpic.lwfa_simulator import LWFASimulator
+from lume_fbpic.simulator import FBPICSimulator
 from lume_fbpic.model import LUMEFBPICModel
 
 from inversion_fbpic.lib.datapoint import Parameters
@@ -82,6 +84,8 @@ DEFAULT_DATASET = (
     Path(__file__).resolve().parents[4]
     / "lpa/Simulation_FBPIC/runs/initial_sample/sample_dataset/sample_dataset.json"
 )
+# Where the archives are written by default: beside the twin demo, their only user
+DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "initial_sample_archives"
 
 # --- physical parameters: sim_0000 of sample_dataset.json ---
 PEAK_PLASMA_DENSITY_CM3 = 4.0e18
@@ -234,10 +238,10 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
         elec_name=NITROGEN_ELECTRONS,
         elec_select={"uz": [10.0, None]},  # the template's particle diagnostic
     )
-    simulator = LWFASimulator(
+    simulator = FBPICSimulator(
         hyparams,
-        laser,
-        [density_he, density_n],
+        lasers=[laser],
+        densities=[density_he, density_n],
         target_species=NITROGEN_ELECTRONS,
         working_directory=working_directory,
     )
@@ -274,9 +278,7 @@ def build_model(working_directory: str | None = None) -> LUMEFBPICModel:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("dataset", nargs="?", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument(
-        "output_dir", nargs="?", type=Path, default=Path("initial_sample_archives")
-    )
+    parser.add_argument("output_dir", nargs="?", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args(argv)
 
     dataset = json.loads(args.dataset.read_text())
@@ -330,9 +332,9 @@ def _check_fixed_inputs(model: LUMEFBPICModel, inputs: dict[str, float]) -> None
         "density_beta": he.beta,
         "density_center_location_m": he.z0,
         "density_peak": he.gauss_peak,
-        "laser_spot_size_m": simulator.laser.waist,
-        "laser_super_gaussian_order": simulator.laser.super_gaussian_order,
-        "laser_wavelength_m": simulator.laser.wavelength,
+        "laser_spot_size_m": simulator.lasers[0].waist,
+        "laser_super_gaussian_order": simulator.lasers[0].super_gaussian_order,
+        "laser_wavelength_m": simulator.lasers[0].wavelength,
         # n_plasma = 2 * n_gas, and n_gas is the He + N atom density
         "peak_plasma_density_cm3": 2.0
         * (atom_density(he) + atom_density(nitrogen))

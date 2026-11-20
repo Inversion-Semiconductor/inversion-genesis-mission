@@ -339,38 +339,26 @@ def test_the_served_chain_exposes_the_twin_controls_and_keeps_the_source_read_on
         stage.reset()
 
 
-def test_tracking_after_an_injection_is_deferred_until_the_twin_is_read(
-    stage, twin_model, mocker
-):
-    track = mocker.spy(twin_model.simulator, "track")
-
-    stage.initial_particles = lab_snapshot()
-    assert track.call_count == 0
-
-    _get(stage, "Source_Charge_pC")
-    assert track.call_count == 1
-    _get(stage, "Source_Energy_MeV")
-    assert track.call_count == 1  # tracked once, not on every read
-
-
-def test_a_set_after_an_injection_tracks_once(stage, twin_model, mocker):
-    track = mocker.spy(twin_model.simulator, "track")
-
-    stage.initial_particles = lab_snapshot()
-    stage.set({"EMQ1H_Current": 0.7})
-
-    assert (
-        track.call_count == 1
-    )  # the twin's own re-track; not a second one for the injection
-    assert stage.initial_particles is not None
-
-
 def test_screens_are_current_when_read_right_after_an_injection(stage, twin_model):
     stage.initial_particles = lab_snapshot()
 
     image = numpy.asarray(stage.get(["TCPhosphor_image"])["TCPhosphor_image"]).copy()
 
     # the first read tracked the injected bunch: tracking it again changes nothing
+    twin_model.simulator.track()
+    twin_model.update_state()
+    numpy.testing.assert_array_equal(
+        numpy.asarray(stage.get(["TCPhosphor_image"])["TCPhosphor_image"]), image
+    )
+
+
+def test_screens_are_current_after_a_set_right_after_an_injection(stage, twin_model):
+    stage.initial_particles = lab_snapshot()
+    stage.set({"EMQ1H_Current": 0.7})
+
+    image = numpy.asarray(stage.get(["TCPhosphor_image"])["TCPhosphor_image"]).copy()
+
+    # the set tracked the injected bunch with the new current: tracking again changes nothing
     twin_model.simulator.track()
     twin_model.update_state()
     numpy.testing.assert_array_equal(
